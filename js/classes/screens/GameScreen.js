@@ -409,22 +409,19 @@ export default class GameScreen {
 
   render() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.drawWallsAndBoundaries();
+    this.escapes.forEach(escape => escape.draw(this.ctx));
+    // Mouse draws before furniture so it visually ducks under furniture
+    // it's overlapping, even though it isn't blocked by it (see updateMouse).
+    if (this.mouse) this.mouse.draw(this.ctx);
+    this.furniture.forEach(furniture => furniture.draw(this.ctx));
     this.drawGameObjects();
     this.drawShockwave();
 
     if (this.message) this.displayMessage();
   }
 
-  drawWallsAndBoundaries() {
-    //this.drawWallBorders();
-    this.furniture.forEach(furniture => furniture.draw(this.ctx));
-    this.escapes.forEach(escape => escape.draw(this.ctx));
-  }
-
   drawGameObjects() {
     this.dog.draw(this.ctx);
-    if (this.mouse) this.mouse.draw(this.ctx);
 
     if (this.catPaused) this.drawRedOutline();
     this.cat.draw(this.ctx);
