@@ -24,10 +24,36 @@ const FURNITURE_SPRITES = {
   STOVE: './assets/kitchen_stove.png',
   SINK: './assets/kitchen_sink.png',
   COUNTER: './assets/kitchen_counter.png',
-  DINING_TABLE: './assets/dining_table.png',
-  CHAIR_RED: './assets/dining_chair_red.png',
-  CHAIR_ORANGE: './assets/dining_chair_orange.png',
+  STOVE2: './assets/kitchen_stove2.png',
+  ISLAND_STOVE: './assets/island_stove.png',
+  ISLAND_STOVE2: './assets/island_stove2.png',
+  SIDE_TABLE: './assets/side_table.png',
+  DINING_SET: './assets/dining_set.png', // table + chairs cropped as one connected piece
   // Add more as we expand
+};
+
+// Native crop size (from ref1.jpg) for each ref1-sourced piece, at REF1_SCALE.
+// Fridge is unchanged (still the Reakain sprite, uses Furniture's own defaults).
+//
+// Each of these is a photographic-style crop with baked-in lighting/shadow
+// from a single fixed camera angle, unlike the old flat sprite-sheet pieces
+// — rotating them to face a different wall makes the shadows point the
+// wrong way and looks broken. So each piece is only ever used at rotation 0,
+// cropped directly from whichever wall (or freestanding island spot) it's
+// meant to represent, rather than rotating one piece to fit multiple walls.
+const REF1_SCALE = 0.7;
+const REF1_PIECES = {
+  // Top wall
+  stove: { sprite: FURNITURE_SPRITES.STOVE, width: 300, height: 128 },
+  sink: { sprite: FURNITURE_SPRITES.SINK, width: 95, height: 165 },
+  counter: { sprite: FURNITURE_SPRITES.COUNTER, width: 75, height: 195 },
+  // Bottom wall
+  stove2: { sprite: FURNITURE_SPRITES.STOVE2, width: 290, height: 230 },
+  // Freestanding (islands, accents, dining set) — placed anywhere in the interior
+  island_stove: { sprite: FURNITURE_SPRITES.ISLAND_STOVE, width: 160, height: 130 },
+  island_stove2: { sprite: FURNITURE_SPRITES.ISLAND_STOVE2, width: 270, height: 110 },
+  side_table: { sprite: FURNITURE_SPRITES.SIDE_TABLE, width: 138, height: 90 },
+  dining_set: { sprite: FURNITURE_SPRITES.DINING_SET, width: 250, height: 130 },
 };
 
 const DOG_PAUSE_DURATION = 2000;
@@ -529,8 +555,21 @@ export default class GameScreen {
     const furniture = [];
     const WALL_OFFSET = 40;
     const SPACING = 10;
-    const FURNITURE_WIDTH = 48;
-    const FURNITURE_HEIGHT = 96;
+
+    // Builds a Furniture instance for a ref1-cropped piece using its own
+    // native size (they aren't all the same aspect ratio/size, unlike the
+    // old itch.io sprites) and always rotation 0 (see REF1_PIECES comment
+    // above — these can't be rotated without the baked-in lighting looking
+    // wrong). The fridge is the one exception: it's still the old
+    // Reakain-sourced flat sprite, which was actually designed to rotate,
+    // so it keeps using Furniture's own defaults and can face any wall.
+    const makePiece = (type, x, y) => {
+      if (type === 'fridge') {
+        return new Furniture(x, y, 'fridge', FURNITURE_SPRITES.FRIDGE, 0);
+      }
+      const piece = REF1_PIECES[type];
+      return new Furniture(x, y, type, piece.sprite, 0, piece.width, piece.height, REF1_SCALE);
+    };
 
     // Helper to check overlap
     const overlaps = (x, y, width, height) => {
@@ -571,78 +610,54 @@ export default class GameScreen {
       });
     };
 
-    // 1. Counter/appliance run along two walls meeting at the bottom-right
-    // corner, so the fridge/stove/sink cluster together like a real kitchen
-    // work triangle instead of being scattered independently. Anchored at
-    // the bottom-right specifically because the cat/mouse/dog spawn points
-    // sit in the top-left area — this keeps the run clear of them without
-    // needing a randomized-corner retry system.
-    const applianceSprites = {
-      fridge: FURNITURE_SPRITES.FRIDGE,
-      stove: FURNITURE_SPRITES.STOVE,
-      sink: FURNITURE_SPRITES.SINK,
-      counter: FURNITURE_SPRITES.COUNTER,
-    };
-    const cornerX = this.canvas.width;
-    const cornerY = this.canvas.height;
-
-    // Bottom wall: fridge and stove nearest the corner, counters extending left.
-    const bottomRunTypes = ['fridge', 'stove', 'counter', 'counter', 'counter'];
-    bottomRunTypes.forEach((type, i) => {
-      const x = cornerX - FURNITURE_WIDTH * (i + 1);
-      const y = cornerY - FURNITURE_HEIGHT;
-      furniture.push(new Furniture(x, y, type, applianceSprites[type], 180));
+    // 1. Top wall run: stove, counter, sink, left-to-right from the corner,
+    // then the fridge (still a real rotatable sprite) at the far end. Each
+    // piece advances the cursor by its own rendered width, since they aren't
+    // all the same size.
+    let topOffset = 0;
+    ['stove', 'counter', 'sink'].forEach(type => {
+      const piece = makePiece(type, topOffset, 0);
+      furniture.push(piece);
+      topOffset += piece.width;
     });
+    furniture.push(makePiece('fridge', topOffset, 0));
 
-    // Right wall: sink nearest the corner (right by the stove), counters
-    // extending up. Starts above the bottom run's footprint so the corner
-    // cell isn't double-occupied.
-    const rightRunTypes = ['sink', 'counter', 'counter'];
-    rightRunTypes.forEach((type, i) => {
-      const x = cornerX - FURNITURE_HEIGHT;
-      const y = cornerY - FURNITURE_HEIGHT - FURNITURE_WIDTH * (i + 1);
-      furniture.push(new Furniture(x, y, type, applianceSprites[type], 90));
-    });
+    // 2. Bottom wall: the second stove crop, which was photographed as part
+    // of the bottom wall so it's already correctly oriented there (flush
+    // against the bottom edge, no rotation needed).
+    const bottomStove = makePiece('stove2', 0, 0);
+    bottomStove.y = this.canvas.height - bottomStove.height;
+    furniture.push(bottomStove);
 
-    // 2. Dining table with a chair on each side, placed as one connected
-    // unit somewhere in the open interior (avoiding the counter run and
-    // spawn points), rather than freestanding tables with no seating.
-    const TABLE_SPRITE_W = 34, TABLE_SPRITE_H = 19, TABLE_SCALE = 2;
-    const TABLE_WIDTH = TABLE_SPRITE_W * TABLE_SCALE;
-    const TABLE_HEIGHT = TABLE_SPRITE_H * TABLE_SCALE;
-    const CHAIR_SPRITE_W = 16, CHAIR_SPRITE_H = 24, CHAIR_SCALE = 2;
-    const CHAIR_WIDTH = CHAIR_SPRITE_W * CHAIR_SCALE;
-    const CHAIR_HEIGHT = CHAIR_SPRITE_H * CHAIR_SCALE;
+    // 3. Freestanding pieces — island stoves, a small side table, and the
+    // dining set+chairs — placed randomly in the open interior rather than
+    // all crammed into one corner, avoiding the two wall runs and the
+    // cat/mouse/dog spawn points.
+    const freestandingX = WALL_OFFSET + 40;
+    const freestandingY = WALL_OFFSET + 40;
+    const freestandingMaxWidth = this.canvas.width - WALL_OFFSET * 2 - 80;
+    const freestandingMaxHeight = this.canvas.height - WALL_OFFSET * 2 - 80;
 
-    const playableX = WALL_OFFSET + 40;
-    const playableY = WALL_OFFSET + 40 + CHAIR_HEIGHT;
-    const playableWidth = this.canvas.width - WALL_OFFSET * 2 - 80 - TABLE_WIDTH;
-    const playableHeight = this.canvas.height - WALL_OFFSET * 2 - 80 - CHAIR_HEIGHT * 2 - TABLE_HEIGHT;
+    ['island_stove', 'island_stove2', 'side_table', 'dining_set'].forEach(type => {
+      const spec = REF1_PIECES[type];
+      const width = spec.width * REF1_SCALE;
+      const height = spec.height * REF1_SCALE;
 
-    let attempts = 0;
-    let tablePlaced = false;
+      let attempts = 0;
+      let placed = false;
 
-    while (!tablePlaced && attempts < 100) {
-      const tableX = playableX + Math.random() * Math.max(0, playableWidth);
-      const tableY = playableY + Math.random() * Math.max(0, playableHeight);
+      while (!placed && attempts < 100) {
+        const x = freestandingX + Math.random() * Math.max(0, freestandingMaxWidth - width);
+        const y = freestandingY + Math.random() * Math.max(0, freestandingMaxHeight - height);
 
-      // Bounding box for the whole table+chairs unit (a chair's height above
-      // and below the table), so the placement search treats it as one piece.
-      const unitY = tableY - CHAIR_HEIGHT;
-      const unitHeight = TABLE_HEIGHT + CHAIR_HEIGHT * 2;
+        if (!overlaps(x, y, width, height) && !blocksSpawn(x, y, width, height)) {
+          furniture.push(makePiece(type, x, y));
+          placed = true;
+        }
 
-      if (!overlaps(tableX, unitY, TABLE_WIDTH, unitHeight) && !blocksSpawn(tableX, unitY, TABLE_WIDTH, unitHeight)) {
-        furniture.push(new Furniture(tableX, tableY, 'table', FURNITURE_SPRITES.DINING_TABLE, 0, TABLE_SPRITE_W, TABLE_SPRITE_H, TABLE_SCALE));
-
-        const chairX = tableX + (TABLE_WIDTH - CHAIR_WIDTH) / 2;
-        furniture.push(new Furniture(chairX, tableY - CHAIR_HEIGHT, 'chair', FURNITURE_SPRITES.CHAIR_RED, 0, CHAIR_SPRITE_W, CHAIR_SPRITE_H, CHAIR_SCALE));
-        furniture.push(new Furniture(chairX, tableY + TABLE_HEIGHT, 'chair', FURNITURE_SPRITES.CHAIR_ORANGE, 0, CHAIR_SPRITE_W, CHAIR_SPRITE_H, CHAIR_SCALE));
-
-        tablePlaced = true;
+        attempts++;
       }
-
-      attempts++;
-    }
+    });
 
     return furniture;
   }
