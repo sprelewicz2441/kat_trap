@@ -49,6 +49,7 @@ const COLORS = {
     TEXT: 'white',
   },
   CAT_OUTLINE: 'red',
+  FLOOR_FALLBACK: '#e8c9a3', // shown briefly before floor_tile.png loads
 };
 
 const FONTS = {
@@ -104,6 +105,10 @@ export default class GameScreen {
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
     this.cutsceneManager = new CutsceneManager(screenManager, canvas, ctx);
+
+    this.floorImage = new Image();
+    this.floorImage.src = './assets/floor_tile.png';
+    this.floorPattern = null;
   }
 
   init() {
@@ -412,6 +417,7 @@ export default class GameScreen {
 
   render() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.drawFloor();
     this.escapes.forEach(escape => escape.draw(this.ctx));
     // Mouse draws before furniture so it visually ducks under furniture
     // it's overlapping, even though it isn't blocked by it (see updateMouse).
@@ -421,6 +427,14 @@ export default class GameScreen {
     this.drawShockwave();
 
     if (this.message) this.displayMessage();
+  }
+
+  drawFloor() {
+    if (!this.floorPattern && this.floorImage.complete) {
+      this.floorPattern = this.ctx.createPattern(this.floorImage, 'repeat');
+    }
+    this.ctx.fillStyle = this.floorPattern || COLORS.FLOOR_FALLBACK;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   drawGameObjects() {
