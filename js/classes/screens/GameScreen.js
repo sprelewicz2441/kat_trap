@@ -24,7 +24,9 @@ const FURNITURE_SPRITES = {
   STOVE: './assets/kitchen_stove.png',
   SINK: './assets/kitchen_sink.png',
   COUNTER: './assets/kitchen_counter.png',
-  TABLE: './assets/tabletop.png', // not part of the Kitchen Assets pack; still the old placeholder
+  DINING_TABLE: './assets/dining_table.png',
+  CHAIR_RED: './assets/dining_chair_red.png',
+  CHAIR_ORANGE: './assets/dining_chair_orange.png',
   // Add more as we expand
 };
 
@@ -513,19 +515,19 @@ export default class GameScreen {
     const furniture = [];
     const WALL_OFFSET = 40;
     const SPACING = 10;
-    const FURNITURE_WIDTH = 36;
-    const FURNITURE_HEIGHT = 72;
-    
+    const FURNITURE_WIDTH = 48;
+    const FURNITURE_HEIGHT = 96;
+
     // Helper to check overlap
     const overlaps = (x, y, width, height) => {
       return furniture.some(f => {
-        return !(x + width + SPACING < f.x || 
+        return !(x + width + SPACING < f.x ||
                  x > f.x + f.width + SPACING ||
-                 y + height + SPACING < f.y || 
+                 y + height + SPACING < f.y ||
                  y > f.y + f.height + SPACING);
       });
     };
-    
+
     // Entity spawn positions to avoid
     const catSpawnX = this.canvas.width / 2;
     const catSpawnY = this.canvas.height - 50;
@@ -546,7 +548,7 @@ export default class GameScreen {
         { x: mouseSpawnX, y: mouseSpawnY, size: mouseSize },
         { x: dogSpawnX, y: dogSpawnY, size: dogSize }
       ];
-      
+
       return spawns.some(spawn => {
         return !(x > spawn.x + spawn.size + SPAWN_BUFFER ||
                  x + width < spawn.x - SPAWN_BUFFER ||
@@ -554,153 +556,80 @@ export default class GameScreen {
                  y + height < spawn.y - SPAWN_BUFFER);
       });
     };
-    
-    // Define wall segments for placing counter groups and appliances.
-    // `length` is the extent of the wall along its own axis (used for maxOffset);
-    // for left/right walls width/height are swapped since the furniture is
-    // rotated 90/270 to face into the room.
-    const walls = [
-      { name: 'top', rotation: 0, length: this.canvas.width, getPos: (offset) => ({
-        x: offset,
-        y: 0,  // Right at the top edge
-        width: FURNITURE_WIDTH,
-        height: FURNITURE_HEIGHT
-      })},
-      { name: 'bottom', rotation: 180, length: this.canvas.width, getPos: (offset) => ({
-        x: offset,
-        y: this.canvas.height - FURNITURE_HEIGHT,  // Right at the bottom edge
-        width: FURNITURE_WIDTH,
-        height: FURNITURE_HEIGHT
-      })},
-      { name: 'left', rotation: 270, length: this.canvas.height, getPos: (offset) => ({
-        x: 0,  // Right at the left edge
-        y: offset,
-        width: FURNITURE_HEIGHT,
-        height: FURNITURE_WIDTH
-      })},
-      { name: 'right', rotation: 90, length: this.canvas.height, getPos: (offset) => ({
-        x: this.canvas.width - FURNITURE_HEIGHT,  // Right at the right edge
-        y: offset,
-        width: FURNITURE_HEIGHT,
-        height: FURNITURE_WIDTH
-      })}
-    ];
-    
-    // 1. Place counter groups (3 counters together) - max 2 groups
-    const shuffledWalls = walls.sort(() => Math.random() - 0.5);
-    let counterGroupsPlaced = 0;
-    
-    for (const wall of shuffledWalls) {
-      if (counterGroupsPlaced >= 2) break; // Max 2 groups
 
-      const maxOffset = wall.length - FURNITURE_WIDTH * 3;
-      
-      if (maxOffset < 50) continue; // Wall too small
-      
-      const startOffset = Math.random() * maxOffset;
-      
-      // Place group of 3 counters (no spacing between them)
-      let groupPlaced = true;
-      for (let i = 0; i < 3; i++) {
-        const offset = startOffset + i * FURNITURE_WIDTH; // No spacing
-        const pos = wall.getPos(offset);
-        
-        if (overlaps(pos.x, pos.y, pos.width, pos.height)) {
-          groupPlaced = false;
-          break;
-        }
-      }
-      
-      if (groupPlaced) {
-        // Double-check no blocking of spawns
-        let blocksAnySpawn = false;
-        for (let i = 0; i < 3; i++) {
-          const offset = startOffset + i * FURNITURE_WIDTH;
-          const pos = wall.getPos(offset);
-          if (blocksSpawn(pos.x, pos.y, pos.width, pos.height)) {
-            blocksAnySpawn = true;
-            break;
-          }
-        }
-        
-        if (!blocksAnySpawn) {
-          for (let i = 0; i < 3; i++) {
-            const offset = startOffset + i * FURNITURE_WIDTH;
-            const pos = wall.getPos(offset);
-            furniture.push(new Furniture(pos.x, pos.y, 'counter', FURNITURE_SPRITES.COUNTER, wall.rotation));
-          }
-          counterGroupsPlaced++;
-        }
-      }
-    }
-    
-    // 2. Place appliances (fridge, stove, sink) on random walls
-    const appliances = [
-      { type: 'fridge', sprite: FURNITURE_SPRITES.FRIDGE },
-      { type: 'stove', sprite: FURNITURE_SPRITES.STOVE },
-      { type: 'sink', sprite: FURNITURE_SPRITES.SINK }
-    ];
-    
-    for (const appliance of appliances) {
-      let placed = false;
-      let attempts = 0;
-      
-      while (!placed && attempts < 60) {
-        const wall = walls[Math.floor(Math.random() * walls.length)];
-        const maxOffset = wall.length - FURNITURE_WIDTH;
-        
-        const offset = Math.random() * maxOffset;
-        const pos = wall.getPos(offset);
-        
-        if (!overlaps(pos.x, pos.y, pos.width, pos.height) && !blocksSpawn(pos.x, pos.y, pos.width, pos.height)) {
-          furniture.push(new Furniture(pos.x, pos.y, appliance.type, appliance.sprite, wall.rotation));
-          placed = true;
-        }
-        attempts++;
-      }
-    }
-    
-    // 3. Place table groups (2 tables each, no spacing) - max 3 groups
-    const playableX = WALL_OFFSET + 100;
-    const playableY = WALL_OFFSET + 100;
-    const playableWidth = this.canvas.width - WALL_OFFSET * 2 - 200;
-    const playableHeight = this.canvas.height - WALL_OFFSET * 2 - 200;
-    
-    let tableGroupsPlaced = 0;
+    // 1. Counter/appliance run along two walls meeting at the bottom-right
+    // corner, so the fridge/stove/sink cluster together like a real kitchen
+    // work triangle instead of being scattered independently. Anchored at
+    // the bottom-right specifically because the cat/mouse/dog spawn points
+    // sit in the top-left area — this keeps the run clear of them without
+    // needing a randomized-corner retry system.
+    const applianceSprites = {
+      fridge: FURNITURE_SPRITES.FRIDGE,
+      stove: FURNITURE_SPRITES.STOVE,
+      sink: FURNITURE_SPRITES.SINK,
+      counter: FURNITURE_SPRITES.COUNTER,
+    };
+    const cornerX = this.canvas.width;
+    const cornerY = this.canvas.height;
+
+    // Bottom wall: fridge and stove nearest the corner, counters extending left.
+    const bottomRunTypes = ['fridge', 'stove', 'counter', 'counter', 'counter'];
+    bottomRunTypes.forEach((type, i) => {
+      const x = cornerX - FURNITURE_WIDTH * (i + 1);
+      const y = cornerY - FURNITURE_HEIGHT;
+      furniture.push(new Furniture(x, y, type, applianceSprites[type], 180));
+    });
+
+    // Right wall: sink nearest the corner (right by the stove), counters
+    // extending up. Starts above the bottom run's footprint so the corner
+    // cell isn't double-occupied.
+    const rightRunTypes = ['sink', 'counter', 'counter'];
+    rightRunTypes.forEach((type, i) => {
+      const x = cornerX - FURNITURE_HEIGHT;
+      const y = cornerY - FURNITURE_HEIGHT - FURNITURE_WIDTH * (i + 1);
+      furniture.push(new Furniture(x, y, type, applianceSprites[type], 90));
+    });
+
+    // 2. Dining table with a chair on each side, placed as one connected
+    // unit somewhere in the open interior (avoiding the counter run and
+    // spawn points), rather than freestanding tables with no seating.
+    const TABLE_SPRITE_W = 34, TABLE_SPRITE_H = 19, TABLE_SCALE = 2;
+    const TABLE_WIDTH = TABLE_SPRITE_W * TABLE_SCALE;
+    const TABLE_HEIGHT = TABLE_SPRITE_H * TABLE_SCALE;
+    const CHAIR_SPRITE_W = 16, CHAIR_SPRITE_H = 24, CHAIR_SCALE = 2;
+    const CHAIR_WIDTH = CHAIR_SPRITE_W * CHAIR_SCALE;
+    const CHAIR_HEIGHT = CHAIR_SPRITE_H * CHAIR_SCALE;
+
+    const playableX = WALL_OFFSET + 40;
+    const playableY = WALL_OFFSET + 40 + CHAIR_HEIGHT;
+    const playableWidth = this.canvas.width - WALL_OFFSET * 2 - 80 - TABLE_WIDTH;
+    const playableHeight = this.canvas.height - WALL_OFFSET * 2 - 80 - CHAIR_HEIGHT * 2 - TABLE_HEIGHT;
+
     let attempts = 0;
-    
-    while (tableGroupsPlaced < 3 && attempts < 200) {
-      const groupSize = 2; // Always 2 tables
-      const horizontal = Math.random() < 0.5;
-      
-      const x = playableX + Math.random() * (playableWidth - (horizontal ? groupSize * FURNITURE_WIDTH : FURNITURE_WIDTH));
-      const y = playableY + Math.random() * (playableHeight - (horizontal ? FURNITURE_HEIGHT : groupSize * FURNITURE_HEIGHT));
-      
-      // Check if entire group fits
-      let groupFits = true;
-      const groupPositions = [];
-      
-      for (let i = 0; i < groupSize; i++) {
-        const tableX = horizontal ? x + i * FURNITURE_WIDTH : x; // No spacing
-        const tableY = horizontal ? y : y + i * FURNITURE_WIDTH; // No spacing, use WIDTH not HEIGHT
-        
-        if (overlaps(tableX, tableY, FURNITURE_WIDTH, FURNITURE_HEIGHT) || blocksSpawn(tableX, tableY, FURNITURE_WIDTH, FURNITURE_HEIGHT)) {
-          groupFits = false;
-          break;
-        }
-        groupPositions.push({ x: tableX, y: tableY });
+    let tablePlaced = false;
+
+    while (!tablePlaced && attempts < 100) {
+      const tableX = playableX + Math.random() * Math.max(0, playableWidth);
+      const tableY = playableY + Math.random() * Math.max(0, playableHeight);
+
+      // Bounding box for the whole table+chairs unit (a chair's height above
+      // and below the table), so the placement search treats it as one piece.
+      const unitY = tableY - CHAIR_HEIGHT;
+      const unitHeight = TABLE_HEIGHT + CHAIR_HEIGHT * 2;
+
+      if (!overlaps(tableX, unitY, TABLE_WIDTH, unitHeight) && !blocksSpawn(tableX, unitY, TABLE_WIDTH, unitHeight)) {
+        furniture.push(new Furniture(tableX, tableY, 'table', FURNITURE_SPRITES.DINING_TABLE, 0, TABLE_SPRITE_W, TABLE_SPRITE_H, TABLE_SCALE));
+
+        const chairX = tableX + (TABLE_WIDTH - CHAIR_WIDTH) / 2;
+        furniture.push(new Furniture(chairX, tableY - CHAIR_HEIGHT, 'chair', FURNITURE_SPRITES.CHAIR_RED, 0, CHAIR_SPRITE_W, CHAIR_SPRITE_H, CHAIR_SCALE));
+        furniture.push(new Furniture(chairX, tableY + TABLE_HEIGHT, 'chair', FURNITURE_SPRITES.CHAIR_ORANGE, 0, CHAIR_SPRITE_W, CHAIR_SPRITE_H, CHAIR_SCALE));
+
+        tablePlaced = true;
       }
-      
-      if (groupFits) {
-        groupPositions.forEach(pos => {
-          furniture.push(new Furniture(pos.x, pos.y, 'table', FURNITURE_SPRITES.TABLE, 0));
-        });
-        tableGroupsPlaced++;
-      }
-      
+
       attempts++;
     }
-    
+
     return furniture;
   }
 }

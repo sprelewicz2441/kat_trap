@@ -1,17 +1,19 @@
 import { aabbOverlap } from '../utils/collision.js';
 
 export default class Furniture {
-  constructor(x, y, type, spriteSrc, rotation = 0) {
+  // Defaults match the Reakain "Kitchen Assets" appliance/counter sprites
+  // (32x64 native). Table/chair sprites come from a different pack with
+  // different native sizes, so callers pass their own spriteWidth/
+  // spriteHeight/scale for those instead of relying on the defaults.
+  constructor(x, y, type, spriteSrc, rotation = 0, spriteWidth = 32, spriteHeight = 64, scale = 1.5) {
     this.x = x;
     this.y = y;
     this.type = type;
     this.rotation = rotation; // 0, 90, 180, 270 degrees
-    
-    // Sprite native size 32x64 (Reakain "Kitchen Assets" pack), scaled to
-    // keep the same 36x72 in-game footprint the old 12x24@3x sprites had.
-    this.spriteWidth = 32;
-    this.spriteHeight = 64;
-    this.scale = 1.125;
+
+    this.spriteWidth = spriteWidth;
+    this.spriteHeight = spriteHeight;
+    this.scale = scale;
     
     // Actual dimensions depend on rotation
     if (rotation === 90 || rotation === 270) {
@@ -76,7 +78,8 @@ export default class Furniture {
       sink: '#87CEEB',
       table: '#8B4513',
       island: '#D2691E',
-      counter: '#A0A0A0'
+      counter: '#A0A0A0',
+      chair: '#B5651D'
     };
     return colors[this.type] || '#CCCCCC';
   }
