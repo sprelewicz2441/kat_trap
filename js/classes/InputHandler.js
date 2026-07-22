@@ -2,7 +2,7 @@ export default class InputHandler {
   constructor() {
     this.keys = {};
 
-    window.addEventListener('keydown', (e) => {
+    this.handleKeyDown = (e) => {
       this.keys[e.key] = true;
 
       if (e.key === ' ') {
@@ -16,9 +16,12 @@ export default class InputHandler {
       if (e.key === 'm' || e.key === 'M') {
         document.dispatchEvent(new Event('meow'));
       }
-    });
+    };
 
-    window.addEventListener('keyup', (e) => (this.keys[e.key] = false));
+    this.handleKeyUp = (e) => (this.keys[e.key] = false);
+
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
   }
 
   getDirection() {
@@ -27,5 +30,10 @@ export default class InputHandler {
     if (this.keys['ArrowLeft']) return 'left';
     if (this.keys['ArrowRight']) return 'right';
     return null;
+  }
+
+  cleanup() {
+    window.removeEventListener('keydown', this.handleKeyDown);
+    window.removeEventListener('keyup', this.handleKeyUp);
   }
 }

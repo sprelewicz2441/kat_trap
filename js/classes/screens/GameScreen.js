@@ -121,20 +121,23 @@ export default class GameScreen {
     // Always add the click handler
     this.clickHandler = this.handleClick.bind(this);
     this.canvas.addEventListener('click', this.clickHandler);
-    document.addEventListener('toot', () => {
+
+    this.tootHandler = () => {
       this.playSound(SOUND_KEYS.TOOT);
       this.handleToot();
-    });
+    };
+    document.addEventListener('toot', this.tootHandler);
 
-    document.addEventListener('punch', () => {
+    this.punchHandler = () => {
       this.playSound(SOUND_KEYS.PUNCH);
       this.handlePunch();
-    });
+    };
+    document.addEventListener('punch', this.punchHandler);
 
-    document.addEventListener('meow', () => {
+    this.meowHandler = () => {
       this.playSound(SOUND_KEYS.MOUSE_ESCAPE);
-      this.handlePunch();
-    });
+    };
+    document.addEventListener('meow', this.meowHandler);
 
     if (!this.isReplay) {
         console.log("Not a replay: Starting cutscenes");
@@ -150,6 +153,8 @@ export default class GameScreen {
     //this.boundaries = this.generateRandomBoundaries(NUM_OF_BOUNDARIES);
     this.furniture = this.generateKitchenFurniture();
     this.escapes = this.generateEscapes(NUM_OF_ESCAPES);
+
+    if (this.inputHandler) this.inputHandler.cleanup();
 
     this.cat = new Cat(
       this.canvas.width / 2,
@@ -238,16 +243,22 @@ export default class GameScreen {
   }
 
   restartGame() {
-    console.log('Restarting Game'); 
+    console.log('Restarting Game');
     this.gameOver = false;
     //this.sounds[SOUND_KEYS.BACKGROUND].pause();
     //this.sounds[SOUND_KEYS.BACKGROUND].currentTime = 0;
 
-    // Cleanup old game state
-    if (this.dog) this.dog.cleanup();
-
-    this.canvas.removeEventListener('click', this.clickHandler);
+    this.cleanup();
     this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, true));
+  }
+
+  cleanup() {
+    document.removeEventListener('toot', this.tootHandler);
+    document.removeEventListener('punch', this.punchHandler);
+    document.removeEventListener('meow', this.meowHandler);
+    this.canvas.removeEventListener('click', this.clickHandler);
+    if (this.inputHandler) this.inputHandler.cleanup();
+    if (this.dog) this.dog.cleanup();
   }
 
   isClickInside(x, y, area) {
