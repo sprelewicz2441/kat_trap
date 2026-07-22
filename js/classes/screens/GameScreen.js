@@ -64,8 +64,8 @@ const CHARACTER_NAMES = {
 const SOUND_KEYS = {
   BACKGROUND: 'background',
   WALL_HIT: 'wallHit',
-  CAT_CATCH: 'mouseEscape',
-  MOUSE_ESCAPE: 'catCatch',
+  CAT_CATCH: 'catCatch',
+  MOUSE_ESCAPE: 'mouseEscape',
   TOOT: 'toot',
   PUNCH: 'punch',
 };
