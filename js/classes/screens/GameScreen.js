@@ -698,7 +698,7 @@ export default class GameScreen {
     let tableGroupsPlaced = 0;
     let attempts = 0;
     
-    while (tableGroupsPlaced < 30 && attempts < 200) {
+    while (tableGroupsPlaced < 3 && attempts < 200) {
       const groupSize = 2; // Always 2 tables
       const horizontal = Math.random() < 0.5;
       
