@@ -600,19 +600,34 @@ export default class GameScreen {
       });
     };
     
-    // Define wall segments for placing counter groups and appliances
+    // Define wall segments for placing counter groups and appliances.
+    // `length` is the extent of the wall along its own axis (used for maxOffset);
+    // for left/right walls width/height are swapped since the furniture is
+    // rotated 90/270 to face into the room.
     const walls = [
-      { name: 'top', rotation: 0, getPos: (offset) => ({ 
-        x: offset, 
+      { name: 'top', rotation: 0, length: this.canvas.width, getPos: (offset) => ({
+        x: offset,
         y: 0,  // Right at the top edge
         width: FURNITURE_WIDTH,
         height: FURNITURE_HEIGHT
       })},
-      { name: 'bottom', rotation: 180, getPos: (offset) => ({ 
-        x: offset, 
+      { name: 'bottom', rotation: 180, length: this.canvas.width, getPos: (offset) => ({
+        x: offset,
         y: this.canvas.height - FURNITURE_HEIGHT,  // Right at the bottom edge
         width: FURNITURE_WIDTH,
         height: FURNITURE_HEIGHT
+      })},
+      { name: 'left', rotation: 270, length: this.canvas.height, getPos: (offset) => ({
+        x: 0,  // Right at the left edge
+        y: offset,
+        width: FURNITURE_HEIGHT,
+        height: FURNITURE_WIDTH
+      })},
+      { name: 'right', rotation: 90, length: this.canvas.height, getPos: (offset) => ({
+        x: this.canvas.width - FURNITURE_HEIGHT,  // Right at the right edge
+        y: offset,
+        width: FURNITURE_HEIGHT,
+        height: FURNITURE_WIDTH
       })}
     ];
     
@@ -622,8 +637,8 @@ export default class GameScreen {
     
     for (const wall of shuffledWalls) {
       if (counterGroupsPlaced >= 2) break; // Max 2 groups
-      
-      const maxOffset = this.canvas.width - FURNITURE_WIDTH * 3;
+
+      const maxOffset = wall.length - FURNITURE_WIDTH * 3;
       
       if (maxOffset < 50) continue; // Wall too small
       
@@ -676,7 +691,7 @@ export default class GameScreen {
       
       while (!placed && attempts < 60) {
         const wall = walls[Math.floor(Math.random() * walls.length)];
-        const maxOffset = this.canvas.width - FURNITURE_WIDTH;
+        const maxOffset = wall.length - FURNITURE_WIDTH;
         
         const offset = Math.random() * maxOffset;
         const pos = wall.getPos(offset);

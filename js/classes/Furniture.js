@@ -29,31 +29,40 @@ export default class Furniture {
 
   draw(ctx) {
     ctx.save();
-    
+
+    const centerX = this.x + this.width / 2;
+    const centerY = this.y + this.height / 2;
+
     // Apply rotation
     if (this.rotation !== 0) {
-      const centerX = this.x + this.width / 2;
-      const centerY = this.y + this.height / 2;
       ctx.translate(centerX, centerY);
       ctx.rotate((this.rotation * Math.PI) / 180);
       ctx.translate(-centerX, -centerY);
     }
-    
+
+    // Draw the sprite at its native (unrotated) size, centered on the same
+    // pivot the rotation transform uses, so the rendered sprite lines up
+    // with the rotated collision box (this.width/this.height).
+    const drawWidth = this.spriteWidth * this.scale;
+    const drawHeight = this.spriteHeight * this.scale;
+    const drawX = centerX - drawWidth / 2;
+    const drawY = centerY - drawHeight / 2;
+
     // Draw sprite if loaded, otherwise draw placeholder
     if (this.sprite.complete) {
       ctx.drawImage(
         this.sprite,
-        this.x, this.y,
-        this.width, this.height
+        drawX, drawY,
+        drawWidth, drawHeight
       );
     } else {
       // Placeholder while loading
       ctx.fillStyle = this.getPlaceholderColor();
-      ctx.fillRect(this.x, this.y, this.width, this.height);
+      ctx.fillRect(drawX, drawY, drawWidth, drawHeight);
       ctx.strokeStyle = 'black';
-      ctx.strokeRect(this.x, this.y, this.width, this.height);
+      ctx.strokeRect(drawX, drawY, drawWidth, drawHeight);
     }
-    
+
     ctx.restore();
   }
 
