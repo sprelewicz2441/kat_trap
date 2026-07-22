@@ -6,7 +6,6 @@ import Mouse from '../Mouse.js';
 import Dog from '../Dog.js';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
-import Boundary from '../Boundary.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
@@ -17,8 +16,6 @@ import Furniture from '../Furniture.js';
 const WALL_THICKNESS = 15;
 const ESCAPE_SIZE = 15;
 const NUM_OF_ESCAPES = 6;
-//const BOUNDARY_SIZE = 20;
-//const NUM_OF_BOUNDARIES = 20;
 
 // Furniture sprite paths
 const FURNITURE_SPRITES = {
@@ -90,7 +87,6 @@ export default class GameScreen {
     this.mouse = null;
     this.dog = null;
     this.escapes = [];
-    //this.boundaries = [];
     this.furniture = [];
 
     this.running = false;
@@ -143,7 +139,6 @@ export default class GameScreen {
   }
 
   resetGameObjects() {
-    //this.boundaries = this.generateRandomBoundaries(NUM_OF_BOUNDARIES);
     this.furniture = this.generateKitchenFurniture();
     this.escapes = this.generateEscapes(NUM_OF_ESCAPES);
 
@@ -348,9 +343,6 @@ export default class GameScreen {
         proposedPosition.y <= this.canvas.height - WALL_OFFSET
     );
 
-    //if ((insideWalls || isOnEscape) && !this.boundaries.some(boundary => boundary.isColliding(proposedPosition))) {
-    //    this.cat.move(direction);
-    //}
     // Add size property for collision check
     const proposedEntity = { x: proposedPosition.x, y: proposedPosition.y, size: this.cat.size };
 
@@ -361,7 +353,6 @@ export default class GameScreen {
 
   updateMouse() {
     this.mouse.update();
-    //const mouseColliding = this.boundaries.some(boundary => boundary.isColliding(this.mouse));
     const mouseColliding = false; // Mouse can pass through furniture
 
     if (mouseColliding) {
@@ -520,21 +511,6 @@ export default class GameScreen {
       return new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE);
     });
   }
-
-  /*generateRandomBoundaries(count) {
-    const boundaries = [];
-    while (boundaries.length < count) {
-      const x = Math.random() * (this.canvas.width - BOUNDARY_SIZE);
-      const y = Math.random() * (this.canvas.height - BOUNDARY_SIZE);
-      const newBoundary = new Boundary(x, y, BOUNDARY_SIZE, BOUNDARY_SIZE);
-      if (!boundaries.some(b => this.areOverlapping(b, newBoundary))) boundaries.push(newBoundary);
-    }
-    return boundaries;
-  }
-
-  areOverlapping(a, b) {
-    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-  }*/
 
   generateKitchenFurniture() {
     const furniture = [];

@@ -18,11 +18,10 @@ Open `index.html` directly in a browser (or serve the folder statically) to run 
 
 **Entities** (`js/classes/`) — each is a small, mostly self-contained class with `update()`/`draw(ctx)`:
 - `Cat.js` — player-controlled; `move(direction)` is called from `GameScreen` based on `InputHandler` state. Handles its own sprite-sheet animation.
-- `Dog.js` — moves randomly on a timer (`moveInterval`), respects an obstacle list (currently the `furniture` array, still named `boundaries`/`this.boundaries` internally — see below) and `escapes` when deciding valid moves, barks on a random interval, and exposes `isColliding(entity)`.
+- `Dog.js` — moves randomly on a timer (`moveInterval`), respects an obstacle list (currently the `furniture` array, still named `boundaries`/`this.boundaries` internally, a naming leftover from before furniture existed) and `escapes` when deciding valid moves, barks on a random interval, and exposes `isColliding(entity)`.
 - `Mouse.js` — moves with pseudo-random velocity, bounces off canvas walls, fires a `wallHitCallback` on bounce. Currently **not** blocked by furniture (see Known rough edges).
 - `Escape.js` — a static rectangle ("mouse hole"); `isMouseInside()` for collision.
-- `Boundary.js` — a static obstacle rectangle; `isColliding(entity)` for collision. No longer instantiated anywhere — `GameScreen`'s random-boundary generator is commented out and furniture has taken over the obstacle role. Kept around as dead code; candidate for deletion. Note: its collision math duplicates the logic in `Escape.isMouseInside`, `Dog.isColliding`, and `Furniture.isColliding` — the same AABB check written four times now.
-- `Furniture.js` — kitchen obstacle (fridge, stove, sink/counter, table). Takes `(x, y, type, spriteSrc, rotation)`; rotation (0/90/180/270) swaps width/height and is applied via canvas transform in `draw()`, which draws the sprite at its native (unrotated) size centered on the same pivot the rotation uses, so the rendered sprite lines up with the rotated collision box at every rotation value. Draws a type-colored placeholder rect while the sprite loads. `isColliding(entity)` is a fifth copy of the AABB check. `isWallItem` is computed in the constructor but never read anywhere — dead property.
+- `Furniture.js` — kitchen obstacle (fridge, stove, sink/counter, table). Takes `(x, y, type, spriteSrc, rotation)`; rotation (0/90/180/270) swaps width/height and is applied via canvas transform in `draw()`, which draws the sprite at its native (unrotated) size centered on the same pivot the rotation uses, so the rendered sprite lines up with the rotated collision box at every rotation value. Draws a type-colored placeholder rect while the sprite loads. `isColliding(entity)` is a third copy of the AABB check (alongside `Escape.isMouseInside` and `Dog.isColliding`). `isWallItem` is computed in the constructor but never read anywhere — dead property.
 - `InputHandler.js` — tracks currently-held keys via `window` keydown/keyup listeners, exposes `getDirection()`; also dispatches custom `'toot'` (spacebar), `'punch'` (`p`), and `'meow'` (`m`) events for `GameScreen` to react to.
 
 **Cutscenes** (`js/classes/cutscenes/`):
@@ -51,9 +50,8 @@ All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array;
 - **No tests at all.** Zero test coverage currently exists for any collision, movement, or game-state logic.
 - **No README.**
 - `GameScreen.js` mixes rendering, game state, input-response, collision logic, and procedural level generation in one ~725-line class — a strong refactor candidate.
-- AABB collision logic is duplicated across `Boundary`, `Escape`, `Dog`, and now `Furniture` instead of being shared/extracted.
+- AABB collision logic is duplicated across `Escape`, `Dog`, and `Furniture` instead of being shared/extracted.
 - Mouse is explicitly not blocked by furniture (`mouseColliding` is hardcoded `false` in `updateMouse()`, with a comment noting mice can pass through) — currently a deliberate simplification, but worth confirming it's meant to stay that way long-term.
-- `Boundary.js` and its `generateRandomBoundaries`/`areOverlapping` methods in `GameScreen.js` are dead/commented-out code now that furniture is the obstacle system — candidate for deletion rather than carrying both systems forward.
 - `styles.css` exists but is currently empty — all styling is Tailwind utility classes in `index.html`.
 
 ## Planned work
