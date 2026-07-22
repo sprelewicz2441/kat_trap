@@ -21,11 +21,14 @@ Open `index.html` directly in a browser (or serve the folder statically) to run 
 - `Dog.js` — moves randomly on a timer (`moveInterval`), respects an obstacle list (currently the `furniture` array, still named `boundaries`/`this.boundaries` internally, a naming leftover from before furniture existed) and `escapes` when deciding valid moves, barks on a random interval, and exposes `isColliding(entity)`.
 - `Mouse.js` — moves with pseudo-random velocity, bounces off canvas walls, fires a `wallHitCallback` on bounce. Currently **not** blocked by furniture (see Known rough edges).
 - `Escape.js` — a static rectangle ("mouse hole"); `isMouseInside()` for collision.
-- `Furniture.js` — kitchen obstacle (fridge, stove, sink/counter, table). Takes `(x, y, type, spriteSrc, rotation)`; rotation (0/90/180/270) swaps width/height and is applied via canvas transform in `draw()`, which draws the sprite at its native (unrotated) size centered on the same pivot the rotation uses, so the rendered sprite lines up with the rotated collision box at every rotation value. Draws a type-colored placeholder rect while the sprite loads. `isColliding(entity)` is a third copy of the AABB check (alongside `Escape.isMouseInside` and `Dog.isColliding`). `isWallItem` is computed in the constructor but never read anywhere — dead property.
+- `Furniture.js` — kitchen obstacle (fridge, stove, sink/counter, table). Takes `(x, y, type, spriteSrc, rotation)`; rotation (0/90/180/270) swaps width/height and is applied via canvas transform in `draw()`, which draws the sprite at its native (unrotated) size centered on the same pivot the rotation uses, so the rendered sprite lines up with the rotated collision box at every rotation value. Draws a type-colored placeholder rect while the sprite loads. `isWallItem` is computed in the constructor but never read anywhere — dead property.
 - `InputHandler.js` — tracks currently-held keys via `window` keydown/keyup listeners, exposes `getDirection()`; also dispatches custom `'toot'` (spacebar), `'punch'` (`p`), and `'meow'` (`m`) events for `GameScreen` to react to.
 
 **Cutscenes** (`js/classes/cutscenes/`):
 - `Cutscene.js` / `CutsceneManager.js` — sequenced intro scenes shown before gameplay starts, triggered from `GameScreen.startCutscenes()`.
+
+**Utilities** (`js/utils/`):
+- `collision.js` — exports `aabbOverlap(ax, ay, aWidth, aHeight, bx, by, bWidth, bHeight)`, the single shared axis-aligned bounding box overlap test. Used by `Escape.isMouseInside`, `Dog.isColliding`, `Furniture.isColliding`, and `GameScreen.checkCollision`. Takes raw coordinates rather than entity objects so each caller stays explicit about which field it's using per side (e.g. `Dog` uses its own `frameWidth`/`frameHeight` for itself but `entity.size` for whatever it's checking against) — don't refactor it to accept entities and guess the right field, since the same object (e.g. `Dog`) legitimately uses different box dimensions depending on which side of the check it's on.
 
 ## Kitchen furniture (`GameScreen.generateKitchenFurniture`)
 Procedurally lays out `Furniture` instances each game reset, in three passes:
@@ -44,13 +47,12 @@ All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array;
 - ES modules throughout (`import`/`export default`), one class per file.
 - Constants (colors, fonts, sizes, sound keys, messages) are hoisted to the top of `GameScreen.js` in `UPPER_SNAKE_CASE` objects — follow this pattern rather than inlining magic numbers/strings if you add to that file.
 - Sprite sheets are single `Image` objects sliced via `drawImage` source-rect math (`frameWidth`/`frameHeight`/`currentFrame`); animation speed is throttled with a manual `frameCounter` vs `frameSpeed`, not `setInterval`.
-- Collision detection is hand-rolled AABB (axis-aligned bounding box) checks — no physics library.
+- Collision detection is hand-rolled AABB (axis-aligned bounding box) checks via the shared `aabbOverlap` helper — no physics library.
 
 ## Known rough edges (worth knowing before you extend this)
 - **No tests at all.** Zero test coverage currently exists for any collision, movement, or game-state logic.
 - **No README.**
 - `GameScreen.js` mixes rendering, game state, input-response, collision logic, and procedural level generation in one ~725-line class — a strong refactor candidate.
-- AABB collision logic is duplicated across `Escape`, `Dog`, and `Furniture` instead of being shared/extracted.
 - Mouse is explicitly not blocked by furniture (`mouseColliding` is hardcoded `false` in `updateMouse()`, with a comment noting mice can pass through) — currently a deliberate simplification, but worth confirming it's meant to stay that way long-term.
 - `styles.css` exists but is currently empty — all styling is Tailwind utility classes in `index.html`.
 
@@ -60,6 +62,6 @@ All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array;
 
 ## When working in this repo
 - Prefer matching the existing per-class, no-framework style — don't introduce a build tool or framework without discussing it first.
-- If you touch collision code, consider whether it's worth extracting the shared AABB check rather than adding a sixth copy.
+- If you touch collision code, use `aabbOverlap` from `js/utils/collision.js` rather than reimplementing the check inline.
 - `GameScreen.cleanup()` centralizes teardown of document/canvas listeners and the `InputHandler` — call it (or extend it) rather than adding new listeners without a matching removal path.
 - There's no test runner configured yet — if you add tests, that's a setup decision to make explicitly (e.g. Vitest/Jest), not assume one is already there.

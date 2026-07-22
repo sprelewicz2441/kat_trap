@@ -1,3 +1,5 @@
+import { aabbOverlap } from '../utils/collision.js';
+
 export default class Escape {
   constructor(x, y, width, height) {
     this.x = x;
@@ -13,11 +15,9 @@ export default class Escape {
   }
 
   isMouseInside(mouse) {
-    return (
-      mouse.x < this.x + this.width &&
-      mouse.x + mouse.size > this.x &&
-      mouse.y < this.y + this.height &&
-      mouse.y + mouse.size > this.y
+    return aabbOverlap(
+      mouse.x, mouse.y, mouse.size, mouse.size,
+      this.x, this.y, this.width, this.height
     );
   }
 }

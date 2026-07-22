@@ -1,3 +1,5 @@
+import { aabbOverlap } from '../utils/collision.js';
+
 export default class Furniture {
   constructor(x, y, type, spriteSrc, rotation = 0) {
     this.x = x;
@@ -79,11 +81,9 @@ export default class Furniture {
   }
 
   isColliding(entity) {
-    return (
-      entity.x < this.x + this.width &&
-      entity.x + entity.size > this.x &&
-      entity.y < this.y + this.height &&
-      entity.y + entity.size > this.y
+    return aabbOverlap(
+      entity.x, entity.y, entity.size, entity.size,
+      this.x, this.y, this.width, this.height
     );
   }
 }

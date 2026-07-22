@@ -9,6 +9,7 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
+import { aabbOverlap } from '../../utils/collision.js';
 
 // ==============================
 //  CONSTANTS
@@ -396,11 +397,9 @@ export default class GameScreen {
   }
 
   checkCollision(cat, mouse) {
-    return (
-      cat.x < mouse.x + mouse.size &&
-      cat.x + cat.size > mouse.x &&
-      cat.y < mouse.y + mouse.size &&
-      cat.y + cat.size > mouse.y
+    return aabbOverlap(
+      cat.x, cat.y, cat.size, cat.size,
+      mouse.x, mouse.y, mouse.size, mouse.size
     );
   }
 

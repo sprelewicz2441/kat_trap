@@ -1,3 +1,5 @@
+import { aabbOverlap } from '../utils/collision.js';
+
 export default class Dog {
   constructor(x, y, canvasWidth, canvasHeight, escapes = [], boundaries = [], playSoundCallback) {
     this.x = x;
@@ -90,11 +92,9 @@ export default class Dog {
 
   isColliding(entity) {
     if (!entity) return false; // Prevents crash if entity is undefined
-    return (
-      this.x < entity.x + entity.size &&
-      this.x + this.frameWidth > entity.x &&
-      this.y < entity.y + entity.size &&
-      this.y + this.frameHeight > entity.y
+    return aabbOverlap(
+      this.x, this.y, this.frameWidth, this.frameHeight,
+      entity.x, entity.y, entity.size, entity.size
     );
   }
 
