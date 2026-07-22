@@ -9,6 +9,7 @@ import Escape from '../Escape.js';
 import Boundary from '../Boundary.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
+import Furniture from '../Furniture.js';
 
 // ==============================
 //  CONSTANTS
@@ -16,10 +17,22 @@ import Cutscene from '../cutscenes/Cutscene.js';
 const WALL_THICKNESS = 15;
 const ESCAPE_SIZE = 15;
 const NUM_OF_ESCAPES = 6;
-const BOUNDARY_SIZE = 20;
-const NUM_OF_BOUNDARIES = 20;
+//const BOUNDARY_SIZE = 20;
+//const NUM_OF_BOUNDARIES = 20;
+
+// Furniture sprite paths
+const FURNITURE_SPRITES = {
+  FRIDGE: './assets/kitchen_fridge.png',
+  STOVE: './assets/kitchen_stove.png',
+  SINK: './assets/kitchen_sink.png',
+  TABLE: './assets/tabletop.png',
+  // Add more as we expand
+};
+
 const DOG_PAUSE_DURATION = 2000;
 const DOG_COLLISION_COOLDOWN = 1000;
+const PUNCH_DISTANCE = 40;
+const PUNCH_SHOCKWAVE_DURATION = 200;
 
 const CAT_OUTLINE_WIDTH = 3;
 const MESSAGE_FONT_SIZE = 24;
@@ -54,6 +67,7 @@ const SOUND_KEYS = {
   CAT_CATCH: 'mouseEscape',
   MOUSE_ESCAPE: 'catCatch',
   TOOT: 'toot',
+  PUNCH: 'punch',
 };
 
 const MESSAGES = {
@@ -78,7 +92,8 @@ export default class GameScreen {
     this.mouse = null;
     this.dog = null;
     this.escapes = [];
-    this.boundaries = [];
+    //this.boundaries = [];
+    this.furniture = [];
 
     this.running = false;
     this.catPaused = false;
@@ -86,6 +101,7 @@ export default class GameScreen {
     this.dogCollisionCooldown = 0;
     this.gameOver = false;
     this.message = '';
+    this.shockwave = null;
 
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
@@ -110,6 +126,16 @@ export default class GameScreen {
       this.handleToot();
     });
 
+    document.addEventListener('punch', () => {
+      this.playSound(SOUND_KEYS.PUNCH);
+      this.handlePunch();
+    });
+
+    document.addEventListener('meow', () => {
+      this.playSound(SOUND_KEYS.MOUSE_ESCAPE);
+      this.handlePunch();
+    });
+
     if (!this.isReplay) {
         console.log("Not a replay: Starting cutscenes");
         this.running = false;
@@ -121,7 +147,8 @@ export default class GameScreen {
   }
 
   resetGameObjects() {
-    this.boundaries = this.generateRandomBoundaries(NUM_OF_BOUNDARIES);
+    //this.boundaries = this.generateRandomBoundaries(NUM_OF_BOUNDARIES);
+    this.furniture = this.generateKitchenFurniture();
     this.escapes = this.generateEscapes(NUM_OF_ESCAPES);
 
     this.cat = new Cat(
@@ -133,9 +160,10 @@ export default class GameScreen {
     this.mouse = new Mouse(100, 100, this.canvas.width, this.canvas.height);
     this.dog = new Dog(
                   200, 200, this.canvas.width, this.canvas.height, 
-                  this.escapes, this.boundaries,
+                  this.escapes, this.furniture,
                   (soundKey) => this.playSound(SOUND_KEYS.DOG_BARK)
                 );
+    this.dog.setNextBark();
 
     this.inputHandler = new InputHandler();
     this.mouse.setWallHitCallback(() => this.playSound(SOUND_KEYS.WALL_HIT));
@@ -143,11 +171,13 @@ export default class GameScreen {
 
   loadSounds() {
     return {
-      [SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/christmas_tree_farm.mp3', true, 0.1),
+      //[SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/christmas_tree_farm.mp3', true, 0.1),
+      [SOUND_KEYS.BACKGROUND]: this.loadSound('', true, 0.1),
       [SOUND_KEYS.WALL_HIT]: this.loadSound('../../../sounds/bounce.flac'),
       [SOUND_KEYS.CAT_CATCH]: this.loadSound('../../../sounds/mouse.wav'),
       [SOUND_KEYS.MOUSE_ESCAPE]: this.loadSound('../../../sounds/meow.ogg'),
       [SOUND_KEYS.TOOT]: this.loadSound('../../../sounds/toot.wav', false),
+      [SOUND_KEYS.PUNCH]: this.loadSound('../../../sounds/punch.ogg', false),
       [SOUND_KEYS.DOG_BARK]: this.loadSound('../../../sounds/dog_barking.wav', false),
     };
   }
@@ -163,17 +193,29 @@ export default class GameScreen {
     const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height);
     const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height);
     const dogAnimation = new Dog(0, 0, this.canvas.width, this.canvas.height);
-
-    this.cutsceneManager.addCutscene(new Cutscene(this.ctx, catAnimation, 'Meet Mia, the best cat!'));
-    this.cutsceneManager.addCutscene(new Cutscene(this.ctx, mouseAnimation, 'This is Poop, the butt!'));
-    this.cutsceneManager.addCutscene(new Cutscene(this.ctx, dogAnimation, 'Say hello to Dummy, the dumb dog!'));
-
+    
+    // Store cutscene entities
+    this.cutsceneCat = catAnimation;
+    this.cutsceneMouse = mouseAnimation;
+    this.cutsceneDog = dogAnimation;
+    
+    this.cutsceneManager.addCutscene(
+      new Cutscene(this.ctx, catAnimation, 'Meet Mia, the best cat!', () => this.playSound(SOUND_KEYS.MOUSE_ESCAPE))
+    );
+    this.cutsceneManager.addCutscene(
+      new Cutscene(this.ctx, mouseAnimation, 'This is Poop, the butt!', () => this.playSound(SOUND_KEYS.WALL_HIT))
+    );
+    this.cutsceneManager.addCutscene(
+      new Cutscene(this.ctx, dogAnimation, 'Say hello to Dummy, the dumb dog!', () => this.playSound(SOUND_KEYS.DOG_BARK))
+    );
+    
     this.cutsceneManager.start(() => {
       this.startGame();
     });
   }
 
   startGame() {
+    if (this.cutsceneDog) this.cutsceneDog.cleanup();
     this.resetGameObjects();
     this.running = true;
   }
@@ -200,6 +242,9 @@ export default class GameScreen {
     this.gameOver = false;
     //this.sounds[SOUND_KEYS.BACKGROUND].pause();
     //this.sounds[SOUND_KEYS.BACKGROUND].currentTime = 0;
+
+    // Cleanup old game state
+    if (this.dog) this.dog.cleanup();
 
     this.canvas.removeEventListener('click', this.clickHandler);
     this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, true));
@@ -262,6 +307,29 @@ export default class GameScreen {
     this.dog.y = Math.max(0, Math.min(this.canvas.height - this.dog.size, this.dog.y));
   }
 
+  handlePunch() {
+    console.log("Punch! Knocking the dog back.");
+
+    if (!this.dog) return;
+
+    // Start shockwave animation
+    this.shockwave = {
+      x: this.cat.x + (this.cat.frameWidth / 4) / 2,
+      y: this.cat.y + (this.cat.frameHeight / 4) / 2,
+      startTime: performance.now()
+    };
+
+    // Move dog away
+    if (this.dog.x < this.cat.x) this.dog.x -= PUNCH_DISTANCE;
+    else this.dog.x += PUNCH_DISTANCE;
+    if (this.dog.y < this.cat.y) this.dog.y -= PUNCH_DISTANCE;
+    else this.dog.y += PUNCH_DISTANCE;
+
+    // Ensure the dog stays within bounds
+    this.dog.x = Math.max(0, Math.min(this.canvas.width - this.dog.size, this.dog.x));
+    this.dog.y = Math.max(0, Math.min(this.canvas.height - this.dog.size, this.dog.y));
+  }
+
   moveCat() {
     const direction = this.inputHandler.getDirection();
     if (!direction) return;
@@ -283,14 +351,22 @@ export default class GameScreen {
         proposedPosition.y <= this.canvas.height - WALL_OFFSET
     );
 
-    if ((insideWalls || isOnEscape) && !this.boundaries.some(boundary => boundary.isColliding(proposedPosition))) {
+    //if ((insideWalls || isOnEscape) && !this.boundaries.some(boundary => boundary.isColliding(proposedPosition))) {
+    //    this.cat.move(direction);
+    //}
+    // Add size property for collision check
+    const proposedEntity = { x: proposedPosition.x, y: proposedPosition.y, size: this.cat.size };
+
+    if ((insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity))) {
         this.cat.move(direction);
     }
   }
 
   updateMouse() {
     this.mouse.update();
-    const mouseColliding = this.boundaries.some(boundary => boundary.isColliding(this.mouse));
+    //const mouseColliding = this.boundaries.some(boundary => boundary.isColliding(this.mouse));
+    const mouseColliding = false; // Mouse can pass through furniture
+
     if (mouseColliding) {
       this.mouse.speedX *= -1;
       this.mouse.speedY *= -1;
@@ -326,6 +402,9 @@ export default class GameScreen {
     this.gameOver = true;
     this.message = message;
     this.playSound(soundKey);
+
+    // Cleanup autonomous behaviors
+    if (this.dog) this.dog.cleanup();
   }
 
   checkCollision(cat, mouse) {
@@ -345,13 +424,14 @@ export default class GameScreen {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawWallsAndBoundaries();
     this.drawGameObjects();
+    this.drawShockwave();
 
     if (this.message) this.displayMessage();
   }
 
-    drawWallsAndBoundaries() {
-    this.drawWallBorders();
-    this.boundaries.forEach(boundary => boundary.draw(this.ctx));
+  drawWallsAndBoundaries() {
+    //this.drawWallBorders();
+    this.furniture.forEach(furniture => furniture.draw(this.ctx));
     this.escapes.forEach(escape => escape.draw(this.ctx));
   }
 
@@ -361,6 +441,32 @@ export default class GameScreen {
 
     if (this.catPaused) this.drawRedOutline();
     this.cat.draw(this.ctx);
+  }
+
+  drawShockwave() {
+    if (!this.shockwave) return;
+
+    const elapsed = performance.now() - this.shockwave.startTime;
+
+    console.log("Drawing shockwave:", { elapsed, shockwave: this.shockwave }); 
+    
+    if (elapsed > PUNCH_SHOCKWAVE_DURATION) {
+      this.shockwave = null;
+      return;
+    }
+
+    const progress = elapsed / PUNCH_SHOCKWAVE_DURATION;
+    const maxRadius = 60;
+    const radius = progress * maxRadius;
+    const alpha = 1 - progress;
+
+    this.ctx.save();
+    this.ctx.strokeStyle = `rgba(138, 43, 226, ${alpha})`; 
+    this.ctx.lineWidth = 3;
+    this.ctx.beginPath();
+    this.ctx.arc(this.shockwave.x, this.shockwave.y, radius, 0, Math.PI * 2);
+    this.ctx.stroke();
+    this.ctx.restore();
   }
 
   drawRedOutline() {
@@ -422,7 +528,7 @@ export default class GameScreen {
     });
   }
 
-  generateRandomBoundaries(count) {
+  /*generateRandomBoundaries(count) {
     const boundaries = [];
     while (boundaries.length < count) {
       const x = Math.random() * (this.canvas.width - BOUNDARY_SIZE);
@@ -435,5 +541,184 @@ export default class GameScreen {
 
   areOverlapping(a, b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }*/
+
+  generateKitchenFurniture() {
+    const furniture = [];
+    const WALL_OFFSET = 40;
+    const SPACING = 10;
+    const FURNITURE_WIDTH = 36;
+    const FURNITURE_HEIGHT = 72;
+    
+    // Helper to check overlap
+    const overlaps = (x, y, width, height) => {
+      return furniture.some(f => {
+        return !(x + width + SPACING < f.x || 
+                 x > f.x + f.width + SPACING ||
+                 y + height + SPACING < f.y || 
+                 y > f.y + f.height + SPACING);
+      });
+    };
+    
+    // Entity spawn positions to avoid
+    const catSpawnX = this.canvas.width / 2;
+    const catSpawnY = this.canvas.height - 50;
+    const catSize = 39; // Approximate cat size
+    const mouseSpawnX = 100;
+    const mouseSpawnY = 100;
+    const mouseSize = 32;
+    const dogSpawnX = 200;
+    const dogSpawnY = 200;
+    const dogSize = 50;
+
+    const SPAWN_BUFFER = 50; // Extra space around spawn points
+
+    // Helper to check if furniture would block entity spawns
+    const blocksSpawn = (x, y, width, height) => {
+      const spawns = [
+        { x: catSpawnX, y: catSpawnY, size: catSize },
+        { x: mouseSpawnX, y: mouseSpawnY, size: mouseSize },
+        { x: dogSpawnX, y: dogSpawnY, size: dogSize }
+      ];
+      
+      return spawns.some(spawn => {
+        return !(x > spawn.x + spawn.size + SPAWN_BUFFER ||
+                 x + width < spawn.x - SPAWN_BUFFER ||
+                 y > spawn.y + spawn.size + SPAWN_BUFFER ||
+                 y + height < spawn.y - SPAWN_BUFFER);
+      });
+    };
+    
+    // Define wall segments for placing counter groups and appliances
+    const walls = [
+      { name: 'top', rotation: 0, getPos: (offset) => ({ 
+        x: offset, 
+        y: 0,  // Right at the top edge
+        width: FURNITURE_WIDTH,
+        height: FURNITURE_HEIGHT
+      })},
+      { name: 'bottom', rotation: 180, getPos: (offset) => ({ 
+        x: offset, 
+        y: this.canvas.height - FURNITURE_HEIGHT,  // Right at the bottom edge
+        width: FURNITURE_WIDTH,
+        height: FURNITURE_HEIGHT
+      })}
+    ];
+    
+    // 1. Place counter groups (3 counters together) - max 2 groups
+    const shuffledWalls = walls.sort(() => Math.random() - 0.5);
+    let counterGroupsPlaced = 0;
+    
+    for (const wall of shuffledWalls) {
+      if (counterGroupsPlaced >= 2) break; // Max 2 groups
+      
+      const maxOffset = this.canvas.width - FURNITURE_WIDTH * 3;
+      
+      if (maxOffset < 50) continue; // Wall too small
+      
+      const startOffset = Math.random() * maxOffset;
+      
+      // Place group of 3 counters (no spacing between them)
+      let groupPlaced = true;
+      for (let i = 0; i < 3; i++) {
+        const offset = startOffset + i * FURNITURE_WIDTH; // No spacing
+        const pos = wall.getPos(offset);
+        
+        if (overlaps(pos.x, pos.y, pos.width, pos.height)) {
+          groupPlaced = false;
+          break;
+        }
+      }
+      
+      if (groupPlaced) {
+        // Double-check no blocking of spawns
+        let blocksAnySpawn = false;
+        for (let i = 0; i < 3; i++) {
+          const offset = startOffset + i * FURNITURE_WIDTH;
+          const pos = wall.getPos(offset);
+          if (blocksSpawn(pos.x, pos.y, pos.width, pos.height)) {
+            blocksAnySpawn = true;
+            break;
+          }
+        }
+        
+        if (!blocksAnySpawn) {
+          for (let i = 0; i < 3; i++) {
+            const offset = startOffset + i * FURNITURE_WIDTH;
+            const pos = wall.getPos(offset);
+            furniture.push(new Furniture(pos.x, pos.y, 'counter', FURNITURE_SPRITES.SINK, wall.rotation));
+          }
+          counterGroupsPlaced++;
+        }
+      }
+    }
+    
+    // 2. Place appliances (fridge, stove) on random walls
+    const appliances = [
+      { type: 'fridge', sprite: FURNITURE_SPRITES.FRIDGE },
+      { type: 'stove', sprite: FURNITURE_SPRITES.STOVE }
+    ];
+    
+    for (const appliance of appliances) {
+      let placed = false;
+      let attempts = 0;
+      
+      while (!placed && attempts < 60) {
+        const wall = walls[Math.floor(Math.random() * walls.length)];
+        const maxOffset = this.canvas.width - FURNITURE_WIDTH;
+        
+        const offset = Math.random() * maxOffset;
+        const pos = wall.getPos(offset);
+        
+        if (!overlaps(pos.x, pos.y, pos.width, pos.height) && !blocksSpawn(pos.x, pos.y, pos.width, pos.height)) {
+          furniture.push(new Furniture(pos.x, pos.y, appliance.type, appliance.sprite, wall.rotation));
+          placed = true;
+        }
+        attempts++;
+      }
+    }
+    
+    // 3. Place table groups (2 tables each, no spacing) - max 3 groups
+    const playableX = WALL_OFFSET + 100;
+    const playableY = WALL_OFFSET + 100;
+    const playableWidth = this.canvas.width - WALL_OFFSET * 2 - 200;
+    const playableHeight = this.canvas.height - WALL_OFFSET * 2 - 200;
+    
+    let tableGroupsPlaced = 0;
+    let attempts = 0;
+    
+    while (tableGroupsPlaced < 30 && attempts < 200) {
+      const groupSize = 2; // Always 2 tables
+      const horizontal = Math.random() < 0.5;
+      
+      const x = playableX + Math.random() * (playableWidth - (horizontal ? groupSize * FURNITURE_WIDTH : FURNITURE_WIDTH));
+      const y = playableY + Math.random() * (playableHeight - (horizontal ? FURNITURE_HEIGHT : groupSize * FURNITURE_HEIGHT));
+      
+      // Check if entire group fits
+      let groupFits = true;
+      const groupPositions = [];
+      
+      for (let i = 0; i < groupSize; i++) {
+        const tableX = horizontal ? x + i * FURNITURE_WIDTH : x; // No spacing
+        const tableY = horizontal ? y : y + i * FURNITURE_WIDTH; // No spacing, use WIDTH not HEIGHT
+        
+        if (overlaps(tableX, tableY, FURNITURE_WIDTH, FURNITURE_HEIGHT) || blocksSpawn(tableX, tableY, FURNITURE_WIDTH, FURNITURE_HEIGHT)) {
+          groupFits = false;
+          break;
+        }
+        groupPositions.push({ x: tableX, y: tableY });
+      }
+      
+      if (groupFits) {
+        groupPositions.forEach(pos => {
+          furniture.push(new Furniture(pos.x, pos.y, 'table', FURNITURE_SPRITES.TABLE, 0));
+        });
+        tableGroupsPlaced++;
+      }
+      
+      attempts++;
+    }
+    
+    return furniture;
   }
 }

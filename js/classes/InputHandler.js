@@ -8,6 +8,14 @@ export default class InputHandler {
       if (e.key === ' ') {
         document.dispatchEvent(new Event('toot'));
       }
+
+      if (e.key === 'p' || e.key === 'P') {
+        document.dispatchEvent(new Event('punch'));
+      }
+
+      if (e.key === 'm' || e.key === 'M') {
+        document.dispatchEvent(new Event('meow'));
+      }
     });
 
     window.addEventListener('keyup', (e) => (this.keys[e.key] = false));

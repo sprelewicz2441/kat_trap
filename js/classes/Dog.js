@@ -26,12 +26,16 @@ export default class Dog {
     this.column = 1; // Fixed column for the animation
 
     this.playSound = playSoundCallback; 
-    this.setNextBark();
+    this.barkTimeoutId = null;
+
+    //We want more control over the bark action, not to call it on construction. Commenting out for now.
+    //this.setNextBark();
   }
 
   setNextBark() {
     const randomDelay = Math.random() * 9000 + 1000;
-    setTimeout(() => {
+    this.barkTimeoutId = setTimeout(() => {
+      console.log("Dog barking from timeout:", this.barkTimeoutId); 
       if (this.playSound) {
         this.playSound('dogBark');
       }
@@ -104,5 +108,13 @@ export default class Dog {
       sx, sy, this.frameWidth, this.frameHeight, // Source rectangle
       this.x, this.y, this.frameWidth, this.frameHeight // Destination rectangle
     );
+  }
+
+  cleanup() {
+    console.log("Dog cleanup called, clearing timeout:", this.barkTimeoutId);
+    if (this.barkTimeoutId) {
+      clearTimeout(this.barkTimeoutId);
+      this.barkTimeoutId = null;
+    }
   }
 }

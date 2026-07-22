@@ -1,8 +1,9 @@
 export default class Cutscene {
-  constructor(ctx, characterAnimation, text) {
+  constructor(ctx, characterAnimation, text, soundCallback) {
     this.ctx = ctx;
     this.characterAnimation = characterAnimation; // Sprite animation object
     this.text = text; // Cutscene text to display
+    this.soundCallback = soundCallback;
     this.frameWidth = this.characterAnimation?.frameWidth || 100;
     this.frameHeight = this.characterAnimation?.frameHeight || 100;
 
@@ -15,6 +16,10 @@ export default class Cutscene {
 
   init(nextCallback) {
     this.nextCallback = nextCallback;
+
+    if (this.soundCallback) {
+      this.soundCallback();
+    }
 
     // Center the animation
     this.characterAnimation.x = this.ctx.canvas.width / 2 - this.frameWidth / 2;
