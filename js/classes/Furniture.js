@@ -55,6 +55,7 @@ export default class Furniture {
 
     // Draw sprite if loaded, otherwise draw placeholder
     if (this.sprite.complete) {
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(
         this.sprite,
         drawX, drawY,
