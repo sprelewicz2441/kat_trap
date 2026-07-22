@@ -21,46 +21,84 @@ const NUM_OF_ESCAPES = 6;
 // Furniture sprite paths
 const FURNITURE_SPRITES = {
   FRIDGE: './assets/kitchen_fridge.png',
-  TOP_WALL: './assets/kitchen_top_wall.png',
-  BOTTOM_WALL: './assets/kitchen_bottom_wall.png',
   DINING_SET: './assets/dining_set.png', // table + chairs cropped as one connected piece
+  ISLAND_STOVE: './assets/kitchen_island_stove.png',
+  ISLAND_RANGE: './assets/kitchen_island_range.png',
+  SIDE_TABLE: './assets/kitchen_side_table.png',
   // Add more as we expand
 };
 
-// Each of TOP_WALL/BOTTOM_WALL/DINING_SET is a whole continuous section
-// lifted directly from the reference kitchen photo (assets/kitchen_reference_scene.jpg)
-// rather than individual appliances cropped separately and reassembled —
-// cropping whole wall sections guarantees the counters/appliances inside
-// them stay exactly as aligned as they are in the source, since there's no
-// reassembly step left to get wrong.
+// Every wall is a run of several natural-seam tiles (one per appliance/
+// cabinet section) cropped from assets/kitchen_reference_scene.jpg and
+// placed edge-to-edge in the same left-to-right order they appear in the
+// source photo — NOT one single wide strip. A single strip per wall was
+// tried and reverted: it meant the wall could never have a gap, so any
+// mouse hole placed along it was always hidden behind solid furniture
+// (Mouse.js intentionally isn't blocked by furniture and is drawn under it —
+// see Mouse.js above — so a solid wall makes the mouse invisible whenever
+// it's under that wall). Tiles restore the ability to leave exactly one
+// tile slot empty per game (see generateKitchenFurniture) so there's a real
+// gap of open floor for a visible mouse hole.
 //
 // These are photographic-style crops with baked-in lighting/shadow from a
 // single fixed camera angle, unlike the old flat sprite-sheet pieces —
 // rotating them to face a different wall would make the shadows point the
 // wrong way and look broken. So each is only ever placed at rotation 0, used
-// only for the wall it was actually cropped from (the bottom wall crop is
-// already correctly oriented for the bottom of the room in the source photo,
-// not rotated to face that way). `FRIDGE` is the one exception — it's the
-// old flat Reakain sprite, which genuinely was designed to rotate.
+// only for the wall it was actually cropped from. `FRIDGE` is the one
+// exception — it's the old flat Reakain sprite, which genuinely was
+// designed to rotate.
 //
 // Scale is 1 (native) rather than shrunk, specifically so any floor-tile
 // pixels caught at a crop's edge are the same size as the tiled
 // `floor_tile.png` background behind them — shrinking these independently
 // of the floor tile is what caused a visible tile-size mismatch before.
 const REF1_SCALE = 1;
+
+// The freestanding "island" accents (stove, range, side table) don't share
+// the wall tiles' floor-tile-edge-matching concern — they're small, tightly
+// cropped standalone objects, not long strips with floor bleeding along
+// their edges — so they're free to scale independently. Confirmed live via
+// a debug hook that at native size, the interior floor band between the two
+// walls (~190px tall once cat/dog spawn clearance is accounted for) is too
+// narrow to ever fit all three islands plus the dining set at once: they
+// silently failed to place every game. Scaled down, they fit reliably.
+const ISLAND_SCALE = 0.55;
+
+// Height is uniform across all tiles on the same wall (they're all cropped
+// from the same horizontal band of the source photo) — TOP_WALL_HEIGHT/
+// BOTTOM_WALL_HEIGHT below assert that rather than re-deriving it per tile.
+const TOP_WALL_TILES = [
+  { type: 'top_stove_single', sprite: './assets/kitchen_top_stove_single.png', width: 135, height: 215 },
+  { type: 'top_range', sprite: './assets/kitchen_top_range.png', width: 350, height: 215 },
+  { type: 'top_vent', sprite: './assets/kitchen_top_vent.png', width: 90, height: 215 },
+  { type: 'top_cabinets', sprite: './assets/kitchen_top_cabinets.png', width: 305, height: 215 },
+  { type: 'top_rack', sprite: './assets/kitchen_top_rack.png', width: 120, height: 215 },
+];
+const BOTTOM_WALL_TILES = [
+  { type: 'bottom_sink', sprite: './assets/kitchen_bottom_sink.png', width: 420, height: 205 },
+  { type: 'bottom_stove', sprite: './assets/kitchen_bottom_stove.png', width: 325, height: 205 },
+  { type: 'bottom_utility', sprite: './assets/kitchen_bottom_utility.png', width: 255, height: 205 },
+];
+
 const REF1_PIECES = {
-  top_wall: { sprite: FURNITURE_SPRITES.TOP_WALL, width: 900, height: 215 },
-  bottom_wall: { sprite: FURNITURE_SPRITES.BOTTOM_WALL, width: 900, height: 205 },
-  dining_set: { sprite: FURNITURE_SPRITES.DINING_SET, width: 250, height: 130 },
+  // dining_set is scaled slightly down from native (unlike the wall tiles,
+  // it isn't a long strip with floor-tile bleed to keep in sync) — at full
+  // size it was the single largest freestanding piece, larger than any one
+  // scaled-down island, and reliably starved whichever piece got placed
+  // after it. A modest trim gives every piece a realistic shot at fitting.
+  dining_set: { sprite: FURNITURE_SPRITES.DINING_SET, width: 250, height: 130, scale: 0.85 },
+  island_stove: { sprite: FURNITURE_SPRITES.ISLAND_STOVE, width: 185, height: 148, scale: ISLAND_SCALE },
+  island_range: { sprite: FURNITURE_SPRITES.ISLAND_RANGE, width: 270, height: 115, scale: ISLAND_SCALE },
+  side_table: { sprite: FURNITURE_SPRITES.SIDE_TABLE, width: 180, height: 155, scale: ISLAND_SCALE },
 };
 
-// The wall strips are much deeper than the old individual-appliance crops
-// (215px/205px vs ~96px), so entity spawn points that used to sit safely in
-// front of them can now land inside their collision box. Shared here so the
-// cat/dog spawn positions used in resetGameObjects() stay in lockstep with
-// the same points generateKitchenFurniture() keeps the dining table clear of.
-const TOP_WALL_HEIGHT = REF1_PIECES.top_wall.height * REF1_SCALE;
-const BOTTOM_WALL_HEIGHT = REF1_PIECES.bottom_wall.height * REF1_SCALE;
+// The wall tiles are much deeper than furniture used to be (215px/205px vs
+// ~96px), so entity spawn points that used to sit safely in front of them
+// can now land inside their collision box. Shared here so the cat/dog spawn
+// positions used in resetGameObjects() stay in lockstep with the same
+// points generateKitchenFurniture() keeps the dining table clear of.
+const TOP_WALL_HEIGHT = 215;
+const BOTTOM_WALL_HEIGHT = 205;
 const SPAWN_CLEARANCE = 60;
 
 const DOG_PAUSE_DURATION = 2000;
@@ -126,6 +164,7 @@ export default class GameScreen {
     this.dog = null;
     this.escapes = [];
     this.furniture = [];
+    this.wallGap = null;
 
     this.running = false;
     this.catPaused = false;
@@ -549,13 +588,30 @@ export default class GameScreen {
     this.ctx.fillRect(this.canvas.width - WALL_THICKNESS - WALL_OFFSET, WALL_OFFSET, WALL_THICKNESS, this.canvas.height - WALL_OFFSET * 2); // Right
   }
 
+  // One guaranteed-visible mouse hole: generateKitchenFurniture() leaves a
+  // real gap in one wall's tile run each game and records it as
+  // this.wallGap. That gap gets the first escape, placed exactly in the
+  // open floor space where a tile would otherwise be — since nothing is
+  // drawn over that spot, the mouse stays visible there instead of ducking
+  // under solid furniture (see Mouse.js / FURNITURE_SPRITES comment above).
   generateEscapes(count) {
-    return Array.from({ length: count }, () => {
+    const escapes = [];
+
+    if (this.wallGap) {
+      const gap = this.wallGap;
+      const x = gap.x + gap.width / 2 - ESCAPE_SIZE / 2;
+      const y = gap.wall === 'top' ? 0 : this.canvas.height - ESCAPE_SIZE;
+      escapes.push(new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE));
+    }
+
+    while (escapes.length < count) {
       const wall = Math.floor(Math.random() * 4);
       const x = wall === 2 ? 0 : wall === 3 ? this.canvas.width - ESCAPE_SIZE : Math.random() * (this.canvas.width - ESCAPE_SIZE);
       const y = wall === 0 ? 0 : wall === 1 ? this.canvas.height - ESCAPE_SIZE : Math.random() * (this.canvas.height - ESCAPE_SIZE);
-      return new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE);
-    });
+      escapes.push(new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE));
+    }
+
+    return escapes;
   }
 
   generateKitchenFurniture() {
@@ -563,19 +619,18 @@ export default class GameScreen {
     const WALL_OFFSET = 40;
     const SPACING = 10;
 
-    // Builds a Furniture instance for a ref1-cropped piece using its own
-    // native size (they aren't all the same aspect ratio/size, unlike the
-    // old itch.io sprites) and always rotation 0 (see REF1_PIECES comment
-    // above — these can't be rotated without the baked-in lighting looking
-    // wrong). The fridge is the one exception: it's still the old
-    // Reakain-sourced flat sprite, which was actually designed to rotate,
-    // so it keeps using Furniture's own defaults and can face any wall.
+    // Builds a Furniture instance for a freestanding ref1-cropped piece
+    // (dining set / islands) using its own native size, always at rotation 0
+    // (see FURNITURE_SPRITES comment above — these can't be rotated without
+    // the baked-in lighting looking wrong). The fridge is the one exception:
+    // it's still the old Reakain-sourced flat sprite, which was actually
+    // designed to rotate, so it keeps using Furniture's own defaults.
     const makePiece = (type, x, y) => {
       if (type === 'fridge') {
         return new Furniture(x, y, 'fridge', FURNITURE_SPRITES.FRIDGE, 0);
       }
       const piece = REF1_PIECES[type];
-      return new Furniture(x, y, type, piece.sprite, 0, piece.width, piece.height, REF1_SCALE);
+      return new Furniture(x, y, type, piece.sprite, 0, piece.width, piece.height, piece.scale);
     };
 
     // Helper to check overlap
@@ -599,7 +654,13 @@ export default class GameScreen {
     const dogSpawnY = TOP_WALL_HEIGHT + SPAWN_CLEARANCE;
     const dogSize = 50;
 
-    const SPAWN_BUFFER = 50; // Extra space around spawn points
+    // Extra space around spawn points, kept modest since the interior band
+    // between the two wall runs is fairly narrow (~190px) — a larger buffer
+    // here previously combined with the dining set's footprint to exclude
+    // nearly the entire interior, leaving no room for the freestanding
+    // island accents to ever find a valid spot (confirmed live: they always
+    // failed to place until this was reduced).
+    const SPAWN_BUFFER = 20;
 
     // Helper to check if furniture would block entity spawns
     const blocksSpawn = (x, y, width, height) => {
@@ -617,48 +678,88 @@ export default class GameScreen {
       });
     };
 
-    // 1. Top wall: one whole cropped wall section (cabinets/stove/sink all
-    // together, already aligned as photographed), centered horizontally,
-    // flush against the top edge. The fridge (still a real rotatable
-    // sprite) sits right after it.
-    const topWall = makePiece('top_wall', 0, 0);
-    topWall.x = Math.max(0, (this.canvas.width - topWall.width) / 2);
-    furniture.push(topWall);
-    furniture.push(makePiece('fridge', topWall.x + topWall.width, 0));
+    // Pick exactly one wall to leave one tile out of, each game — that gap
+    // becomes this.wallGap, read by generateEscapes() to place a guaranteed-
+    // visible mouse hole there. The other wall stays a complete run.
+    const gapWall = Math.random() < 0.5 ? 'top' : 'bottom';
+    const gapTileIndex = Math.floor(
+      Math.random() * (gapWall === 'top' ? TOP_WALL_TILES.length : BOTTOM_WALL_TILES.length)
+    );
+    this.wallGap = null;
 
-    // 2. Bottom wall: the other whole wall section, cropped from the
-    // reference photo's bottom wall so it's already correctly oriented
-    // there — flush against the bottom edge, centered horizontally.
-    const bottomWall = makePiece('bottom_wall', 0, 0);
-    bottomWall.x = Math.max(0, (this.canvas.width - bottomWall.width) / 2);
-    bottomWall.y = this.canvas.height - bottomWall.height;
-    furniture.push(bottomWall);
-
-    // 3. Dining set (table + chairs cropped as one connected piece), placed
-    // randomly in the open interior, avoiding the two wall runs and the
-    // cat/mouse/dog spawn points.
-    const diningSpec = REF1_PIECES.dining_set;
-    const diningWidth = diningSpec.width * REF1_SCALE;
-    const diningHeight = diningSpec.height * REF1_SCALE;
-    const playableX = WALL_OFFSET + 40;
-    const playableY = WALL_OFFSET + 40 + topWall.height;
-    const playableMaxWidth = this.canvas.width - WALL_OFFSET * 2 - 80;
-    const playableMaxHeight = this.canvas.height - WALL_OFFSET * 2 - 80 - topWall.height - bottomWall.height;
-
-    let attempts = 0;
-    let placed = false;
-
-    while (!placed && attempts < 100) {
-      const x = playableX + Math.random() * Math.max(0, playableMaxWidth - diningWidth);
-      const y = playableY + Math.random() * Math.max(0, playableMaxHeight - diningHeight);
-
-      if (!overlaps(x, y, diningWidth, diningHeight) && !blocksSpawn(x, y, diningWidth, diningHeight)) {
-        furniture.push(makePiece('dining_set', x, y));
-        placed = true;
+    // 1. Top wall: natural-seam tiles placed edge-to-edge in source order
+    // (stove, range/cabinets, vent, cabinets, dish rack), centered
+    // horizontally and flush against the top edge. The fridge (still a real
+    // rotatable sprite) sits right after the last tile.
+    const topWallWidth = TOP_WALL_TILES.reduce((sum, t) => sum + t.width, 0);
+    let cursorX = Math.max(0, (this.canvas.width - topWallWidth) / 2);
+    TOP_WALL_TILES.forEach((tile, i) => {
+      if (gapWall === 'top' && i === gapTileIndex) {
+        this.wallGap = { x: cursorX, y: 0, width: tile.width, height: tile.height, wall: 'top' };
+      } else {
+        furniture.push(new Furniture(cursorX, 0, tile.type, tile.sprite, 0, tile.width, tile.height, REF1_SCALE));
       }
+      cursorX += tile.width;
+    });
+    furniture.push(makePiece('fridge', cursorX, 0));
 
-      attempts++;
-    }
+    // 2. Bottom wall: natural-seam tiles (sink run, double stove, utility
+    // run) placed the same way, flush against the bottom edge.
+    const bottomWallWidth = BOTTOM_WALL_TILES.reduce((sum, t) => sum + t.width, 0);
+    let cursorBottomX = Math.max(0, (this.canvas.width - bottomWallWidth) / 2);
+    const bottomY = this.canvas.height - BOTTOM_WALL_HEIGHT;
+    BOTTOM_WALL_TILES.forEach((tile, i) => {
+      if (gapWall === 'bottom' && i === gapTileIndex) {
+        this.wallGap = { x: cursorBottomX, y: bottomY, width: tile.width, height: tile.height, wall: 'bottom' };
+      } else {
+        furniture.push(new Furniture(cursorBottomX, bottomY, tile.type, tile.sprite, 0, tile.width, tile.height, REF1_SCALE));
+      }
+      cursorBottomX += tile.width;
+    });
+
+    // 3. Freestanding pieces — the dining set plus a handful of "island"
+    // accents (a 4-burner stove, a 3-burner range, a small side table) — each
+    // placed randomly in the open interior via the same overlaps/blocksSpawn
+    // random-search, avoiding the two wall runs and the cat/mouse/dog spawn
+    // points. The interior is tight, so a piece that can't find a free spot
+    // in 200 tries is simply skipped that game rather than forced to overlap.
+    //
+    // INTERIOR_MARGIN keeps furniture a bit clear of the wall tiles rather
+    // than touching them — this used to double-count WALL_OFFSET (the outer
+    // game-border margin, unrelated to the walls) on top of the full wall
+    // heights, which left a negative/near-zero height budget: every
+    // freestanding piece got clamped to the exact same y, so only the first
+    // one placed could ever avoid colliding with the rest. A real bug, not
+    // just too few attempts — confirmed live via a debug hook showing
+    // island_range/island_stove/side_table all silently failing to place.
+    const INTERIOR_MARGIN = 20;
+    const playableX = WALL_OFFSET + INTERIOR_MARGIN;
+    const playableY = TOP_WALL_HEIGHT + INTERIOR_MARGIN;
+    const playableMaxWidth = this.canvas.width - playableX * 2;
+    const playableMaxHeight = this.canvas.height - BOTTOM_WALL_HEIGHT - INTERIOR_MARGIN - playableY;
+
+    const placeFreestanding = (type) => {
+      const spec = REF1_PIECES[type];
+      const width = spec.width * spec.scale;
+      const height = spec.height * spec.scale;
+
+      let attempts = 0;
+      while (attempts < 300) {
+        const x = playableX + Math.random() * Math.max(0, playableMaxWidth - width);
+        const y = playableY + Math.random() * Math.max(0, playableMaxHeight - height);
+
+        if (!overlaps(x, y, width, height) && !blocksSpawn(x, y, width, height)) {
+          furniture.push(makePiece(type, x, y));
+          return;
+        }
+        attempts++;
+      }
+    };
+
+    // dining_set goes first (it's the priority centerpiece and now scaled
+    // closer in size to the islands — see REF1_PIECES.dining_set — so it no
+    // longer starves whichever piece is placed last).
+    ['dining_set', 'island_range', 'island_stove', 'side_table'].forEach(placeFreestanding);
 
     return furniture;
   }
