@@ -23,7 +23,8 @@ const FURNITURE_SPRITES = {
   FRIDGE: './assets/kitchen_fridge.png',
   STOVE: './assets/kitchen_stove.png',
   SINK: './assets/kitchen_sink.png',
-  TABLE: './assets/tabletop.png',
+  COUNTER: './assets/kitchen_counter.png',
+  TABLE: './assets/tabletop.png', // not part of the Kitchen Assets pack; still the old placeholder
   // Add more as we expand
 };
 
@@ -626,17 +627,18 @@ export default class GameScreen {
           for (let i = 0; i < 3; i++) {
             const offset = startOffset + i * FURNITURE_WIDTH;
             const pos = wall.getPos(offset);
-            furniture.push(new Furniture(pos.x, pos.y, 'counter', FURNITURE_SPRITES.SINK, wall.rotation));
+            furniture.push(new Furniture(pos.x, pos.y, 'counter', FURNITURE_SPRITES.COUNTER, wall.rotation));
           }
           counterGroupsPlaced++;
         }
       }
     }
     
-    // 2. Place appliances (fridge, stove) on random walls
+    // 2. Place appliances (fridge, stove, sink) on random walls
     const appliances = [
       { type: 'fridge', sprite: FURNITURE_SPRITES.FRIDGE },
-      { type: 'stove', sprite: FURNITURE_SPRITES.STOVE }
+      { type: 'stove', sprite: FURNITURE_SPRITES.STOVE },
+      { type: 'sink', sprite: FURNITURE_SPRITES.SINK }
     ];
     
     for (const appliance of appliances) {

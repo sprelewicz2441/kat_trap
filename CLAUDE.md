@@ -32,11 +32,13 @@ Open `index.html` directly in a browser (or serve the folder statically) to run 
 
 ## Kitchen furniture (`GameScreen.generateKitchenFurniture`)
 Procedurally lays out `Furniture` instances each game reset, in three passes:
-1. Up to 2 "counter groups" of 3 counters (rendered with the sink sprite — there's no separate counter sprite yet), placed flush against one of the four walls.
-2. One fridge and one stove, each placed via up to 60 random attempts on a random wall.
+1. Up to 2 "counter groups" of 3 counters (own `kitchen_counter.png` sprite), placed flush against one of the four walls.
+2. One fridge, one stove, and one sink, each placed via up to 60 random attempts on a random wall.
 3. Table groups of 2, placed randomly inside the playable interior, avoiding overlap with other furniture and with the cat/mouse/dog spawn points (`blocksSpawn`).
 
-All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array; each entry carries a `rotation` (0/180 for top/bottom, 270/90 for left/right, so furniture faces into the room) and a `length` (the wall's own extent — `canvas.width` for top/bottom, `canvas.height` for left/right — used to compute `maxOffset` for both the counter-group and appliance passes). `FURNITURE_SPRITES` currently only wires up `FRIDGE`, `STOVE`, `SINK`, and `TABLE`; the `tabletop_left/right/top/bottom/*_corner/wallframes/wallknife` assets added alongside this feature are unused.
+All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array; each entry carries a `rotation` (0/180 for top/bottom, 270/90 for left/right, so furniture faces into the room) and a `length` (the wall's own extent — `canvas.width` for top/bottom, `canvas.height` for left/right — used to compute `maxOffset` for both the counter-group and appliance passes). `FURNITURE_SPRITES` wires up `FRIDGE`, `STOVE`, `SINK`, `COUNTER`, and `TABLE`; the `tabletop_left/right/top/bottom/*_corner/wallframes/wallknife` assets from the original WIP commit are still unused.
+
+**Asset source (fridge/stove/sink/counter):** cropped and composited from Reakain's ["Kitchen Assets"](https://reakain.itch.io/kitchen-assets) pack (itch.io, name-your-own-price; license permits free/commercial use and modification, no redistribution/resale, no NFT/AI-training use, credit appreciated not required). The full source sheet is kept at `assets/kitchen_v1_source_sheet.png` (32x32-tile grid) for future re-slicing — e.g. the pack also has a toaster, microwave, trash bin, and waffle iron not wired in yet. `Furniture.js`'s `spriteWidth`/`spriteHeight`/`scale` were updated from the old 12x24@3x placeholders to 32x64@1.125x, which was chosen specifically to keep the same 36x72 in-game footprint — so none of the wall-placement/spacing/collision math in `generateKitchenFurniture()` needed to change. `TABLE` still uses the old `tabletop.png` placeholder since this pack has no freestanding dining table.
 
 ## Punch mechanic
 - `p` → `InputHandler` dispatches a `'punch'` custom event on `document`.
@@ -56,8 +58,8 @@ All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array;
 - `styles.css` exists but is currently empty — all styling is Tailwind utility classes in `index.html`.
 
 ## Planned work
-- **Furniture asset rework.** The current `assets/kitchen_*.png`/`tabletop_*.png` sprites are placeholder-quality; plan is to replace them with more realistic art. `Furniture.js` already assumes a fixed 12x24 native sprite size (`spriteWidth`/`spriteHeight`) scaled 3x — new assets should either match that or the constructor's sizing will need to change alongside them.
-- **Mobile responsiveness.** Not addressed yet. Canvas sizing (`resizeCanvas` in `js/main.js`) and all movement/collision math currently assume keyboard input (`InputHandler` only listens for arrow keys, space, `p`, `m`) — touch input and layout would both need work.
+- **Furniture asset rework — in progress.** Fridge/stove/sink/counter now use real art from Reakain's Kitchen Assets pack (see Kitchen furniture section above). `TABLE` is still the old placeholder (pack has no dining table). Future rooms (living room, bathroom, etc. for later stages) will need a matching-style pack sourced the same way — kitchen-only packs won't carry over, so look for multi-room interior packs when that comes up.
+- **Mobile responsiveness.** Not addressed yet. Canvas sizing (`resizeCanvas` in `js/main.js`) and all movement/collision math currently assume keyboard input (`InputHandler` only listens for arrow keys, space, `p`, `m`) — touch input and layout would both need work. Note this also covers the "assets should grow/shrink responsively" ask — furniture already scales via `Furniture.scale`, but the canvas-relative sizing story for different screen sizes hasn't been designed yet.
 
 ## When working in this repo
 - Prefer matching the existing per-class, no-framework style — don't introduce a build tool or framework without discussing it first.

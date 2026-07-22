@@ -7,10 +7,11 @@ export default class Furniture {
     this.type = type;
     this.rotation = rotation; // 0, 90, 180, 270 degrees
     
-    // Original sprite size 12x24, scale 3x
-    this.spriteWidth = 12;
-    this.spriteHeight = 24;
-    this.scale = 3;
+    // Sprite native size 32x64 (Reakain "Kitchen Assets" pack), scaled to
+    // keep the same 36x72 in-game footprint the old 12x24@3x sprites had.
+    this.spriteWidth = 32;
+    this.spriteHeight = 64;
+    this.scale = 1.125;
     
     // Actual dimensions depend on rotation
     if (rotation === 90 || rotation === 270) {
