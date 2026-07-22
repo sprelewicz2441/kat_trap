@@ -54,8 +54,11 @@ All four walls (`top`/`bottom`/`left`/`right`) are defined in the `walls` array;
 - AABB collision logic is duplicated across `Boundary`, `Escape`, `Dog`, and now `Furniture` instead of being shared/extracted.
 - Mouse is explicitly not blocked by furniture (`mouseColliding` is hardcoded `false` in `updateMouse()`, with a comment noting mice can pass through) — currently a deliberate simplification, but worth confirming it's meant to stay that way long-term.
 - `Boundary.js` and its `generateRandomBoundaries`/`areOverlapping` methods in `GameScreen.js` are dead/commented-out code now that furniture is the obstacle system — candidate for deletion rather than carrying both systems forward.
-- Extensive leftover `console.log` debug statements throughout `GameScreen.js`, `Dog.js`, and `Cutscene.js` — notably `Cutscene.render()` and `GameScreen.drawShockwave()` log on **every animation frame** while active, not just once.
 - `styles.css` exists but is currently empty — all styling is Tailwind utility classes in `index.html`.
+
+## Planned work
+- **Furniture asset rework.** The current `assets/kitchen_*.png`/`tabletop_*.png` sprites are placeholder-quality; plan is to replace them with more realistic art. `Furniture.js` already assumes a fixed 12x24 native sprite size (`spriteWidth`/`spriteHeight`) scaled 3x — new assets should either match that or the constructor's sizing will need to change alongside them.
+- **Mobile responsiveness.** Not addressed yet. Canvas sizing (`resizeCanvas` in `js/main.js`) and all movement/collision math currently assume keyboard input (`InputHandler` only listens for arrow keys, space, `p`, `m`) — touch input and layout would both need work.
 
 ## When working in this repo
 - Prefer matching the existing per-class, no-framework style — don't introduce a build tool or framework without discussing it first.

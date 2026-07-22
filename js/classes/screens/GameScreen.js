@@ -85,8 +85,6 @@ export default class GameScreen {
     this.canvas = canvas;
     this.ctx = ctx;
     this.isReplay = isReplay;
-    console.log("Construcitn gameScreen");
-    console.log(isReplay);
 
     this.cat = null;
     this.mouse = null;
@@ -115,9 +113,6 @@ export default class GameScreen {
         this.sounds[SOUND_KEYS.BACKGROUND].play();
     }
 
-    console.log("Init GameScreen");
-    console.log("isReplay:", this.isReplay);
-
     // Always add the click handler
     this.clickHandler = this.handleClick.bind(this);
     this.canvas.addEventListener('click', this.clickHandler);
@@ -140,11 +135,9 @@ export default class GameScreen {
     document.addEventListener('meow', this.meowHandler);
 
     if (!this.isReplay) {
-        console.log("Not a replay: Starting cutscenes");
         this.running = false;
         this.startCutscenes();
     } else {
-        console.log("Is a replay: Skipping cutscenes");
         this.running = true;
     }
   }
@@ -231,19 +224,16 @@ export default class GameScreen {
     if (this.gameOver) {
         // Check if the click is within the "Play Again" button area
         if (this.isClickInside(offsetX, offsetY, this.playAgainButtonArea)) {
-            console.log("Click detected on Play Again button");
             this.restartGame();
             return;
         }
 
         // Prevent clicking on the message from triggering any action
-        console.log("Click detected outside of Play Again button");
         return;
     }
   }
 
   restartGame() {
-    console.log('Restarting Game');
     this.gameOver = false;
     //this.sounds[SOUND_KEYS.BACKGROUND].pause();
     //this.sounds[SOUND_KEYS.BACKGROUND].currentTime = 0;
@@ -302,9 +292,7 @@ export default class GameScreen {
   }
 
   handleToot() {
-    console.log("Toot! Moving the dog away.");
-
-    const MOVE_DISTANCE = 10; 
+    const MOVE_DISTANCE = 10;
     if (!this.dog) return;
 
     // Move dog directly away from the cat
@@ -319,8 +307,6 @@ export default class GameScreen {
   }
 
   handlePunch() {
-    console.log("Punch! Knocking the dog back.");
-
     if (!this.dog) return;
 
     // Start shockwave animation
@@ -459,8 +445,6 @@ export default class GameScreen {
 
     const elapsed = performance.now() - this.shockwave.startTime;
 
-    console.log("Drawing shockwave:", { elapsed, shockwave: this.shockwave }); 
-    
     if (elapsed > PUNCH_SHOCKWAVE_DURATION) {
       this.shockwave = null;
       return;
@@ -516,8 +500,6 @@ export default class GameScreen {
 
     // Update the playAgainButtonArea for accurate click detection
     this.playAgainButtonArea = { x: buttonX, y: buttonY, width: PLAY_BUTTON_WIDTH, height: PLAY_BUTTON_HEIGHT };
-
-    //console.log('Updated Play Again Button Area:', this.playAgainButtonArea); // Debugging info
   }
 
   drawWallBorders() {

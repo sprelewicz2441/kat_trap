@@ -35,7 +35,6 @@ export default class Dog {
   setNextBark() {
     const randomDelay = Math.random() * 9000 + 1000;
     this.barkTimeoutId = setTimeout(() => {
-      console.log("Dog barking from timeout:", this.barkTimeoutId); 
       if (this.playSound) {
         this.playSound('dogBark');
       }
@@ -111,7 +110,6 @@ export default class Dog {
   }
 
   cleanup() {
-    console.log("Dog cleanup called, clearing timeout:", this.barkTimeoutId);
     if (this.barkTimeoutId) {
       clearTimeout(this.barkTimeoutId);
       this.barkTimeoutId = null;

@@ -30,7 +30,6 @@ export default class CutsceneManager {
   }
 
   advanceToNextCutscene() {
-    console.log('Advancing to the next cutscene'); // Debug log
     this.currentIndex++;
     this.playNextCutscene();
   }
@@ -51,7 +50,6 @@ export default class CutsceneManager {
 
   endCutscenes() {
     this.isPlaying = false;
-    console.log('Cutscenes finished'); // Debug log
     if (this.endCallback) this.endCallback();
   }
 }

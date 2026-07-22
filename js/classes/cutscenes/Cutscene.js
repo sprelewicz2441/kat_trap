@@ -11,7 +11,6 @@ export default class Cutscene {
     this.elapsedTime = 0; // Timer for cutscene
 
     this.soundPlayed = false; // Prevent duplicate sounds
-    console.log('Cutscene initialized'); // Debug log
   }
 
   init(nextCallback) {
@@ -25,7 +24,6 @@ export default class Cutscene {
     this.characterAnimation.x = this.ctx.canvas.width / 2 - this.frameWidth / 2;
     this.characterAnimation.y = this.ctx.canvas.height / 2 - this.frameHeight / 2;
 
-    console.log('Cutscene init called');
     this.addEventListeners();
   }
 
@@ -35,7 +33,6 @@ export default class Cutscene {
   }
 
   handleNextClick(event) {
-    console.log('Next button clicked'); // Debug log
     const { offsetX, offsetY } = event;
 
     // Define "Next" button position
@@ -50,7 +47,6 @@ export default class Cutscene {
       offsetY >= buttonY &&
       offsetY <= buttonY + buttonHeight
     ) {
-      console.log('Next cutscene triggered'); // Debug log
       this.cleanup();
       if (this.nextCallback) this.nextCallback();
     }
@@ -61,8 +57,6 @@ export default class Cutscene {
   }
 
   render() {
-    console.log('Rendering Cutscene'); // Debug log
-
     // Draw a red-bordered modal background
     this.ctx.save();
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -80,8 +74,6 @@ export default class Cutscene {
     if (this.characterAnimation) {
       this.characterAnimation.update(); // Update animation frame
       this.characterAnimation.draw(this.ctx);
-    } else {
-      console.log('No character animation found'); // Debugging placeholder
     }
 
     // Draw the text
