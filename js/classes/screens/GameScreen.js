@@ -18,58 +18,65 @@ const WALL_THICKNESS = 15;
 const ESCAPE_SIZE = 15;
 const NUM_OF_ESCAPES = 6;
 
-// Furniture sprite paths — the "PtPt Cute Pixel Cooking" pack (free, by
-// itch.io user PtPt). Replaced the earlier photographic AI-scene crops
-// entirely: those were strict bird's-eye photo crops, which never matched
-// the actual character art (cat.png/dog_medium.png are bold, flat,
-// front-facing cartoon mascots — see CLAUDE.md Kitchen furniture section for
-// the full history). These sprites are drawn with real dimension (both the
-// top surface and a bit of the front face visible, like Overcooked/Stardew
-// Valley), which reads as intentional next to the mascot-style characters in
-// a way neither the photo crops nor a flat pixel-RPG tileset did.
+// Furniture sprite paths — AI-generated photorealistic renders (via
+// yeri.ai/Stable Diffusion), one object per image, each individually
+// trimmed to its own bounding box with the white studio background made
+// transparent (see the pixel-processing step in git history / commit
+// message — near-white pixels converted to alpha 0 on an offscreen canvas).
+// This is the THIRD kitchen art direction this project has had — see
+// CLAUDE.md Kitchen furniture section for why the flat-cartoon PtPt pack
+// (and the photo-crop scene before that) were replaced: the user wanted
+// the kitchen to look "as realistic as possible," which a hand-drawn pack
+// couldn't deliver no matter how well it matched the layout mechanics.
+// Individual AI-generated objects (rather than one big AI scene, which is
+// what the *first* art direction tried and which caused all the alignment
+// problems) keep the modular wall-building/gap mechanic intact.
 const FURNITURE_SPRITES = {
-  COUNTER: './assets/ptpt_counter.png',
-  CABINET: './assets/ptpt_cabinet.png',
-  STOVE: './assets/ptpt_stove.png',
-  SINK: './assets/ptpt_sink.png',
-  TABLE: './assets/ptpt_table.png',
-  CHAIR: './assets/ptpt_chair.png', // faces the viewer (near side of a table)
-  CHAIR_REVERSE: './assets/ptpt_chair_reverse.png', // back to viewer (far side of a table)
-  TRASHCAN: './assets/ptpt_trashcan.png',
+  CABINET: './assets/realistic_cabinet.png',
+  SINK: './assets/realistic_sink.png',
+  STOVE: './assets/realistic_stove.png',
+  FRIDGE: './assets/realistic_fridge.png',
+  TABLE: './assets/realistic_table.png',
+  CHAIR: './assets/realistic_chair.png',
 };
 
-// Every counter-row module shares a native width (64px) but not height —
-// the stove's hood and the sink's faucet stick up higher than a plain
-// counter or cabinet front. Modules are aligned to a shared baseline (the
-// floor line) rather than a shared top, same as real counters of different
-// heights still standing on one floor — see buildWallRun()/BASELINE below.
-const MODULE_SCALE = 3;
-const MODULE_WIDTH = 64;
+// Unlike the old PtPt pack (uniform 64px-wide sprites), these renders each
+// have their own native size — cropped tightly to their own content, not to
+// a shared grid. Wall modules are placed edge-to-edge using each piece's own
+// scaled width (see buildWall() below) rather than a fixed cell size, and
+// aligned to a shared baseline (the floor line) since their heights differ
+// too — same principle as before, just without a uniform width to lean on.
+const MODULE_SCALE = 0.22;
 const MODULE_SPECS = {
-  counter: { sprite: FURNITURE_SPRITES.COUNTER, height: 34 },
-  cabinet: { sprite: FURNITURE_SPRITES.CABINET, height: 34 },
-  stove: { sprite: FURNITURE_SPRITES.STOVE, height: 40 },
-  sink: { sprite: FURNITURE_SPRITES.SINK, height: 42 },
+  cabinet: { sprite: FURNITURE_SPRITES.CABINET, width: 914, height: 797 },
+  sink: { sprite: FURNITURE_SPRITES.SINK, width: 947, height: 817 },
+  stove: { sprite: FURNITURE_SPRITES.STOVE, width: 850, height: 703 },
 };
-// These are genuinely modular tiles (unlike the old photo crops), so any
-// module can repeat or reorder freely with no alignment risk — no more
-// cut-off objects or fixed-width strips that stop matching the canvas.
-const TOP_WALL_FEATURED = ['cabinet', 'stove', 'sink', 'cabinet'];
-const BOTTOM_WALL_FEATURED = ['sink', 'cabinet', 'stove', 'cabinet'];
+// Only 3 distinct wall-module renders exist (no separate plain "counter"
+// render this round) — cabinet doubles as filler, same role COUNTER played
+// with the PtPt pack.
+const TOP_WALL_ORDER = ['cabinet', 'stove', 'sink', 'cabinet'];
+const BOTTOM_WALL_ORDER = ['sink', 'cabinet', 'stove', 'cabinet'];
 
-// Dining set: same MODULE_SCALE as the walls for visual consistency. Table
-// is 64x34 native; chairs are 30x60 (tall chair-back, narrow seat) — CHAIR
-// faces the viewer (near side of the table) and CHAIR_REVERSE has its back
-// to the viewer (far side), so a two-chair table reads as people actually
-// seated at it rather than two identical chairs floating nearby.
-const TABLE_SPEC = { width: 64, height: 34 };
-const CHAIR_SPEC = { width: 30, height: 60 };
+const FRIDGE_SPEC = { width: 462, height: 957 };
+// Dining set: table and one chair placed side by side (not front/back
+// chairs around the table like the PtPt round) — this photorealistic chair
+// render only exists from one angle, and stacking chair+table+chair
+// vertically (as PtPt's two-chair layout did) needed far more interior
+// height than these much-taller-relative-to-canvas renders leave room for.
+// Side-by-side needs only as much height as the taller of the two pieces.
+const TABLE_SPEC = { width: 642, height: 617 };
+const CHAIR_SPEC = { width: 835, height: 840 };
+const DINING_SCALE = MODULE_SCALE;
 
-// Tallest module (the sink, with its faucet) sets how much clearance the
-// cat/dog spawn points need — see the wall-strip stuck-spawn bug this
-// pattern was built to avoid, described further down near SPAWN_CLEARANCE.
-const TOP_WALL_HEIGHT = 42 * MODULE_SCALE;
-const BOTTOM_WALL_HEIGHT = 42 * MODULE_SCALE;
+// Wall clearance must cover the tallest thing on that wall — the fridge
+// (957 native, much taller than any counter module) sits on the top wall,
+// so TOP_WALL_HEIGHT is sized from the fridge, not from the counter modules,
+// or the cat/dog spawn points would land inside the fridge's collision box
+// (the same class of stuck-spawn bug hit twice already in this project's
+// history — see CLAUDE.md).
+const TOP_WALL_HEIGHT = Math.ceil(FRIDGE_SPEC.height * MODULE_SCALE);
+const BOTTOM_WALL_HEIGHT = Math.ceil(MODULE_SPECS.sink.height * MODULE_SCALE);
 const SPAWN_CLEARANCE = 60;
 
 const DOG_PAUSE_DURATION = 2000;
@@ -607,28 +614,42 @@ export default class GameScreen {
     const furniture = [];
     const WALL_OFFSET = 40;
     const SPACING = 10;
-    const moduleWidth = MODULE_WIDTH * MODULE_SCALE;
 
-    // Builds one counter-row module, aligned to a shared baseline (the floor
-    // line) rather than a shared top — modules have different native
-    // heights (the stove's hood, the sink's faucet stick up further than a
-    // plain counter/cabinet front), so aligning by their bottom edge is what
-    // makes them read as sitting on the same floor, the way real counters of
-    // different heights actually do.
+    // Builds one wall module, aligned to a shared baseline (the floor line)
+    // rather than a shared top — these renders have different native
+    // heights (no shared grid unlike the old PtPt pack), so aligning by
+    // their bottom edge is what makes them read as sitting on the same
+    // floor, the way real counters of different heights actually do.
     const makeModule = (type, x, baselineY) => {
       const spec = MODULE_SPECS[type];
       const height = spec.height * MODULE_SCALE;
-      return new Furniture(x, baselineY - height, type, spec.sprite, 0, MODULE_WIDTH, spec.height, MODULE_SCALE);
+      return new Furniture(x, baselineY - height, type, spec.sprite, 0, spec.width, spec.height, MODULE_SCALE);
     };
 
-    // Fills `count` slots: the featured pieces (stove/sink/cabinet) first in
-    // order, then plain counters for whatever's left. These are genuinely
-    // modular tiles (unlike the old photo crops), so repeating/reordering
-    // them to fit any canvas width carries no alignment risk.
-    const buildWallTypes = (count, featured) => {
-      const types = featured.slice(0, count);
-      while (types.length < count) types.push('counter');
-      return types;
+    // Places `order` edge-to-edge using each piece's own scaled width
+    // (unlike the old fixed-cell-width layout, since these renders aren't a
+    // uniform size), centered as a group. One slot is skipped if this wall
+    // was chosen for the mouse-hole gap this game.
+    const buildWall = (order, isTop) => {
+      const scaledWidths = order.map(type => MODULE_SPECS[type].width * MODULE_SCALE);
+      const totalWidth = scaledWidths.reduce((a, b) => a + b, 0);
+      let cursorX = Math.max(0, (this.canvas.width - totalWidth) / 2);
+      const wallName = isTop ? 'top' : 'bottom';
+      const gapIndex = gapWall === wallName ? Math.floor(Math.random() * order.length) : -1;
+      const baselineY = isTop ? TOP_WALL_HEIGHT : this.canvas.height;
+      const wallHeight = isTop ? TOP_WALL_HEIGHT : BOTTOM_WALL_HEIGHT;
+
+      order.forEach((type, i) => {
+        const w = scaledWidths[i];
+        if (i === gapIndex) {
+          this.wallGap = { x: cursorX, y: isTop ? 0 : this.canvas.height - BOTTOM_WALL_HEIGHT, width: w, height: wallHeight, wall: wallName };
+        } else {
+          furniture.push(makeModule(type, cursorX, baselineY));
+        }
+        cursorX += w;
+      });
+
+      return cursorX;
     };
 
     // Pick exactly one wall to leave one module out of, each game — that gap
@@ -637,37 +658,18 @@ export default class GameScreen {
     const gapWall = Math.random() < 0.5 ? 'top' : 'bottom';
     this.wallGap = null;
 
-    // 1. Top wall: cabinet/stove/sink/cabinet plus plain counters filling
-    // out the rest of the canvas width, flush against the top edge.
-    const topCount = Math.max(TOP_WALL_FEATURED.length, Math.floor((this.canvas.width - WALL_OFFSET * 2) / moduleWidth));
-    const topTypes = buildWallTypes(topCount, TOP_WALL_FEATURED);
-    const topGapIndex = gapWall === 'top' ? Math.floor(Math.random() * topTypes.length) : -1;
-    let cursorX = Math.max(0, (this.canvas.width - topTypes.length * moduleWidth) / 2);
-    topTypes.forEach((type, i) => {
-      if (i === topGapIndex) {
-        this.wallGap = { x: cursorX, y: 0, width: moduleWidth, height: TOP_WALL_HEIGHT, wall: 'top' };
-      } else {
-        furniture.push(makeModule(type, cursorX, TOP_WALL_HEIGHT));
-      }
-      cursorX += moduleWidth;
-    });
+    // 1. Top wall: cabinet/stove/sink/cabinet, flush against the top edge.
+    // The fridge (much taller than the counter modules) sits right after,
+    // its top flush with the wall's top edge like the counters, so it reads
+    // as standing on the same floor rather than floating or sunken.
+    const topEndX = buildWall(TOP_WALL_ORDER, true);
+    furniture.push(new Furniture(topEndX, 0, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, MODULE_SCALE));
 
     // 2. Bottom wall: same treatment, flush against the bottom edge, with a
-    // different featured order than the top wall for a bit of variety.
-    const bottomCount = Math.max(BOTTOM_WALL_FEATURED.length, Math.floor((this.canvas.width - WALL_OFFSET * 2) / moduleWidth));
-    const bottomTypes = buildWallTypes(bottomCount, BOTTOM_WALL_FEATURED);
-    const bottomGapIndex = gapWall === 'bottom' ? Math.floor(Math.random() * bottomTypes.length) : -1;
-    let cursorBottomX = Math.max(0, (this.canvas.width - bottomTypes.length * moduleWidth) / 2);
-    bottomTypes.forEach((type, i) => {
-      if (i === bottomGapIndex) {
-        this.wallGap = { x: cursorBottomX, y: this.canvas.height - BOTTOM_WALL_HEIGHT, width: moduleWidth, height: BOTTOM_WALL_HEIGHT, wall: 'bottom' };
-      } else {
-        furniture.push(makeModule(type, cursorBottomX, this.canvas.height));
-      }
-      cursorBottomX += moduleWidth;
-    });
+    // different order than the top wall for a bit of variety.
+    buildWall(BOTTOM_WALL_ORDER, false);
 
-    // Helper to check overlap, used for the freestanding dining set/trashcan.
+    // Helper to check overlap, used for the freestanding dining set.
     const overlaps = (x, y, width, height) => {
       return furniture.some(f => {
         return !(x + width + SPACING < f.x ||
@@ -710,55 +712,31 @@ export default class GameScreen {
     const playableMaxWidth = this.canvas.width - playableX * 2;
     const playableMaxHeight = this.canvas.height - BOTTOM_WALL_HEIGHT - INTERIOR_MARGIN - playableY;
 
-    // 3. Dining set: a table with a chair on each side — the back-facing
-    // chair "seated" on the far side, the front-facing chair on the near
-    // side — placed in the open interior via random search. Skipped
-    // silently if no free spot is found in 300 tries, same as before.
-    //
-    // DINING_SCALE is a bit smaller than MODULE_SCALE: at the wall modules'
-    // full scale, two stacked chairs plus the table came out taller than the
-    // interior floor band, so it only found a valid spot roughly 1 game in 4
-    // (confirmed live). The two-chair arrangement is worth the trim over
-    // dropping to one chair — floor furniture reading a little smaller than
-    // wall furniture isn't unusual in this style of game.
-    const DINING_SCALE = MODULE_SCALE * 0.85;
-    const CHAIR_GAP = 12;
+    // 3. Dining set: table and one chair placed side by side (not stacked
+    // front/back like an earlier round), sharing a random-search footprint
+    // sized to the taller of the two pieces — placing them front-and-back
+    // would need combined chair+table+chair height, which doesn't fit the
+    // interior band at this scale (confirmed live). Side-by-side only needs
+    // as much vertical room as the taller piece.
+    const DINING_GAP = 10;
     const tableWidth = TABLE_SPEC.width * DINING_SCALE;
     const tableHeight = TABLE_SPEC.height * DINING_SCALE;
     const chairWidth = CHAIR_SPEC.width * DINING_SCALE;
     const chairHeight = CHAIR_SPEC.height * DINING_SCALE;
-    const diningSetHeight = chairHeight * 2 + CHAIR_GAP * 2 + tableHeight;
+    const setWidth = tableWidth + DINING_GAP + chairWidth;
+    const setHeight = Math.max(tableHeight, chairHeight);
 
     let diningAttempts = 0;
     while (diningAttempts < 300) {
-      const x = playableX + Math.random() * Math.max(0, playableMaxWidth - tableWidth);
-      const y = playableY + Math.random() * Math.max(0, playableMaxHeight - diningSetHeight);
+      const x = playableX + Math.random() * Math.max(0, playableMaxWidth - setWidth);
+      const y = playableY + Math.random() * Math.max(0, playableMaxHeight - setHeight);
 
-      if (!overlaps(x, y, tableWidth, diningSetHeight) && !blocksSpawn(x, y, tableWidth, diningSetHeight)) {
-        const chairX = x + (tableWidth - chairWidth) / 2;
-        const tableY = y + chairHeight + CHAIR_GAP;
-        furniture.push(new Furniture(chairX, y, 'chair_reverse', FURNITURE_SPRITES.CHAIR_REVERSE, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, DINING_SCALE));
-        furniture.push(new Furniture(x, tableY, 'table', FURNITURE_SPRITES.TABLE, 0, TABLE_SPEC.width, TABLE_SPEC.height, DINING_SCALE));
-        furniture.push(new Furniture(chairX, tableY + tableHeight + CHAIR_GAP, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, DINING_SCALE));
+      if (!overlaps(x, y, setWidth, setHeight) && !blocksSpawn(x, y, setWidth, setHeight)) {
+        furniture.push(new Furniture(x, y + (setHeight - tableHeight) / 2, 'table', FURNITURE_SPRITES.TABLE, 0, TABLE_SPEC.width, TABLE_SPEC.height, DINING_SCALE));
+        furniture.push(new Furniture(x + tableWidth + DINING_GAP, y + (setHeight - chairHeight) / 2, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, DINING_SCALE));
         break;
       }
       diningAttempts++;
-    }
-
-    // 4. A small trashcan accent, placed the same way if room allows —
-    // skipped silently if it can't find a spot, same as the dining set.
-    const TRASH_SCALE = MODULE_SCALE * 0.6;
-    const trashWidth = 40 * TRASH_SCALE;
-    const trashHeight = 52 * TRASH_SCALE;
-    let trashAttempts = 0;
-    while (trashAttempts < 100) {
-      const x = playableX + Math.random() * Math.max(0, playableMaxWidth - trashWidth);
-      const y = playableY + Math.random() * Math.max(0, playableMaxHeight - trashHeight);
-      if (!overlaps(x, y, trashWidth, trashHeight) && !blocksSpawn(x, y, trashWidth, trashHeight)) {
-        furniture.push(new Furniture(x, y, 'trashcan', FURNITURE_SPRITES.TRASHCAN, 0, 40, 52, TRASH_SCALE));
-        break;
-      }
-      trashAttempts++;
     }
 
     return furniture;
