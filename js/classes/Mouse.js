@@ -1,12 +1,16 @@
 export default class Mouse {
-  constructor(x, y, canvasWidth, canvasHeight) {
+  // `scale` (see js/utils/scale.js) shrinks size/speed together on a small
+  // canvas. frameWidth/frameHeight stay native (used only to slice the
+  // source sheet); this.size is the scaled on-screen/collision size.
+  constructor(x, y, canvasWidth, canvasHeight, scale = 1) {
     this.x = x;
     this.y = y;
-    this.size = 32; // Match in-game size to sprite size
+    this.scale = scale;
+    this.size = 32 * scale; // Match in-game size to sprite size
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
-    this.speedX = (Math.random() * 2 + 1) * (Math.random() < 1.0 ? 1 : -1);
-    this.speedY = (Math.random() * 2 + 1) * (Math.random() < 1.0 ? 1 : -1);
+    this.speedX = (Math.random() * 2 + 1) * scale * (Math.random() < 1.0 ? 1 : -1);
+    this.speedY = (Math.random() * 2 + 1) * scale * (Math.random() < 1.0 ? 1 : -1);
 
     // Sprite sheet
     this.spriteSheet = new Image();
@@ -33,11 +37,23 @@ export default class Mouse {
     this.wallHitCallback = callback; // Allow GameScreen to set the callback
   }
 
+  // this.size is already the scaled on-screen size (see constructor) — this
+  // just gives Cutscene.js a name it can read the same way across
+  // Cat/Dog/Mouse regardless of what each class calls its own internal
+  // fields.
+  get displayWidth() {
+    return this.size;
+  }
+
+  get displayHeight() {
+    return this.size;
+  }
+
   update() {
     // Randomize movement
     if (Math.random() < 0.03) {
-      this.speedX = (Math.random() * 2 + 1) * (Math.random() < 0.5 ? 1 : -1);
-      this.speedY = (Math.random() * 2 + 1) * (Math.random() < 0.5 ? 1 : -1);
+      this.speedX = (Math.random() * 2 + 1) * this.scale * (Math.random() < 0.5 ? 1 : -1);
+      this.speedY = (Math.random() * 2 + 1) * this.scale * (Math.random() < 0.5 ? 1 : -1);
     }
 
     // Move the mouse

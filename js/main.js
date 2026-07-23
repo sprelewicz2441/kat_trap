@@ -1,10 +1,14 @@
 import ScreenManager from './classes/screens/ScreenManager.js';
 import SetupScreen from './classes/screens/SetupScreen.js';
+import { setupOrientationGate } from './utils/orientationGate.js';
+import { setupTouchControls } from './utils/touchControls.js';
 
 const gameCanvas = document.getElementById('gameCanvas');
-const ctx = gameCanvas.getContext('2d'); 
+const ctx = gameCanvas.getContext('2d');
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+setupOrientationGate();
+setupTouchControls();
 
 const screenManager = new ScreenManager(ctx);
 const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);

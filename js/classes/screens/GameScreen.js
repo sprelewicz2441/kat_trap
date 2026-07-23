@@ -10,104 +10,217 @@ import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
 import { aabbOverlap } from '../../utils/collision.js';
+import { getScale, getUIScale } from '../../utils/scale.js';
 
 // ==============================
 //  CONSTANTS
 // ==============================
-const WALL_THICKNESS = 15;
-const ESCAPE_SIZE = 15;
+// Every BASE_* constant below was tuned by eye against a ~1280px-wide
+// desktop canvas. computeLayout() (bottom of this section) multiplies each
+// by the canvas's actual scale factor (see js/utils/scale.js) so furniture,
+// walls, and UI chrome keep the same *proportion* of the board at any
+// canvas size — confirmed live that without this, a single stove alone ate
+// ~40% of the board height on a 350px-wide mobile canvas. this.layout
+// (computed once in the constructor) is what every method below reads
+// instead of a bare module-level constant — see "Mobile responsiveness" in
+// CLAUDE.md.
+
+// Thickness of the visual wall band drawn around the board perimeter (see
+// drawWalls()) — purely presentational, independent of WALL_OFFSET (the
+// separate value moveCat() uses to clamp how close the cat can get to the
+// edge).
+const BASE_WALL_BAND_THICKNESS = 16;
+const BASE_ESCAPE_SIZE = 15;
 const NUM_OF_ESCAPES = 6;
 
-// Furniture sprite paths — AI-generated photorealistic renders (via
-// yeri.ai/Stable Diffusion), one object per image, each individually
-// trimmed to its own bounding box with the white studio background made
-// transparent (see the pixel-processing step in git history / commit
-// message — near-white pixels converted to alpha 0 on an offscreen canvas).
-// This is the THIRD kitchen art direction this project has had — see
-// CLAUDE.md Kitchen furniture section for why the flat-cartoon PtPt pack
-// (and the photo-crop scene before that) were replaced: the user wanted
-// the kitchen to look "as realistic as possible," which a hand-drawn pack
-// couldn't deliver no matter how well it matched the layout mechanics.
-// Individual AI-generated objects (rather than one big AI scene, which is
-// what the *first* art direction tried and which caused all the alignment
-// problems) keep the modular wall-building/gap mechanic intact.
+// Furniture sprite paths — the FOURTH kitchen art direction this project
+// has had (see CLAUDE.md Kitchen furniture section for why the previous
+// three — a photo-crop scene, the flat-cartoon PtPt pack, and individually-
+// generated photorealistic objects — were each replaced). These are new
+// individually-generated renders provided directly for this pass; the
+// modular wall-building/gap mechanic carries forward unchanged from the
+// last two rounds — only the asset source and each piece's native
+// dimensions changed.
 const FURNITURE_SPRITES = {
-  CABINET: './assets/realistic_cabinet.png',
-  SINK: './assets/realistic_sink.png',
-  STOVE: './assets/realistic_stove.png',
-  FRIDGE: './assets/realistic_fridge.png',
-  TABLE: './assets/realistic_table.png',
-  CHAIR: './assets/realistic_chair.png',
+  CABINET: './assets/kitchen_cabinet.png',
+  SINK: './assets/kitchen_sink.png',
+  STOVE: './assets/kitchen_stove.png',
+  FRIDGE: './assets/kitchen_fridge.png',
+  TABLE: './assets/kitchen_table.png',
+  CHAIR: './assets/kitchen_chair.png',
 };
 
-// Unlike the old PtPt pack (uniform 64px-wide sprites), these renders each
-// have their own native size — cropped tightly to their own content, not to
-// a shared grid. Wall modules are placed edge-to-edge using each piece's own
+// Each render has its own native size (not a shared grid) — dimensions
+// below are each render's actual *content* size, not its file size: every
+// kitchen_*.png has a few pixels of transparent padding baked in around
+// the object (confirmed by scanning each file's alpha channel), which left
+// a visible gap between adjacent wall modules even though buildWall()
+// places their bounding boxes truly edge-to-edge. width/height here are the
+// trimmed content dimensions (used for layout/collision), and cropX/cropY
+// are that content's offset within the source file (used by Furniture's
+// draw() to source-rect only the real content, skipping the padding) — see
+// Furniture.js. Wall modules are placed edge-to-edge using each piece's own
 // scaled width (see buildWall() below) rather than a fixed cell size, and
 // aligned to a shared baseline (the floor line) since their heights differ
-// too — same principle as before, just without a uniform width to lean on.
-const MODULE_SCALE = 0.22;
+// too.
+const BASE_MODULE_SCALE = 0.15;
 const MODULE_SPECS = {
-  cabinet: { sprite: FURNITURE_SPRITES.CABINET, width: 914, height: 797 },
-  sink: { sprite: FURNITURE_SPRITES.SINK, width: 947, height: 817 },
-  stove: { sprite: FURNITURE_SPRITES.STOVE, width: 850, height: 703 },
+  cabinet: { sprite: FURNITURE_SPRITES.CABINET, width: 832, height: 497, cropX: 7, cropY: 7 },
+  sink: { sprite: FURNITURE_SPRITES.SINK, width: 980, height: 669, cropX: 9, cropY: 11 },
+  stove: { sprite: FURNITURE_SPRITES.STOVE, width: 981, height: 703, cropX: 9, cropY: 8 },
 };
 // Only 3 distinct wall-module renders exist (no separate plain "counter"
 // render this round) — cabinet doubles as filler, same role COUNTER played
 // with the PtPt pack.
+// Only one sink and one stove render exist, so each appears exactly once
+// (top wall only) — the bottom wall is all cabinet so the kitchen doesn't
+// read as having two sinks/two stoves. Revisit once dedicated additional
+// appliance renders exist (see CLAUDE.md Planned work — v2 furniture pack).
 const TOP_WALL_ORDER = ['cabinet', 'stove', 'sink', 'cabinet'];
-const BOTTOM_WALL_ORDER = ['sink', 'cabinet', 'stove', 'cabinet'];
+const BOTTOM_WALL_ORDER = ['cabinet', 'cabinet', 'cabinet', 'cabinet'];
+// Left/right walls (new this round) reuse cabinet as filler, rotated 90/270
+// via Furniture's existing rotation support so their long edge runs along
+// the wall — same "cabinet doubles as filler" precedent as top/bottom.
+const LEFT_WALL_ORDER = ['cabinet', 'cabinet'];
+const RIGHT_WALL_ORDER = ['cabinet', 'cabinet'];
+const LEFT_WALL_ROTATION = 90;
+const RIGHT_WALL_ROTATION = 270;
 
-const FRIDGE_SPEC = { width: 462, height: 957 };
+// Trimmed content size + crop offset, same reasoning as MODULE_SPECS above.
+const FRIDGE_SPEC = { width: 384, height: 696, cropX: 7, cropY: 7 };
 // Dining set: table and one chair placed side by side (not front/back
-// chairs around the table like the PtPt round) — this photorealistic chair
-// render only exists from one angle, and stacking chair+table+chair
-// vertically (as PtPt's two-chair layout did) needed far more interior
-// height than these much-taller-relative-to-canvas renders leave room for.
-// Side-by-side needs only as much height as the taller of the two pieces.
-const TABLE_SPEC = { width: 642, height: 617 };
-const CHAIR_SPEC = { width: 835, height: 840 };
-const DINING_SCALE = MODULE_SCALE;
+// chairs around the table like the PtPt round) — this chair render only
+// exists from one angle, and stacking chair+table+chair vertically (as
+// PtPt's two-chair layout did) needed far more interior height than these
+// much-taller-relative-to-canvas renders leave room for. Side-by-side needs
+// only as much height as the taller of the two pieces.
+// Trimmed content size + crop offset, same reasoning as MODULE_SPECS above.
+const TABLE_SPEC = { width: 958, height: 651, cropX: 8, cropY: 7 };
+const CHAIR_SPEC = { width: 565, height: 615, cropX: 9, cropY: 7 };
 
-// Wall clearance must cover the tallest thing on that wall — the fridge
-// (957 native, much taller than any counter module) sits on the top wall,
-// so TOP_WALL_HEIGHT is sized from the fridge, not from the counter modules,
-// or the cat/dog spawn points would land inside the fridge's collision box
-// (the same class of stuck-spawn bug hit twice already in this project's
-// history — see CLAUDE.md).
-const TOP_WALL_HEIGHT = Math.ceil(FRIDGE_SPEC.height * MODULE_SCALE);
-const BOTTOM_WALL_HEIGHT = Math.ceil(MODULE_SPECS.sink.height * MODULE_SCALE);
-const SPAWN_CLEARANCE = 60;
+const BASE_SPAWN_CLEARANCE = 60;
+// How close the cat/dog can get to the board edge — independent of the
+// wall band's own thickness (see BASE_WALL_BAND_THICKNESS above).
+const BASE_WALL_OFFSET = 40;
 
-const DOG_PAUSE_DURATION = 2000;
-const DOG_COLLISION_COOLDOWN = 1000;
-const PUNCH_DISTANCE = 40;
-const PUNCH_SHOCKWAVE_DURATION = 200;
+const DOG_PAUSE_DURATION = 2000; // ms — a duration, not a size, so this doesn't scale with canvas size
+const DOG_COLLISION_COOLDOWN = 1000; // ms
+const BASE_PUNCH_DISTANCE = 40;
+const PUNCH_SHOCKWAVE_DURATION = 200; // ms
+const BASE_PUNCH_SHOCKWAVE_MAX_RADIUS = 60;
 
-const CAT_OUTLINE_WIDTH = 3;
-const MESSAGE_FONT_SIZE = 24;
-const PLAY_BUTTON_WIDTH = 150;
-const PLAY_BUTTON_HEIGHT = 50;
-const PLAY_BUTTON_OFFSET_Y = 50;
+const BASE_CAT_OUTLINE_WIDTH = 3;
+const BASE_MESSAGE_FONT_SIZE = 24;
+const BASE_MESSAGE_Y_OFFSET = 80;
+const BASE_PLAY_BUTTON_WIDTH = 150;
+const BASE_PLAY_BUTTON_HEIGHT = 50;
+const BASE_PLAY_BUTTON_GAP = 40; // Vertical gap between the message and the button
+const BASE_PLAY_BUTTON_TEXT_OFFSET_Y = 33; // Vertical centering of "Play Again" text within the button
+const BASE_FLOOR_TILE_SIZE = 24;
+
+// Rough approximations of the cat/mouse/dog's on-screen size, used only to
+// keep the freestanding dining set and furniture placement clear of where
+// they'll spawn — generateKitchenFurniture() runs before those instances
+// exist (see resetGameObjects()), so it can't ask them for their real size.
+// Must stay in the same ballpark as Cat.js/Mouse.js/Dog.js's own base sizes.
+const BASE_CAT_SIZE = 39;
+const BASE_MOUSE_SIZE = 32;
+const BASE_DOG_SIZE = 50;
+
+// Wall clearance must cover the tallest thing placed on that wall, plus the
+// wall band itself — every module's back is flush against the wall band's
+// front face (see makeModule()/buildWallVertical() below), so the interior
+// boundary is the wall band plus whichever piece reaches furthest into the
+// room. Unlike the previous asset set (where the fridge was clearly the
+// tallest single piece, so clearance was hardcoded off it), this set's
+// fridge/sink/stove are all roughly the same height — so clearance is
+// computed generically as the max scaled height among whatever's actually
+// placed on each wall, rather than assuming any one piece is always
+// tallest. This is what keeps cat/dog spawn points clear of furniture
+// collision boxes (the same class of stuck-spawn bug hit twice already in
+// this project's history — see CLAUDE.md).
+//
+// Everything here is a function of the canvas's scale factor (see
+// js/utils/scale.js) rather than a bare module constant, so it can be
+// recomputed against the actual canvas size — see the Mobile responsiveness
+// note at the top of this section.
+function computeLayout(canvasWidth) {
+  const scale = getScale(canvasWidth);
+  // Buttons/messages (play-again button, win/lose text) use their own
+  // mobile multiplier — allowed to stay a little bigger than in-game assets
+  // rather than following the same reduction. See js/utils/scale.js.
+  const uiScale = getUIScale(canvasWidth);
+  const moduleScale = BASE_MODULE_SCALE * scale;
+  const wallBandThickness = BASE_WALL_BAND_THICKNESS * scale;
+
+  const topWallHeight = wallBandThickness + Math.ceil(Math.max(
+    ...TOP_WALL_ORDER.map(type => MODULE_SPECS[type].height),
+    FRIDGE_SPEC.height
+  ) * moduleScale);
+  const bottomWallHeight = wallBandThickness + Math.ceil(
+    Math.max(...BOTTOM_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
+  );
+  // Left/right wall "width" is the wall band plus the rotated depth into
+  // the room — rotation swaps the axes, so a rotated module's depth is its
+  // native *height* times scale (see Furniture.js), not its native width.
+  const leftWallWidth = wallBandThickness + Math.ceil(
+    Math.max(...LEFT_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
+  );
+  const rightWallWidth = wallBandThickness + Math.ceil(
+    Math.max(...RIGHT_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
+  );
+
+  return {
+    scale,
+    moduleScale,
+    diningScale: moduleScale,
+    wallBandThickness,
+    escapeSize: BASE_ESCAPE_SIZE * scale,
+    wallOffset: BASE_WALL_OFFSET * scale,
+    spawnClearance: BASE_SPAWN_CLEARANCE * scale,
+    punchDistance: BASE_PUNCH_DISTANCE * scale,
+    punchShockwaveMaxRadius: BASE_PUNCH_SHOCKWAVE_MAX_RADIUS * scale,
+    catOutlineWidth: BASE_CAT_OUTLINE_WIDTH * scale,
+    messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
+    messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
+    playButtonWidth: BASE_PLAY_BUTTON_WIDTH * uiScale,
+    playButtonHeight: BASE_PLAY_BUTTON_HEIGHT * uiScale,
+    playButtonGap: BASE_PLAY_BUTTON_GAP * uiScale,
+    playButtonTextOffsetY: BASE_PLAY_BUTTON_TEXT_OFFSET_Y * uiScale,
+    floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
+    catSizeApprox: BASE_CAT_SIZE * scale,
+    mouseSizeApprox: BASE_MOUSE_SIZE * scale,
+    dogSizeApprox: BASE_DOG_SIZE * scale,
+    topWallHeight,
+    bottomWallHeight,
+    leftWallWidth,
+    rightWallWidth,
+  };
+}
 
 const COLORS = {
-  WALL: 'blue',
+  // A warm greige band (see drawWalls()) — distinct enough from the near-
+  // white floor to read as a separate surface, and from the cream/tan
+  // furniture so counters/fridge/table still stand out against it.
+  WALL_FILL: '#e4ddcf',
+  WALL_TRIM: '#b9ae98',
   MESSAGE: 'purple',
   PLAY_BUTTON: {
     BACKGROUND: 'navy',
     TEXT: 'white',
   },
   CAT_OUTLINE: 'red',
-  // A simple two-tone checker instead of a photographic floor crop — see
-  // drawFloor(). Warm cream/peach tones picked to sit behind the PtPt
-  // counter sprites' own palette without competing with it.
-  FLOOR_LIGHT: '#fdf1e0',
-  FLOOR_DARK: '#f6ddbe',
-};
-
-const FONTS = {
-  MESSAGE: `${MESSAGE_FONT_SIZE}px Arial`,
-  PLAY_BUTTON: '24px Arial',
+  // A small white/off-white two-tone tile look (see drawFloor()) — plain
+  // and neutral rather than matched to the kitchen_*.png furniture's warm
+  // cream/tan/honey-oak palette. Two earlier versions of this floor (large
+  // warm-toned tiles with marble veining, then smaller but still warm/tan
+  // tiles) were both tried and rejected live for blending into the
+  // furniture instead of reading as floor beneath it — white/off-white
+  // reads as a distinct, neutral surface regardless of what furniture
+  // palette sits on top of it.
+  FLOOR_LIGHT: '#ffffff',
+  FLOOR_DARK: '#f9f8f4',
+  FLOOR_GROUT: '#d9d5c9',
 };
 
 const CHARACTER_NAMES = {
@@ -141,6 +254,11 @@ export default class GameScreen {
     this.ctx = ctx;
     this.isReplay = isReplay;
 
+    // Canvas size is fixed for the lifetime of a GameScreen (live-resize
+    // mid-game is a known separate gap — see CLAUDE.md), so this is
+    // computed once here rather than per-frame.
+    this.layout = computeLayout(this.canvas.width);
+
     this.cat = null;
     this.mouse = null;
     this.dog = null;
@@ -164,6 +282,10 @@ export default class GameScreen {
   }
 
   init() {
+    // Reveals the touch D-pad/action buttons (see styles.css) — only
+    // during actual gameplay, not the setup screen.
+    document.body.classList.add('in-game');
+
     this.resetGameObjects();
 
     if (!this.isReplay) {
@@ -205,17 +327,23 @@ export default class GameScreen {
 
     if (this.inputHandler) this.inputHandler.cleanup();
 
+    const { scale, topWallHeight, bottomWallHeight, spawnClearance } = this.layout;
+
     this.cat = new Cat(
       this.canvas.width / 2,
-      this.canvas.height - BOTTOM_WALL_HEIGHT - SPAWN_CLEARANCE,
+      this.canvas.height - bottomWallHeight - spawnClearance,
       this.canvas.width,
-      this.canvas.height
+      this.canvas.height,
+      scale
     );
-    this.mouse = new Mouse(100, 100, this.canvas.width, this.canvas.height);
+    // Mouse's fixed (100, 100)-style spawn scales with the board too, so it
+    // doesn't end up pinned near the true corner on a small canvas.
+    this.mouse = new Mouse(100 * scale, 100 * scale, this.canvas.width, this.canvas.height, scale);
     this.dog = new Dog(
-                  200, TOP_WALL_HEIGHT + SPAWN_CLEARANCE, this.canvas.width, this.canvas.height,
+                  200 * scale, topWallHeight + spawnClearance, this.canvas.width, this.canvas.height,
                   this.escapes, this.furniture,
-                  (soundKey) => this.playSound(SOUND_KEYS.DOG_BARK)
+                  (soundKey) => this.playSound(SOUND_KEYS.DOG_BARK),
+                  scale
                 );
     this.dog.setNextBark();
 
@@ -244,9 +372,10 @@ export default class GameScreen {
   }
 
   startCutscenes() {
-    const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height);
-    const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height);
-    const dogAnimation = new Dog(0, 0, this.canvas.width, this.canvas.height);
+    const { scale } = this.layout;
+    const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height, scale);
+    const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height, scale);
+    const dogAnimation = new Dog(0, 0, this.canvas.width, this.canvas.height, [], [], undefined, scale);
     
     // Store cutscene entities
     this.cutsceneCat = catAnimation;
@@ -299,6 +428,7 @@ export default class GameScreen {
   }
 
   cleanup() {
+    document.body.classList.remove('in-game');
     document.removeEventListener('toot', this.tootHandler);
     document.removeEventListener('punch', this.punchHandler);
     document.removeEventListener('meow', this.meowHandler);
@@ -367,16 +497,17 @@ export default class GameScreen {
 
     // Start shockwave animation
     this.shockwave = {
-      x: this.cat.x + (this.cat.frameWidth / 4) / 2,
-      y: this.cat.y + (this.cat.frameHeight / 4) / 2,
+      x: this.cat.x + this.cat.displayWidth / 2,
+      y: this.cat.y + this.cat.displayHeight / 2,
       startTime: performance.now()
     };
 
     // Move dog away
-    if (this.dog.x < this.cat.x) this.dog.x -= PUNCH_DISTANCE;
-    else this.dog.x += PUNCH_DISTANCE;
-    if (this.dog.y < this.cat.y) this.dog.y -= PUNCH_DISTANCE;
-    else this.dog.y += PUNCH_DISTANCE;
+    const punchDistance = this.layout.punchDistance;
+    if (this.dog.x < this.cat.x) this.dog.x -= punchDistance;
+    else this.dog.x += punchDistance;
+    if (this.dog.y < this.cat.y) this.dog.y -= punchDistance;
+    else this.dog.y += punchDistance;
 
     // Ensure the dog stays within bounds
     this.dog.x = Math.max(0, Math.min(this.canvas.width - this.dog.size, this.dog.x));
@@ -396,9 +527,9 @@ export default class GameScreen {
 
     const isOnEscape = this.escapes.some(escape => escape.isMouseInside(this.cat));
 
-    const WALL_OFFSET = 40;
+    const WALL_OFFSET = this.layout.wallOffset;
     const insideWalls = (
-        proposedPosition.x >= WALL_OFFSET - this.cat.size && 
+        proposedPosition.x >= WALL_OFFSET - this.cat.size &&
         proposedPosition.x <= this.canvas.width - WALL_OFFSET &&
         proposedPosition.y >= WALL_OFFSET - this.cat.size &&
         proposedPosition.y <= this.canvas.height - WALL_OFFSET
@@ -470,6 +601,7 @@ export default class GameScreen {
   render() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawFloor();
+    this.drawWalls();
     this.escapes.forEach(escape => escape.draw(this.ctx));
     // Mouse draws before furniture so it visually ducks under furniture
     // it's overlapping, even though it isn't blocked by it (see updateMouse).
@@ -482,23 +614,43 @@ export default class GameScreen {
   }
 
   drawFloor() {
-    // A simple two-tone checker generated on an offscreen canvas, rather
-    // than a photographic crop — the old floor_tile.png was cropped from
-    // the same AI-generated kitchen photo as the furniture we've since
-    // replaced, and would clash with the PtPt cartoon sprites' flat color
-    // style. Built once and cached on this.floorPattern (no image to wait
-    // on, so it's available synchronously, unlike the old image-load path).
+    // A small, crisp two-tone tile pattern with grout lines, generated on
+    // an offscreen canvas rather than a photographic crop — no image to
+    // wait on, so it's available synchronously. Built once and cached on
+    // this.floorPattern. Sized like a real modern kitchen floor tile (much
+    // smaller than the counters/fridge) and kept plain/flat rather than
+    // textured, so it reads as floor sitting behind the furniture instead
+    // of competing with it — see COLORS.FLOOR_* above for why the tones are
+    // deliberately cooler/more neutral than the furniture's warm palette.
     if (!this.floorPattern) {
-      const tileSize = 40;
+      const tileSize = this.layout.floorTileSize;
       const patternCanvas = document.createElement('canvas');
       patternCanvas.width = tileSize * 2;
       patternCanvas.height = tileSize * 2;
       const patternCtx = patternCanvas.getContext('2d');
+
       patternCtx.fillStyle = COLORS.FLOOR_LIGHT;
       patternCtx.fillRect(0, 0, tileSize * 2, tileSize * 2);
       patternCtx.fillStyle = COLORS.FLOOR_DARK;
-      patternCtx.fillRect(0, 0, tileSize, tileSize);
-      patternCtx.fillRect(tileSize, tileSize, tileSize, tileSize);
+      patternCtx.fillRect(tileSize, 0, tileSize, tileSize);
+      patternCtx.fillRect(0, tileSize, tileSize, tileSize);
+
+      // Grout lines between every tile, including the seam where this 2x2
+      // block repeats, so the repeat doesn't read as a doubled-up tile.
+      // Clamped to at least 1px so it doesn't vanish at a small canvas scale.
+      patternCtx.strokeStyle = COLORS.FLOOR_GROUT;
+      patternCtx.lineWidth = Math.max(1, 2 * this.layout.scale);
+      [0, tileSize, tileSize * 2].forEach(pos => {
+        patternCtx.beginPath();
+        patternCtx.moveTo(pos, 0);
+        patternCtx.lineTo(pos, tileSize * 2);
+        patternCtx.stroke();
+        patternCtx.beginPath();
+        patternCtx.moveTo(0, pos);
+        patternCtx.lineTo(tileSize * 2, pos);
+        patternCtx.stroke();
+      });
+
       this.floorPattern = this.ctx.createPattern(patternCanvas, 'repeat');
     }
     this.ctx.fillStyle = this.floorPattern;
@@ -523,13 +675,12 @@ export default class GameScreen {
     }
 
     const progress = elapsed / PUNCH_SHOCKWAVE_DURATION;
-    const maxRadius = 60;
-    const radius = progress * maxRadius;
+    const radius = progress * this.layout.punchShockwaveMaxRadius;
     const alpha = 1 - progress;
 
     this.ctx.save();
-    this.ctx.strokeStyle = `rgba(138, 43, 226, ${alpha})`; 
-    this.ctx.lineWidth = 3;
+    this.ctx.strokeStyle = `rgba(138, 43, 226, ${alpha})`;
+    this.ctx.lineWidth = Math.max(1, 3 * this.layout.scale);
     this.ctx.beginPath();
     this.ctx.arc(this.shockwave.x, this.shockwave.y, radius, 0, Math.PI * 2);
     this.ctx.stroke();
@@ -539,19 +690,19 @@ export default class GameScreen {
   drawRedOutline() {
     this.ctx.save();
     this.ctx.strokeStyle = COLORS.CAT_OUTLINE;
-    this.ctx.lineWidth = CAT_OUTLINE_WIDTH;
-    const { frameWidth, frameHeight, x, y } = this.cat;
-    this.ctx.strokeRect(x, y, frameWidth / 4, frameHeight / 4);
+    this.ctx.lineWidth = Math.max(1, this.layout.catOutlineWidth);
+    const { x, y, displayWidth, displayHeight } = this.cat;
+    this.ctx.strokeRect(x, y, displayWidth, displayHeight);
     this.ctx.restore();
   }
 
   displayMessage() {
     this.ctx.fillStyle = COLORS.MESSAGE;
-    this.ctx.font = FONTS.MESSAGE;
+    this.ctx.font = `${this.layout.messageFontSize}px Arial`;
     this.ctx.textAlign = 'center';
 
     // Adjust message position higher
-    const messageY = this.canvas.height / 2 - 80; // Position higher above the button
+    const messageY = this.canvas.height / 2 - this.layout.messageYOffset; // Position higher above the button
     this.ctx.fillText(this.message, this.canvas.width / 2, messageY);
 
     if (this.gameOver) {
@@ -560,28 +711,49 @@ export default class GameScreen {
   }
 
   displayPlayAgainButton(messageY) {
+    const { playButtonWidth, playButtonHeight, playButtonGap, playButtonTextOffsetY, messageFontSize } = this.layout;
+
     // Place the button distinctly below the message
-    const buttonX = this.canvas.width / 2 - PLAY_BUTTON_WIDTH / 2;
-    const buttonY = messageY + 40; // Offset below the message
+    const buttonX = this.canvas.width / 2 - playButtonWidth / 2;
+    const buttonY = messageY + playButtonGap; // Offset below the message
 
     this.ctx.fillStyle = COLORS.PLAY_BUTTON.BACKGROUND;
-    this.ctx.fillRect(buttonX, buttonY, PLAY_BUTTON_WIDTH, PLAY_BUTTON_HEIGHT);
+    this.ctx.fillRect(buttonX, buttonY, playButtonWidth, playButtonHeight);
     this.ctx.fillStyle = COLORS.PLAY_BUTTON.TEXT;
-    this.ctx.font = FONTS.PLAY_BUTTON;
-    this.ctx.fillText('Play Again', this.canvas.width / 2, buttonY + 33);
+    this.ctx.font = `${messageFontSize}px Arial`;
+    this.ctx.fillText('Play Again', this.canvas.width / 2, buttonY + playButtonTextOffsetY);
 
     // Update the playAgainButtonArea for accurate click detection
-    this.playAgainButtonArea = { x: buttonX, y: buttonY, width: PLAY_BUTTON_WIDTH, height: PLAY_BUTTON_HEIGHT };
+    this.playAgainButtonArea = { x: buttonX, y: buttonY, width: playButtonWidth, height: playButtonHeight };
   }
 
-  drawWallBorders() {
-    const WALL_OFFSET = 40; // Creates space for cat and dog behind walls
+  // A wall band flush against all four canvas edges, drawn under the
+  // furniture/escapes/characters (called right after drawFloor()) so it
+  // reads as the room's wall: furniture sits in front of it (and covers
+  // most of it, since furniture is placed flush to the same edges), while
+  // any wall left uncovered by furniture — corners, the gaps beside a
+  // centered wall run, and crucially the mouse-hole gap left in
+  // generateKitchenFurniture() — stays visible. Drawn as two stroked
+  // borders (outer at the canvas edge, inner where the band meets the
+  // floor) around a filled band, to read as wall thickness rather than a
+  // flat painted stripe.
+  drawWalls() {
+    const t = this.layout.wallBandThickness;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
 
-    this.ctx.fillStyle = COLORS.WALL;
-    this.ctx.fillRect(WALL_OFFSET, WALL_OFFSET, this.canvas.width - WALL_OFFSET * 2, WALL_THICKNESS); // Top
-    this.ctx.fillRect(WALL_OFFSET, this.canvas.height - WALL_THICKNESS - WALL_OFFSET, this.canvas.width - WALL_OFFSET * 2, WALL_THICKNESS); // Bottom
-    this.ctx.fillRect(WALL_OFFSET, WALL_OFFSET, WALL_THICKNESS, this.canvas.height - WALL_OFFSET * 2); // Left
-    this.ctx.fillRect(this.canvas.width - WALL_THICKNESS - WALL_OFFSET, WALL_OFFSET, WALL_THICKNESS, this.canvas.height - WALL_OFFSET * 2); // Right
+    this.ctx.save();
+    this.ctx.fillStyle = COLORS.WALL_FILL;
+    this.ctx.fillRect(0, 0, w, t); // top
+    this.ctx.fillRect(0, h - t, w, t); // bottom
+    this.ctx.fillRect(0, 0, t, h); // left
+    this.ctx.fillRect(w - t, 0, t, h); // right
+
+    this.ctx.strokeStyle = COLORS.WALL_TRIM;
+    this.ctx.lineWidth = Math.max(1, 2 * this.layout.scale);
+    this.ctx.strokeRect(1, 1, w - 2, h - 2); // outer border
+    this.ctx.strokeRect(t, t, w - t * 2, h - t * 2); // inner border
+    this.ctx.restore();
   }
 
   // One guaranteed-visible mouse hole: generateKitchenFurniture() leaves a
@@ -592,19 +764,23 @@ export default class GameScreen {
   // under solid furniture (see Mouse.js / FURNITURE_SPRITES comment above).
   generateEscapes(count) {
     const escapes = [];
+    const escapeSize = this.layout.escapeSize;
 
     if (this.wallGap) {
       const gap = this.wallGap;
-      const x = gap.x + gap.width / 2 - ESCAPE_SIZE / 2;
-      const y = gap.wall === 'top' ? 0 : this.canvas.height - ESCAPE_SIZE;
-      escapes.push(new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE));
+      const x = gap.x + gap.width / 2 - escapeSize / 2;
+      const y = gap.wall === 'top' ? 0 : this.canvas.height - escapeSize;
+      escapes.push(new Escape(x, y, escapeSize, escapeSize, gap.wall));
     }
 
+    // Escape draws itself rotated per wall (see Escape.js) so the hole's
+    // opening always faces into the room rather than always facing "down".
+    const WALL_NAMES = ['top', 'bottom', 'left', 'right'];
     while (escapes.length < count) {
       const wall = Math.floor(Math.random() * 4);
-      const x = wall === 2 ? 0 : wall === 3 ? this.canvas.width - ESCAPE_SIZE : Math.random() * (this.canvas.width - ESCAPE_SIZE);
-      const y = wall === 0 ? 0 : wall === 1 ? this.canvas.height - ESCAPE_SIZE : Math.random() * (this.canvas.height - ESCAPE_SIZE);
-      escapes.push(new Escape(x, y, ESCAPE_SIZE, ESCAPE_SIZE));
+      const x = wall === 2 ? 0 : wall === 3 ? this.canvas.width - escapeSize : Math.random() * (this.canvas.width - escapeSize);
+      const y = wall === 0 ? 0 : wall === 1 ? this.canvas.height - escapeSize : Math.random() * (this.canvas.height - escapeSize);
+      escapes.push(new Escape(x, y, escapeSize, escapeSize, WALL_NAMES[wall]));
     }
 
     return escapes;
@@ -612,18 +788,24 @@ export default class GameScreen {
 
   generateKitchenFurniture() {
     const furniture = [];
-    const WALL_OFFSET = 40;
-    const SPACING = 10;
+    const {
+      scale, moduleScale, diningScale, wallBandThickness, wallOffset,
+      topWallHeight, bottomWallHeight, leftWallWidth, rightWallWidth,
+      spawnClearance, catSizeApprox, mouseSizeApprox, dogSizeApprox,
+    } = this.layout;
+    const SPACING = 10 * scale;
 
-    // Builds one wall module, aligned to a shared baseline (the floor line)
-    // rather than a shared top — these renders have different native
-    // heights (no shared grid unlike the old PtPt pack), so aligning by
-    // their bottom edge is what makes them read as sitting on the same
-    // floor, the way real counters of different heights actually do.
-    const makeModule = (type, x, baselineY) => {
+    // Builds one wall module with its back (the edge facing the wall) flush
+    // against the wall band's front face — wallBandThickness in from the
+    // canvas edge, not a shared floor baseline. Every piece's back touches
+    // the wall this way regardless of its native height, so there's never a
+    // strip of bare floor visible between a shorter piece and the wall;
+    // only the front (facing the room) varies by height instead.
+    const makeModule = (type, x, isTop) => {
       const spec = MODULE_SPECS[type];
-      const height = spec.height * MODULE_SCALE;
-      return new Furniture(x, baselineY - height, type, spec.sprite, 0, spec.width, spec.height, MODULE_SCALE);
+      const height = spec.height * moduleScale;
+      const y = isTop ? wallBandThickness : this.canvas.height - wallBandThickness - height;
+      return new Furniture(x, y, type, spec.sprite, 0, spec.width, spec.height, moduleScale, spec.cropX, spec.cropY);
     };
 
     // Places `order` edge-to-edge using each piece's own scaled width
@@ -631,20 +813,19 @@ export default class GameScreen {
     // uniform size), centered as a group. One slot is skipped if this wall
     // was chosen for the mouse-hole gap this game.
     const buildWall = (order, isTop) => {
-      const scaledWidths = order.map(type => MODULE_SPECS[type].width * MODULE_SCALE);
+      const scaledWidths = order.map(type => MODULE_SPECS[type].width * moduleScale);
       const totalWidth = scaledWidths.reduce((a, b) => a + b, 0);
       let cursorX = Math.max(0, (this.canvas.width - totalWidth) / 2);
       const wallName = isTop ? 'top' : 'bottom';
       const gapIndex = gapWall === wallName ? Math.floor(Math.random() * order.length) : -1;
-      const baselineY = isTop ? TOP_WALL_HEIGHT : this.canvas.height;
-      const wallHeight = isTop ? TOP_WALL_HEIGHT : BOTTOM_WALL_HEIGHT;
+      const wallHeight = isTop ? topWallHeight : bottomWallHeight;
 
       order.forEach((type, i) => {
         const w = scaledWidths[i];
         if (i === gapIndex) {
-          this.wallGap = { x: cursorX, y: isTop ? 0 : this.canvas.height - BOTTOM_WALL_HEIGHT, width: w, height: wallHeight, wall: wallName };
+          this.wallGap = { x: cursorX, y: isTop ? 0 : this.canvas.height - wallHeight, width: w, height: wallHeight, wall: wallName };
         } else {
-          furniture.push(makeModule(type, cursorX, baselineY));
+          furniture.push(makeModule(type, cursorX, isTop));
         }
         cursorX += w;
       });
@@ -652,22 +833,56 @@ export default class GameScreen {
       return cursorX;
     };
 
+    // Places `order` edge-to-edge vertically along the left or right wall,
+    // rotated 90/270 so each module's long edge runs along the wall.
+    // Confined strictly to the band between the top and bottom walls (not
+    // flush to the very top/bottom of the canvas) so it can never corner-
+    // overlap the top wall's fridge or the bottom wall's run. Each module's
+    // back is flush against the wall band's front face — x=wallBandThickness
+    // for left, canvas.width-wallBandThickness-depth for right — the same
+    // back-to-wall alignment as the horizontal walls, rather than flush to
+    // the raw canvas edge.
+    const buildWallVertical = (order, isLeft) => {
+      const scaledLengths = order.map(type => MODULE_SPECS[type].width * moduleScale);
+      const totalLength = scaledLengths.reduce((a, b) => a + b, 0);
+      const bandTop = topWallHeight;
+      const bandHeight = this.canvas.height - bottomWallHeight - topWallHeight;
+      let cursorY = bandTop + Math.max(0, (bandHeight - totalLength) / 2);
+      const rotation = isLeft ? LEFT_WALL_ROTATION : RIGHT_WALL_ROTATION;
+
+      order.forEach((type, i) => {
+        const spec = MODULE_SPECS[type];
+        const depth = spec.height * moduleScale;
+        const x = isLeft ? wallBandThickness : this.canvas.width - wallBandThickness - depth;
+        furniture.push(new Furniture(x, cursorY, type, spec.sprite, rotation, spec.width, spec.height, moduleScale, spec.cropX, spec.cropY));
+        cursorY += scaledLengths[i];
+      });
+    };
+
     // Pick exactly one wall to leave one module out of, each game — that gap
     // becomes this.wallGap, read by generateEscapes() to place a guaranteed-
-    // visible mouse hole there. The other wall stays a complete run.
+    // visible mouse hole there. Only top/bottom are in the pool — left/right
+    // are solid runs with no gap (generateEscapes()'s x/y math only handles
+    // horizontal walls today).
     const gapWall = Math.random() < 0.5 ? 'top' : 'bottom';
     this.wallGap = null;
 
-    // 1. Top wall: cabinet/stove/sink/cabinet, flush against the top edge.
-    // The fridge (much taller than the counter modules) sits right after,
-    // its top flush with the wall's top edge like the counters, so it reads
-    // as standing on the same floor rather than floating or sunken.
+    // 1. Top wall: cabinet/stove/sink/cabinet, back flush against the wall
+    // band. The fridge sits right after, back-aligned the same way as the
+    // counters (its top edge flush with the wall band's front face) so it
+    // reads as standing against the same wall rather than floating or sunken.
     const topEndX = buildWall(TOP_WALL_ORDER, true);
-    furniture.push(new Furniture(topEndX, 0, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, MODULE_SCALE));
+    furniture.push(new Furniture(topEndX, wallBandThickness, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
 
     // 2. Bottom wall: same treatment, flush against the bottom edge, with a
     // different order than the top wall for a bit of variety.
     buildWall(BOTTOM_WALL_ORDER, false);
+
+    // 3. Left and right walls (new): cabinet runs rotated to stand against
+    // the vertical walls, confined to the band between the top and bottom
+    // walls so nothing corners-overlaps.
+    buildWallVertical(LEFT_WALL_ORDER, true);
+    buildWallVertical(RIGHT_WALL_ORDER, false);
 
     // Helper to check overlap, used for the freestanding dining set.
     const overlaps = (x, y, width, height) => {
@@ -681,15 +896,15 @@ export default class GameScreen {
 
     // Entity spawn positions to avoid — must match resetGameObjects() exactly
     const catSpawnX = this.canvas.width / 2;
-    const catSpawnY = this.canvas.height - BOTTOM_WALL_HEIGHT - SPAWN_CLEARANCE;
-    const catSize = 39; // Approximate cat size
-    const mouseSpawnX = 100;
-    const mouseSpawnY = 100;
-    const mouseSize = 32;
-    const dogSpawnX = 200;
-    const dogSpawnY = TOP_WALL_HEIGHT + SPAWN_CLEARANCE;
-    const dogSize = 50;
-    const SPAWN_BUFFER = 20;
+    const catSpawnY = this.canvas.height - bottomWallHeight - spawnClearance;
+    const catSize = catSizeApprox;
+    const mouseSpawnX = 100 * scale;
+    const mouseSpawnY = 100 * scale;
+    const mouseSize = mouseSizeApprox;
+    const dogSpawnX = 200 * scale;
+    const dogSpawnY = topWallHeight + spawnClearance;
+    const dogSize = dogSizeApprox;
+    const SPAWN_BUFFER = 20 * scale;
 
     const blocksSpawn = (x, y, width, height) => {
       const spawns = [
@@ -706,23 +921,24 @@ export default class GameScreen {
       });
     };
 
-    const INTERIOR_MARGIN = 20;
-    const playableX = WALL_OFFSET + INTERIOR_MARGIN;
-    const playableY = TOP_WALL_HEIGHT + INTERIOR_MARGIN;
-    const playableMaxWidth = this.canvas.width - playableX * 2;
-    const playableMaxHeight = this.canvas.height - BOTTOM_WALL_HEIGHT - INTERIOR_MARGIN - playableY;
+    const INTERIOR_MARGIN = 20 * scale;
+    const playableX = wallOffset + INTERIOR_MARGIN + leftWallWidth;
+    const playableY = topWallHeight + INTERIOR_MARGIN;
+    const playableRightEdge = this.canvas.width - wallOffset - INTERIOR_MARGIN - rightWallWidth;
+    const playableMaxWidth = playableRightEdge - playableX;
+    const playableMaxHeight = this.canvas.height - bottomWallHeight - INTERIOR_MARGIN - playableY;
 
-    // 3. Dining set: table and one chair placed side by side (not stacked
+    // 4. Dining set: table and one chair placed side by side (not stacked
     // front/back like an earlier round), sharing a random-search footprint
     // sized to the taller of the two pieces — placing them front-and-back
     // would need combined chair+table+chair height, which doesn't fit the
     // interior band at this scale (confirmed live). Side-by-side only needs
     // as much vertical room as the taller piece.
-    const DINING_GAP = 10;
-    const tableWidth = TABLE_SPEC.width * DINING_SCALE;
-    const tableHeight = TABLE_SPEC.height * DINING_SCALE;
-    const chairWidth = CHAIR_SPEC.width * DINING_SCALE;
-    const chairHeight = CHAIR_SPEC.height * DINING_SCALE;
+    const DINING_GAP = 10 * scale;
+    const tableWidth = TABLE_SPEC.width * diningScale;
+    const tableHeight = TABLE_SPEC.height * diningScale;
+    const chairWidth = CHAIR_SPEC.width * diningScale;
+    const chairHeight = CHAIR_SPEC.height * diningScale;
     const setWidth = tableWidth + DINING_GAP + chairWidth;
     const setHeight = Math.max(tableHeight, chairHeight);
 
@@ -732,8 +948,8 @@ export default class GameScreen {
       const y = playableY + Math.random() * Math.max(0, playableMaxHeight - setHeight);
 
       if (!overlaps(x, y, setWidth, setHeight) && !blocksSpawn(x, y, setWidth, setHeight)) {
-        furniture.push(new Furniture(x, y + (setHeight - tableHeight) / 2, 'table', FURNITURE_SPRITES.TABLE, 0, TABLE_SPEC.width, TABLE_SPEC.height, DINING_SCALE));
-        furniture.push(new Furniture(x + tableWidth + DINING_GAP, y + (setHeight - chairHeight) / 2, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, DINING_SCALE));
+        furniture.push(new Furniture(x, y + (setHeight - tableHeight) / 2, 'table', FURNITURE_SPRITES.TABLE, 0, TABLE_SPEC.width, TABLE_SPEC.height, diningScale, TABLE_SPEC.cropX, TABLE_SPEC.cropY));
+        furniture.push(new Furniture(x + tableWidth + DINING_GAP, y + (setHeight - chairHeight) / 2, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, diningScale, CHAIR_SPEC.cropX, CHAIR_SPEC.cropY));
         break;
       }
       diningAttempts++;

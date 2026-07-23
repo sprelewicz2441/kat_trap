@@ -5,7 +5,16 @@ export default class Furniture {
   // (32x64 native). Table/chair sprites come from a different pack with
   // different native sizes, so callers pass their own spriteWidth/
   // spriteHeight/scale for those instead of relying on the defaults.
-  constructor(x, y, type, spriteSrc, rotation = 0, spriteWidth = 32, spriteHeight = 64, scale = 1.5) {
+  // cropX/cropY: offset within the source image to start reading from.
+  // Several kitchen renders have a few pixels of transparent padding baked
+  // into the file around the actual content, which — since spriteWidth/
+  // spriteHeight (and therefore the collision box) are meant to describe
+  // just the visible object — would otherwise leave a visible gap between
+  // two modules placed edge-to-edge. Passing the content's real offset
+  // here (rather than 0,0) makes the drawn sprite match the content-only
+  // spriteWidth/spriteHeight exactly. Defaults to 0 so callers that don't
+  // need cropping (or a sprite with no padding) are unaffected.
+  constructor(x, y, type, spriteSrc, rotation = 0, spriteWidth = 32, spriteHeight = 64, scale = 1.5, cropX = 0, cropY = 0) {
     this.x = x;
     this.y = y;
     this.type = type;
@@ -14,6 +23,8 @@ export default class Furniture {
     this.spriteWidth = spriteWidth;
     this.spriteHeight = spriteHeight;
     this.scale = scale;
+    this.cropX = cropX;
+    this.cropY = cropY;
     
     // Actual dimensions depend on rotation
     if (rotation === 90 || rotation === 270) {
@@ -58,6 +69,7 @@ export default class Furniture {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(
         this.sprite,
+        this.cropX, this.cropY, this.spriteWidth, this.spriteHeight,
         drawX, drawY,
         drawWidth, drawHeight
       );

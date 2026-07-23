@@ -6,6 +6,7 @@
   <title>Kat Trap</title>
   <!-- Tailwind CSS -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./js/main.js"></script>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-start min-h-screen">
@@ -13,5 +14,30 @@
   <main class="flex items-center justify-center mt-2">
     <canvas id="gameCanvas" class="border border-gray-500 bg-white"></canvas>
   </main>
+
+  <!-- Landscape-only gate (mobile milestone — see CLAUDE.md Mobile responsiveness) -->
+  <div id="orientationGate">
+    <div class="rotate-icon">🔄</div>
+    <p class="text-xl font-bold">Please rotate your device to landscape to play!</p>
+  </div>
+
+  <!-- On-screen touch controls — only visible on touch devices during
+       gameplay (see styles.css). D-pad (movement) on the left, action
+       buttons (punch/toot/meow — the same keys as desktop, see
+       InputHandler.js) on the right; a future credits/settings/etc. icon
+       row is planned for the top corners rather than competing with either
+       of these. -->
+  <div id="dpad">
+    <button id="dpadUp" class="dpad-btn dpad-up" aria-label="Up">&#9650;</button>
+    <button id="dpadLeft" class="dpad-btn dpad-left" aria-label="Left">&#9664;</button>
+    <div class="dpad-center" aria-hidden="true"></div>
+    <button id="dpadRight" class="dpad-btn dpad-right" aria-label="Right">&#9654;</button>
+    <button id="dpadDown" class="dpad-btn dpad-down" aria-label="Down">&#9660;</button>
+  </div>
+  <div id="actionButtons">
+    <button id="punchBtn" class="action-btn" aria-label="Punch">&#128074;</button>
+    <button id="tootBtn" class="action-btn" aria-label="Toot">&#128239;</button>
+    <button id="meowBtn" class="action-btn" aria-label="Meow">&#128570;</button>
+  </div>
 </body>
 </html>
