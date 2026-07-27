@@ -10,7 +10,10 @@ import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
 import { aabbOverlap } from '../../utils/collision.js';
-import { getScale, getUIScale } from '../../utils/scale.js';
+import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js';
+import { CHARACTER_NAMES } from '../../utils/characterNames.js';
+import { isMusicMuted, isSfxMuted } from '../../utils/audio.js';
+import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // ==============================
 //  CONSTANTS
@@ -33,6 +36,15 @@ const BASE_WALL_BAND_THICKNESS = 16;
 const BASE_ESCAPE_SIZE = 15;
 const NUM_OF_ESCAPES = 6;
 
+// Thresholds for the mouse-escape-danger indicator (the power LED in the
+// viewport frame — see styles.css body::before/body[data-mouse-danger]).
+// Distance from the mouse to the nearest escape hole, scaled like every
+// other board distance so "close" means the same relative thing at any
+// canvas size. Danger < warning, obviously — anything farther than
+// the warning radius reads as "far from it" (green).
+const BASE_ESCAPE_DANGER_DISTANCE = 90;
+const BASE_ESCAPE_WARNING_DISTANCE = 220;
+
 // Furniture sprite paths — the FOURTH kitchen art direction this project
 // has had (see CLAUDE.md Kitchen furniture section for why the previous
 // three — a photo-crop scene, the flat-cartoon PtPt pack, and individually-
@@ -41,13 +53,18 @@ const NUM_OF_ESCAPES = 6;
 // modular wall-building/gap mechanic carries forward unchanged from the
 // last two rounds — only the asset source and each piece's native
 // dimensions changed.
+// .webp, not .png — same pixel dimensions and alpha channel as the
+// original renders (converted losslessly-in-dimension, quality=90 lossy
+// compression), just ~85-90% smaller on disk. width/height/cropX/cropY
+// below are keyed to those pixel dimensions, which format conversion
+// didn't change, so none of that math needed updating.
 const FURNITURE_SPRITES = {
-  CABINET: './assets/kitchen_cabinet.png',
-  SINK: './assets/kitchen_sink.png',
-  STOVE: './assets/kitchen_stove.png',
-  FRIDGE: './assets/kitchen_fridge.png',
-  TABLE: './assets/kitchen_table.png',
-  CHAIR: './assets/kitchen_chair.png',
+  CABINET: './assets/kitchen_cabinet.webp',
+  SINK: './assets/kitchen_sink.webp',
+  STOVE: './assets/kitchen_stove.webp',
+  FRIDGE: './assets/kitchen_fridge.webp',
+  TABLE: './assets/kitchen_table.webp',
+  CHAIR: './assets/kitchen_chair.webp',
 };
 
 // Each render has its own native size (not a shared grid) — dimensions
@@ -102,20 +119,86 @@ const BASE_SPAWN_CLEARANCE = 60;
 // How close the cat/dog can get to the board edge — independent of the
 // wall band's own thickness (see BASE_WALL_BAND_THICKNESS above).
 const BASE_WALL_OFFSET = 40;
+// Minimum distance apart entities are allowed to spawn from each other —
+// see resolveClearSpawn()'s `avoid` param. The bottom wall's 4 cabinets
+// span ~78% of the board width and are centered, same as the cat's
+// preferred spawn X, so the cat's "bottom-center, away from everything"
+// spawn is actually covered by furniture most games — the furniture-only
+// fallback search then picked any clear spot in the whole interior with no
+// regard for the mouse's fixed corner spawn, occasionally landing right
+// next to it and ending the round before a player could react.
+const BASE_MIN_SPAWN_SEPARATION = 280;
+// Mouse-controlled mode: fixed per-tick step speed for direct player input,
+// analogous to Cat's own BASE speed — independent of the autonomous mouse's
+// speedX/speedY wander velocity (see Mouse.js), which stays untouched.
+const BASE_MOUSE_PLAYER_SPEED = 8;
 
 const DOG_PAUSE_DURATION = 2000; // ms — a duration, not a size, so this doesn't scale with canvas size
 const DOG_COLLISION_COOLDOWN = 1000; // ms
+
+// Mouse-controlled mode: the cat becomes an autonomous chaser (see
+// updateCatAI()). When it can't see the mouse it actively searches — moving
+// continuously every tick in a chosen direction (respecting bounds/
+// furniture via tryMoveCat()), rather than Dog.js's leisurely once-every-
+// few-seconds hop, since a cat "searching" for the mouse should read as
+// purposeful movement, not a background wander. CAT_WANDER_DIRECTION_INTERVAL
+// governs how often it *changes* direction while doing so — see wanderCat().
+const CAT_WANDER_DIRECTION_INTERVAL = 1200; // ms between random direction changes
+// Only wall-mounted pieces occlude the cat's line of sight to the mouse —
+// freestanding furniture (table/chair) never blocks it. See
+// catHasLineOfSightToMouse().
+const WALL_FURNITURE_TYPES = ['cabinet', 'sink', 'stove', 'fridge'];
+// Multiplier on top of the cat's normal speed while wandering blind (no
+// line of sight to the mouse) — not a BASE_* pixel value since it's a ratio
+// applied to the already-scaled this.cat.speed, so it stays proportionate
+// at any canvas size without its own layout entry.
+//
+// NOTE: until a since-fixed bug, this multiplier never actually reached
+// real movement — tryMoveCat() validated a position at the boosted speed
+// but Cat.move() silently ignored the override and always moved by its own
+// fixed this.speed. So every earlier tuning pass (1.5, then 1.15, then 1.0)
+// was tuning a value that had no real effect on movement distance; the
+// "too fast" feel back then came entirely from wandering moving every tick
+// instead of once every 2 seconds (see CAT_WANDER_DIRECTION_INTERVAL) and,
+// after later fixes, from the AI no longer stalling behind furniture and
+// spotting the mouse more reliably. Now that Cat.move() actually honors the
+// passed-in speed, this constant has a real, working effect for the first
+// time — set below 1.0 to make wandering genuinely slower than the chase
+// (a deliberate "cautious search, fast pounce" feel), 1.0 for parity, above
+// 1.0 for a more urgent search. Tuned by eye — adjust if it feels off.
+const CAT_WANDER_SPEED_MULTIPLIER = 0.5;
+
 const BASE_PUNCH_DISTANCE = 40;
 const PUNCH_SHOCKWAVE_DURATION = 200; // ms
 const BASE_PUNCH_SHOCKWAVE_MAX_RADIUS = 60;
 
 const BASE_CAT_OUTLINE_WIDTH = 3;
+// Still used by the transient (non-game-over) "Dummy caught Mia!" pause
+// message — plain text over the live board is fine there since gameplay is
+// still visibly running underneath. The actual game-over screen uses the
+// modal below instead (see displayGameOverModal()).
 const BASE_MESSAGE_FONT_SIZE = 24;
 const BASE_MESSAGE_Y_OFFSET = 80;
-const BASE_PLAY_BUTTON_WIDTH = 150;
-const BASE_PLAY_BUTTON_HEIGHT = 50;
-const BASE_PLAY_BUTTON_GAP = 40; // Vertical gap between the message and the button
-const BASE_PLAY_BUTTON_TEXT_OFFSET_Y = 33; // Vertical centering of "Play Again" text within the button
+
+// Game-over modal (see displayGameOverModal()) — a proper overlay with a
+// dimming scrim and a card, replacing plain text drawn directly on top of
+// the live board, which was sometimes hard to read depending on what was
+// underneath it. UI chrome, so sized with uiScale like the rest of this
+// section rather than the in-game scale.
+const BASE_MODAL_WIDTH = 420;
+const BASE_MODAL_HEIGHT = 280;
+const BASE_MODAL_RADIUS = 24;
+const BASE_MODAL_TITLE_FONT_SIZE = 52;
+const BASE_MODAL_SUBTITLE_FONT_SIZE = 22;
+const BASE_MODAL_BUTTON_WIDTH = 200;
+const BASE_MODAL_BUTTON_HEIGHT = 60;
+const BASE_MODAL_BUTTON_RADIUS = 16;
+const BASE_MODAL_BUTTON_FONT_SIZE = 24;
+// How long the modal takes to pop/scale in once the round ends — a
+// duration, not a size, so this doesn't scale with canvas size (same
+// reasoning as DOG_PAUSE_DURATION below).
+const MODAL_POP_IN_DURATION = 250; // ms
+
 const BASE_FLOOR_TILE_SIZE = 24;
 
 // Rough approximations of the cat/mouse/dog's on-screen size, used only to
@@ -150,7 +233,16 @@ function computeLayout(canvasWidth) {
   // mobile multiplier — allowed to stay a little bigger than in-game assets
   // rather than following the same reduction. See js/utils/scale.js.
   const uiScale = getUIScale(canvasWidth);
-  const moduleScale = BASE_MODULE_SCALE * scale;
+  // Furniture only (not characters, walls, or anything else here) uses its
+  // own scale — see getFurnitureScale() in js/utils/scale.js for why:
+  // desktop furniture needed to be restored to roughly its pre-asset-swap
+  // size independent of mobile's already-tuned sizing.
+  const furnitureScale = getFurnitureScale(canvasWidth);
+  const moduleScale = BASE_MODULE_SCALE * furnitureScale;
+  // Character on-screen/collision size only — see getCharacterScale() in
+  // js/utils/scale.js for why this is split from `scale` (which still
+  // drives Cat/Dog/Mouse movement speed, unaffected by this).
+  const characterScale = getCharacterScale(canvasWidth);
   const wallBandThickness = BASE_WALL_BAND_THICKNESS * scale;
 
   const topWallHeight = wallBandThickness + Math.ceil(Math.max(
@@ -172,25 +264,35 @@ function computeLayout(canvasWidth) {
 
   return {
     scale,
+    characterScale,
     moduleScale,
     diningScale: moduleScale,
     wallBandThickness,
     escapeSize: BASE_ESCAPE_SIZE * scale,
     wallOffset: BASE_WALL_OFFSET * scale,
+    mousePlayerSpeed: BASE_MOUSE_PLAYER_SPEED * scale,
     spawnClearance: BASE_SPAWN_CLEARANCE * scale,
+    minSpawnSeparation: BASE_MIN_SPAWN_SEPARATION * scale,
+    escapeDangerDistance: BASE_ESCAPE_DANGER_DISTANCE * scale,
+    escapeWarningDistance: BASE_ESCAPE_WARNING_DISTANCE * scale,
     punchDistance: BASE_PUNCH_DISTANCE * scale,
     punchShockwaveMaxRadius: BASE_PUNCH_SHOCKWAVE_MAX_RADIUS * scale,
     catOutlineWidth: BASE_CAT_OUTLINE_WIDTH * scale,
     messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
-    playButtonWidth: BASE_PLAY_BUTTON_WIDTH * uiScale,
-    playButtonHeight: BASE_PLAY_BUTTON_HEIGHT * uiScale,
-    playButtonGap: BASE_PLAY_BUTTON_GAP * uiScale,
-    playButtonTextOffsetY: BASE_PLAY_BUTTON_TEXT_OFFSET_Y * uiScale,
+    modalWidth: BASE_MODAL_WIDTH * uiScale,
+    modalHeight: BASE_MODAL_HEIGHT * uiScale,
+    modalRadius: BASE_MODAL_RADIUS * uiScale,
+    modalTitleFontSize: BASE_MODAL_TITLE_FONT_SIZE * uiScale,
+    modalSubtitleFontSize: BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale,
+    modalButtonWidth: BASE_MODAL_BUTTON_WIDTH * uiScale,
+    modalButtonHeight: BASE_MODAL_BUTTON_HEIGHT * uiScale,
+    modalButtonRadius: BASE_MODAL_BUTTON_RADIUS * uiScale,
+    modalButtonFontSize: BASE_MODAL_BUTTON_FONT_SIZE * uiScale,
     floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
-    catSizeApprox: BASE_CAT_SIZE * scale,
-    mouseSizeApprox: BASE_MOUSE_SIZE * scale,
-    dogSizeApprox: BASE_DOG_SIZE * scale,
+    catSizeApprox: BASE_CAT_SIZE * characterScale,
+    mouseSizeApprox: BASE_MOUSE_SIZE * characterScale,
+    dogSizeApprox: BASE_DOG_SIZE * characterScale,
     topWallHeight,
     bottomWallHeight,
     leftWallWidth,
@@ -204,10 +306,26 @@ const COLORS = {
   // furniture so counters/fridge/table still stand out against it.
   WALL_FILL: '#e4ddcf',
   WALL_TRIM: '#b9ae98',
+  // Still used by the transient (non-game-over) pause message only — see
+  // BASE_MESSAGE_FONT_SIZE above.
   MESSAGE: 'purple',
-  PLAY_BUTTON: {
-    BACKGROUND: 'navy',
-    TEXT: 'white',
+  // Game-over modal (see displayGameOverModal()) — intentionally playful
+  // either way (this is a kids' game), not somber on a loss: a warm gold
+  // gradient for a win, a bright teal/blue gradient for a loss, rather than
+  // switching to dark/muted tones.
+  MODAL: {
+    SCRIM: 'rgba(10, 8, 20, 0.6)',
+    WIN_GRADIENT_START: '#ffe082',
+    WIN_GRADIENT_END: '#ff8f00',
+    LOSE_GRADIENT_START: '#4fc3f7',
+    LOSE_GRADIENT_END: '#5c6bc0',
+    BORDER: 'rgba(255, 255, 255, 0.85)',
+    TITLE_FILL: '#ffffff',
+    TITLE_STROKE: 'rgba(0, 0, 0, 0.45)',
+    SUBTITLE: '#2b1d3d',
+    BUTTON_BACKGROUND: '#ffffff',
+    BUTTON_TEXT: '#2b1d3d',
+    BUTTON_SHADOW: 'rgba(0, 0, 0, 0.25)',
   },
   CAT_OUTLINE: 'red',
   // A small white/off-white two-tone tile look (see drawFloor()) — plain
@@ -223,12 +341,6 @@ const COLORS = {
   FLOOR_GROUT: '#d9d5c9',
 };
 
-const CHARACTER_NAMES = {
-  CAT: 'Mia',
-  MOUSE: 'Poop',
-  DOG: 'Dummy',
-};
-
 const SOUND_KEYS = {
   BACKGROUND: 'background',
   WALL_HIT: 'wallHit',
@@ -236,6 +348,7 @@ const SOUND_KEYS = {
   MOUSE_ESCAPE: 'mouseEscape',
   TOOT: 'toot',
   PUNCH: 'punch',
+  DOG_BARK: 'dogBark',
 };
 
 const MESSAGES = {
@@ -248,11 +361,17 @@ const MESSAGES = {
 //  GAME SCREEN CLASS
 // ==============================
 export default class GameScreen {
-  constructor(screenManager, canvas, ctx, isReplay = false) {
+  constructor(screenManager, canvas, ctx, isReplay = false, controlledEntity = 'cat') {
     this.screenManager = screenManager;
     this.canvas = canvas;
     this.ctx = ctx;
     this.isReplay = isReplay;
+    // 'cat' (default, original behavior), 'mouse', or 'dog' — which entity
+    // reads player input; the other two run autonomously (the cat via AI
+    // chase-or-wander, the other via its own passive behavior). See
+    // moveCat()/updateCatAI(), updateMouse()/movePlayerMouse(), and
+    // updateDog()/movePlayerDog() for where this branches.
+    this.controlledEntity = controlledEntity;
 
     // Canvas size is fixed for the lifetime of a GameScreen (live-resize
     // mid-game is a known separate gap — see CLAUDE.md), so this is
@@ -273,6 +392,27 @@ export default class GameScreen {
     this.gameOver = false;
     this.message = '';
     this.shockwave = null;
+    // Whether the just-ended round was a win *for the player controlling
+    // this.controlledEntity* — set by endGame(), read by
+    // displayGameOverModal() to pick "You Win!"/"You Lose!" and the
+    // gold-vs-teal color scheme. Meaningless while gameOver is false.
+    this.gameOverIsWin = false;
+    // performance.now() timestamp from endGame() — drives the modal's
+    // pop-in animation (same performance.now()-diff pattern as
+    // drawShockwave()'s this.shockwave.startTime).
+    this.gameOverStartTime = 0;
+    // True once the mouse has reached an escape hole (see
+    // checkMouseEscaped()) — it then disappears rather than staying visible
+    // sitting at/in the hole for the rest of the (now-ended) round. Applies
+    // regardless of controlledEntity — the mouse escaping ends the round the
+    // same way whether it was player- or AI-driven.
+    this.mouseEscaped = false;
+    // this.running's value at the moment the settings menu opened — restored
+    // when it closes (see the settingsmenutoggle handler in init()), so
+    // closing the menu can never resume something that was already stopped
+    // for another reason (cutscenes, game over) just because the menu also
+    // happened to be open at the time.
+    this.wasRunningBeforeMenu = null;
 
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
@@ -288,9 +428,44 @@ export default class GameScreen {
 
     this.resetGameObjects();
 
-    if (!this.isReplay) {
-        this.sounds[SOUND_KEYS.BACKGROUND].play();
+    // Each GameScreen (including a "Play Again" replay) owns its own fresh
+    // Audio object here — restartGame() pauses the previous instance's
+    // track before swapping screens, so it's safe to always start this
+    // one rather than special-casing isReplay (the old special-case left
+    // background music permanently silent after the first replay, back
+    // when this track was still disabled — see loadSounds()).
+    if (!isMusicMuted()) {
+      this.sounds[SOUND_KEYS.BACKGROUND].play();
     }
+
+    // Lets the settings menu's Music toggle affect a track that's already
+    // looping, not just future playSound() calls — see js/utils/audio.js.
+    // SFX doesn't need an equivalent listener: playSound() (below) checks
+    // isSfxMuted() at play-time, and one-shot sounds have nothing already
+    // playing to react to.
+    this.musicMuteChangeHandler = (e) => {
+      const background = this.sounds[SOUND_KEYS.BACKGROUND];
+      if (e.detail.muted) {
+        background.pause();
+      } else {
+        background.play();
+      }
+    };
+    document.addEventListener('musicmutechange', this.musicMuteChangeHandler);
+
+    // Pauses gameplay while the settings menu (js/utils/settingsMenu.js) is
+    // open, resuming to whatever this.running actually was beforehand
+    // rather than unconditionally to true — see wasRunningBeforeMenu above.
+    this.settingsMenuToggleHandler = (e) => {
+      if (e.detail.open) {
+        this.wasRunningBeforeMenu = this.running;
+        this.running = false;
+      } else if (this.wasRunningBeforeMenu !== null) {
+        this.running = this.wasRunningBeforeMenu;
+        this.wasRunningBeforeMenu = null;
+      }
+    };
+    document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
 
     // Always add the click handler
     this.clickHandler = this.handleClick.bind(this);
@@ -327,34 +502,122 @@ export default class GameScreen {
 
     if (this.inputHandler) this.inputHandler.cleanup();
 
-    const { scale, topWallHeight, bottomWallHeight, spawnClearance } = this.layout;
+    const { scale, characterScale, topWallHeight, bottomWallHeight, spawnClearance, minSpawnSeparation, catSizeApprox, mouseSizeApprox, dogSizeApprox } = this.layout;
 
-    this.cat = new Cat(
+    // The cat's bottom-center spawn was assumed safe (see CLAUDE.md history
+    // of this exact bug class) back when the cat's actual size roughly
+    // matched catSizeApprox/spawnClearance's tuning — but getCharacterScale()
+    // later made desktop characters ~2x bigger without touching
+    // spawnClearance (a board-margin value, independent of character size),
+    // so the cat's now-larger box can spawn already overlapping the
+    // bottom-wall furniture row, with no legal move out of it. Same
+    // fallback search as the mouse/dog below. Resolved first (nothing to
+    // avoid yet) so the mouse/dog below can steer clear of wherever it
+    // actually ends up.
+    const catSpawn = this.resolveClearSpawn(
       this.canvas.width / 2,
       this.canvas.height - bottomWallHeight - spawnClearance,
+      catSizeApprox
+    );
+    this.cat = new Cat(
+      catSpawn.x,
+      catSpawn.y,
       this.canvas.width,
       this.canvas.height,
-      scale
+      scale,
+      characterScale
     );
     // Mouse's fixed (100, 100)-style spawn scales with the board too, so it
-    // doesn't end up pinned near the true corner on a small canvas.
-    this.mouse = new Mouse(100 * scale, 100 * scale, this.canvas.width, this.canvas.height, scale);
+    // doesn't end up pinned near the true corner on a small canvas. That
+    // corner isn't checked against wall-mounted furniture the way the
+    // freestanding dining set is (see blocksSpawn() in
+    // generateKitchenFurniture()), so on some layouts a cabinet/fridge can
+    // land right on top of it — resolveClearSpawn() falls back to a clear
+    // spot in that case so the mouse never starts the game hidden. Also
+    // kept minSpawnSeparation away from the cat's just-resolved spawn: the
+    // bottom wall's cabinets span most of the board width and are centered
+    // right where the cat prefers to spawn, so the cat's fallback search
+    // (furniture-only, no distance check) used to be free to land right
+    // next to the mouse's fixed corner — ending the round in under a
+    // second, before a player could do anything.
+    const mouseSpawn = this.resolveClearSpawn(
+      100 * scale, 100 * scale, mouseSizeApprox,
+      [{ x: catSpawn.x, y: catSpawn.y, size: catSizeApprox }],
+      minSpawnSeparation
+    );
+    this.mouse = new Mouse(mouseSpawn.x, mouseSpawn.y, this.canvas.width, this.canvas.height, scale, characterScale);
+    // Same protection for the dog's fixed corner spawn — it isn't
+    // hardcoded-safe against every possible LEFT_WALL_ORDER (see CLAUDE.md's
+    // Planned work: taller left-wall modules are an explicit future
+    // possibility), so it gets the same fallback search as the mouse, also
+    // kept clear of both the cat and mouse's now-resolved spawns.
+    const dogSpawn = this.resolveClearSpawn(
+      200 * scale, topWallHeight + spawnClearance, dogSizeApprox,
+      [
+        { x: catSpawn.x, y: catSpawn.y, size: catSizeApprox },
+        { x: mouseSpawn.x, y: mouseSpawn.y, size: mouseSizeApprox },
+      ],
+      minSpawnSeparation
+    );
     this.dog = new Dog(
-                  200 * scale, topWallHeight + spawnClearance, this.canvas.width, this.canvas.height,
+                  dogSpawn.x, dogSpawn.y, this.canvas.width, this.canvas.height,
                   this.escapes, this.furniture,
                   (soundKey) => this.playSound(SOUND_KEYS.DOG_BARK),
-                  scale
+                  scale,
+                  characterScale
                 );
     this.dog.setNextBark();
 
     this.inputHandler = new InputHandler();
     this.mouse.setWallHitCallback(() => this.playSound(SOUND_KEYS.WALL_HIT));
+
+    // State for the cat AI's active-search wander (Mouse-controlled mode
+    // only — see wanderCat()), reset each game like the dog's own cooldowns.
+    this.catWander = { direction: null, lastDirectionChange: 0 };
+  }
+
+  // Returns preferredX/Y unchanged unless it's hidden under furniture (see
+  // isHiddenByFurniture()) or within minSeparation of an already-resolved
+  // entity spawn (see `avoid`), in which case it random-searches
+  // this.playableArea (the same interior bounds generateKitchenFurniture()
+  // already uses for the dining set — see its INTERIOR_MARGIN/playableX/Y
+  // block) for a clear spot. Falls back to the preferred spot if the search
+  // somehow can't find one (a small board with a large minSeparation could
+  // legitimately have no valid spot — better to let two characters spawn
+  // close than to leave one undefined). `avoid` is a list of
+  // {x, y, size} spawns already committed this reset (see resetGameObjects()
+  // — cat resolves first, so mouse avoids it, then dog avoids both) so a
+  // later entity's fallback search can't land right on top of an earlier
+  // one just because it happened to be clear of furniture.
+  resolveClearSpawn(preferredX, preferredY, size, avoid = [], minSeparation = 0) {
+    const isTooCloseToOthers = (x, y) => avoid.some(spot => {
+      const dx = (x + size / 2) - (spot.x + spot.size / 2);
+      const dy = (y + size / 2) - (spot.y + spot.size / 2);
+      return Math.hypot(dx, dy) < minSeparation;
+    });
+
+    if (!this.isHiddenByFurniture(preferredX, preferredY, size) && !isTooCloseToOthers(preferredX, preferredY)) {
+      return { x: preferredX, y: preferredY };
+    }
+
+    const { x: areaX, y: areaY, width: areaWidth, height: areaHeight } = this.playableArea;
+    for (let attempts = 0; attempts < 300; attempts++) {
+      const x = areaX + Math.random() * Math.max(0, areaWidth - size);
+      const y = areaY + Math.random() * Math.max(0, areaHeight - size);
+      if (!this.isHiddenByFurniture(x, y, size) && !isTooCloseToOthers(x, y)) return { x, y };
+    }
+
+    return { x: preferredX, y: preferredY };
   }
 
   loadSounds() {
     return {
-      //[SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/christmas_tree_farm.mp3', true, 0.1),
-      [SOUND_KEYS.BACKGROUND]: this.loadSound('', true, 0.1),
+      // Was disabled pending a mute button (looping music with no way to
+      // turn it off is worse than no music at all) — now gated by
+      // isMusicMuted() (see init()/restartGame() below), which starts muted
+      // by default (js/utils/audio.js — the settings menu's Music toggle),
+      // so nothing changes for a player until they explicitly unmute.
+      [SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/christmas_tree_farm.mp3', true, 0.1),
       [SOUND_KEYS.WALL_HIT]: this.loadSound('../../../sounds/bounce.flac'),
       [SOUND_KEYS.CAT_CATCH]: this.loadSound('../../../sounds/mouse.wav'),
       [SOUND_KEYS.MOUSE_ESCAPE]: this.loadSound('../../../sounds/meow.ogg'),
@@ -372,10 +635,10 @@ export default class GameScreen {
   }
 
   startCutscenes() {
-    const { scale } = this.layout;
-    const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height, scale);
-    const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height, scale);
-    const dogAnimation = new Dog(0, 0, this.canvas.width, this.canvas.height, [], [], undefined, scale);
+    const { scale, characterScale } = this.layout;
+    const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height, scale, characterScale);
+    const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height, scale, characterScale);
+    const dogAnimation = new Dog(0, 0, this.canvas.width, this.canvas.height, [], [], undefined, scale, characterScale);
     
     // Store cutscene entities
     this.cutsceneCat = catAnimation;
@@ -420,18 +683,24 @@ export default class GameScreen {
 
   restartGame() {
     this.gameOver = false;
-    //this.sounds[SOUND_KEYS.BACKGROUND].pause();
-    //this.sounds[SOUND_KEYS.BACKGROUND].currentTime = 0;
+    // The next GameScreen starts its own fresh background track in init()
+    // (see the comment there) — stop this instance's first so the old one
+    // doesn't keep looping in the background, orphaned, once this instance
+    // is replaced.
+    this.sounds[SOUND_KEYS.BACKGROUND].pause();
 
     this.cleanup();
-    this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, true));
+    this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, true, this.controlledEntity));
   }
 
   cleanup() {
     document.body.classList.remove('in-game');
+    delete document.body.dataset.mouseDanger;
     document.removeEventListener('toot', this.tootHandler);
     document.removeEventListener('punch', this.punchHandler);
     document.removeEventListener('meow', this.meowHandler);
+    document.removeEventListener('musicmutechange', this.musicMuteChangeHandler);
+    document.removeEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
     this.canvas.removeEventListener('click', this.clickHandler);
     if (this.inputHandler) this.inputHandler.cleanup();
     if (this.dog) this.dog.cleanup();
@@ -448,6 +717,7 @@ export default class GameScreen {
   }
 
   playSound(soundKey) {
+    if (isSfxMuted()) return;
     const sound = this.sounds[soundKey];
     if (sound) {
       sound.currentTime = 0;
@@ -459,14 +729,54 @@ export default class GameScreen {
     if (!this.running) return;
 
     this.handleCatPause(timestamp);
-    this.updateDogCollision(timestamp);
 
     if (!this.catPaused) {
-      this.moveCat();
+      // The cat is AI-driven (updateCatAI — chase-or-wander, see below)
+      // whenever the player isn't the one controlling it directly, which is
+      // now two modes (Mouse, Dog) rather than one.
+      if (this.controlledEntity === 'cat') {
+        this.moveCat();
+      } else {
+        this.updateCatAI(timestamp);
+      }
     }
 
     this.updateMouse();
-    this.dog.update(timestamp, this.cat, () => this.handleDogCollision());
+    this.updateDog(timestamp);
+  }
+
+  // Dog-controlled mode: player-driven, same per-tick movement granularity
+  // as moveCat()/movePlayerMouse() (see tryMoveDog() below) rather than the
+  // autonomous once-every-couple-seconds hop. Otherwise (Cat/Mouse modes,
+  // where the dog has always just been a hazard) Dog.update() keeps running
+  // its own autonomous wander exactly as before — this is the one place the
+  // three modes genuinely diverge in *how* the dog moves. The collision-vs-
+  // cat check that pauses the cat (see handleDogCollisionIfReady()) applies
+  // either way, since "run the dog into the cat" is the whole point of
+  // playing as the dog — it's the same rule, just now something the player
+  // can aim on purpose instead of it happening by chance.
+  updateDog(timestamp) {
+    if (this.controlledEntity === 'dog') {
+      this.movePlayerDog();
+      if (this.dog.isColliding(this.cat)) {
+        this.handleDogCollisionIfReady(timestamp);
+      }
+    } else {
+      // Dog.update() runs exactly once per frame — it always moves/animates
+      // regardless of catPaused, but the collision *response* is gated (see
+      // handleDogCollisionIfReady()) so a still-overlapping dog/cat pair
+      // doesn't re-trigger the pause every single frame.
+      this.dog.update(timestamp, this.cat, () => this.handleDogCollisionIfReady(timestamp));
+    }
+  }
+
+  // Guards handleDogCollision() so it only fires once per actual catch:
+  // not while already paused, and not during the grace period right after
+  // a pause ends (dogCollisionCooldown) — gives the dog and cat a moment to
+  // separate before another collision can retrigger the pause.
+  handleDogCollisionIfReady(timestamp) {
+    if (this.catPaused || timestamp < this.dogCollisionCooldown) return;
+    this.handleDogCollision();
   }
 
   handleCatPause(timestamp) {
@@ -479,7 +789,13 @@ export default class GameScreen {
 
   handleToot() {
     const MOVE_DISTANCE = 10;
-    if (!this.dog) return;
+    // Both toot and punch (below) shove the dog away from the cat — makes
+    // sense as a way to protect whoever's nearby from the autonomous dog
+    // hazard, but not when the player IS the dog: it would fling their own
+    // character away from the cat they're actively trying to reach. The
+    // sound still plays either way (see the tootHandler in init()) since
+    // there's no harm in the button making noise.
+    if (!this.dog || this.controlledEntity === 'dog') return;
 
     // Move dog directly away from the cat
     if (this.dog.x < this.cat.x) this.dog.x -= MOVE_DISTANCE;
@@ -493,7 +809,9 @@ export default class GameScreen {
   }
 
   handlePunch() {
-    if (!this.dog) return;
+    // See handleToot() above — same reasoning for skipping the dog-shoving
+    // effect (though not the sound) when the player is controlling the dog.
+    if (!this.dog || this.controlledEntity === 'dog') return;
 
     // Start shockwave animation
     this.shockwave = {
@@ -517,13 +835,24 @@ export default class GameScreen {
   moveCat() {
     const direction = this.inputHandler.getDirection();
     if (!direction) return;
+    this.tryMoveCat(direction);
+  }
 
+  // Shared by player-driven movement (moveCat()) and the autonomous cat AI
+  // (moveCatTowardMouse()/wanderCat(), Mouse- and Dog-controlled modes) — the
+  // bounds/furniture check is identical regardless of who picked the
+  // direction, only how the direction gets picked differs. `speed` defaults
+  // to the cat's normal speed; wanderCat() passes its own scaled speed while
+  // it can't see the mouse (see CAT_WANDER_SPEED_MULTIPLIER). Returns
+  // whether the move actually happened, so wanderCat() can tell it hit a
+  // wall/furniture and should pick a new direction right away.
+  tryMoveCat(direction, speed = this.cat.speed) {
     const proposedPosition = { x: this.cat.x, y: this.cat.y };
 
-    if (direction === 'up') proposedPosition.y -= this.cat.speed;
-    if (direction === 'down') proposedPosition.y += this.cat.speed;
-    if (direction === 'left') proposedPosition.x -= this.cat.speed;
-    if (direction === 'right') proposedPosition.x += this.cat.speed;
+    if (direction === 'up') proposedPosition.y -= speed;
+    if (direction === 'down') proposedPosition.y += speed;
+    if (direction === 'left') proposedPosition.x -= speed;
+    if (direction === 'right') proposedPosition.x += speed;
 
     const isOnEscape = this.escapes.some(escape => escape.isMouseInside(this.cat));
 
@@ -538,37 +867,295 @@ export default class GameScreen {
     // Add size property for collision check
     const proposedEntity = { x: proposedPosition.x, y: proposedPosition.y, size: this.cat.size };
 
-    if ((insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity))) {
-        this.cat.move(direction);
+    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity));
+    if (canMove) {
+        this.cat.move(direction, speed);
     }
+    return canMove;
+  }
+
+  // Mouse- and Dog-controlled modes only: whenever the cat isn't the one the
+  // player is driving, it needs its own behavior — chase the mouse when it
+  // can see it, otherwise wander randomly. See catHasLineOfSightToMouse()
+  // for the sight check. Falls back to wandering (for this tick) if the
+  // direct chase move is blocked — e.g. by freestanding furniture, which
+  // doesn't block sight but does block movement — so the cat routes around
+  // instead of stalling in
+  // place while it can still see the mouse.
+  updateCatAI(timestamp) {
+    if (this.catHasLineOfSightToMouse()) {
+      if (!this.moveCatTowardMouse()) {
+        this.wanderCat(timestamp);
+      }
+    } else {
+      this.wanderCat(timestamp);
+    }
+  }
+
+  // True only if the mouse is strictly in the cat's current facing
+  // direction (cardinal — up/down/left/right, not a cone) AND no
+  // wall-mounted furniture crosses the straight line between their centers.
+  // Freestanding furniture (table/chair) never blocks sight. No memory of
+  // last-known position — once sight is lost it's pure wander until the
+  // cat's facing direction happens to line up with the mouse again. Uses
+  // cat.size throughout (the same hitbox tryMoveCat()/checkCollision() use
+  // for movement/catching), not cat.displayWidth/displayHeight (the smaller
+  // render box) — sight and collision need to agree on what "the cat" is.
+  catHasLineOfSightToMouse() {
+    const cat = this.cat;
+    const mouse = this.mouse;
+    const direction = cat.facingDirection;
+
+    // The half-plane the cat is facing — its own edge extended to the
+    // canvas boundary, spanning the cat's cross-axis extent. The mouse has
+    // to overlap this rectangle to be "in front of" the cat at all
+    // (cardinal-only, not a cone), tested via the shared aabbOverlap helper.
+    let laneX, laneY, laneWidth, laneHeight;
+    if (direction === 'right') {
+      laneX = cat.x + cat.size;
+      laneY = cat.y;
+      laneWidth = this.canvas.width - laneX;
+      laneHeight = cat.size;
+    } else if (direction === 'left') {
+      laneX = 0;
+      laneY = cat.y;
+      laneWidth = cat.x;
+      laneHeight = cat.size;
+    } else if (direction === 'down') {
+      laneX = cat.x;
+      laneY = cat.y + cat.size;
+      laneWidth = cat.size;
+      laneHeight = this.canvas.height - laneY;
+    } else {
+      laneX = cat.x;
+      laneY = 0;
+      laneWidth = cat.size;
+      laneHeight = cat.y;
+    }
+
+    if (!aabbOverlap(laneX, laneY, laneWidth, laneHeight, mouse.x, mouse.y, mouse.size, mouse.size)) {
+      return false;
+    }
+
+    // No wall-mounted furniture piece crosses the straight line between
+    // their centers — modeled as a 1px-thick segment rectangle so the
+    // shared aabbOverlap helper can test it directly, rather than
+    // hand-rolling the overlap arithmetic.
+    const isHorizontal = direction === 'left' || direction === 'right';
+    const catCenterX = cat.x + cat.size / 2;
+    const catCenterY = cat.y + cat.size / 2;
+    const mouseCenterX = mouse.x + mouse.size / 2;
+    const mouseCenterY = mouse.y + mouse.size / 2;
+    const wallFurniture = this.furniture.filter(f => WALL_FURNITURE_TYPES.includes(f.type));
+
+    const blocked = wallFurniture.some(f => {
+      if (isHorizontal) {
+        const xMin = Math.min(catCenterX, mouseCenterX);
+        const xMax = Math.max(catCenterX, mouseCenterX);
+        return aabbOverlap(xMin, catCenterY, xMax - xMin, 1, f.x, f.y, f.width, f.height);
+      }
+      const yMin = Math.min(catCenterY, mouseCenterY);
+      const yMax = Math.max(catCenterY, mouseCenterY);
+      return aabbOverlap(catCenterX, yMin, 1, yMax - yMin, f.x, f.y, f.width, f.height);
+    });
+
+    return !blocked;
+  }
+
+  // Moves the cat one cardinal step toward the mouse's current position —
+  // whichever axis has the larger gap this tick, matching the same
+  // single-direction-per-tick granularity as player movement (no diagonal
+  // movement introduced). Speed is unchanged/fixed for now. Uses cat.size,
+  // consistent with catHasLineOfSightToMouse() above. Returns whether the
+  // move actually happened, so updateCatAI() can fall back to wandering
+  // (routing around) if something — e.g. freestanding furniture — blocks it.
+  moveCatTowardMouse() {
+    const catCenterX = this.cat.x + this.cat.size / 2;
+    const catCenterY = this.cat.y + this.cat.size / 2;
+    const mouseCenterX = this.mouse.x + this.mouse.size / 2;
+    const mouseCenterY = this.mouse.y + this.mouse.size / 2;
+
+    const dx = mouseCenterX - catCenterX;
+    const dy = mouseCenterY - catCenterY;
+
+    const direction = Math.abs(dx) >= Math.abs(dy)
+      ? (dx > 0 ? 'right' : 'left')
+      : (dy > 0 ? 'down' : 'up');
+
+    return this.tryMoveCat(direction);
+  }
+
+  // Actively searches rather than idly wandering: moves every tick (unlike
+  // Dog's once-every-couple-seconds hop) in a chosen direction, scaled by
+  // CAT_WANDER_SPEED_MULTIPLIER (currently 1.0 — no boost, see its comment),
+  // only re-picking that direction every CAT_WANDER_DIRECTION_INTERVAL — or
+  // immediately, if the current direction just ran into a wall/furniture,
+  // so it doesn't sit stuck in a corner until the timer happens to expire.
+  wanderCat(timestamp) {
+    const wander = this.catWander;
+    const directionExpired = !wander.direction || (timestamp - wander.lastDirectionChange >= CAT_WANDER_DIRECTION_INTERVAL);
+
+    if (directionExpired) {
+      wander.direction = this.pickRandomDirection();
+      wander.lastDirectionChange = timestamp;
+    }
+
+    const moved = this.tryMoveCat(wander.direction, this.cat.speed * CAT_WANDER_SPEED_MULTIPLIER);
+
+    if (!moved) {
+      wander.direction = this.pickRandomDirection();
+      wander.lastDirectionChange = timestamp;
+    }
+  }
+
+  pickRandomDirection() {
+    const directions = ['up', 'down', 'left', 'right'];
+    return directions[Math.floor(Math.random() * directions.length)];
   }
 
   updateMouse() {
-    this.mouse.update();
-    const mouseColliding = false; // Mouse can pass through furniture
+    if (this.controlledEntity === 'mouse') {
+      this.movePlayerMouse();
+    } else {
+      this.mouse.update();
+      const mouseColliding = false; // Mouse can pass through furniture
 
-    if (mouseColliding) {
-      this.mouse.speedX *= -1;
-      this.mouse.speedY *= -1;
+      if (mouseColliding) {
+        this.mouse.speedX *= -1;
+        this.mouse.speedY *= -1;
+      }
     }
 
+    this.updateEscapeDangerIndicator();
+
     if (this.checkCollision(this.cat, this.mouse)) {
-      this.endGame(MESSAGES.CAT_CAUGHT_MOUSE, SOUND_KEYS.CAT_CATCH);
+      // The cat catching the mouse is a win for whoever's playing the cat,
+      // a loss for whoever's playing the mouse OR the dog — the dog's whole
+      // job is to stop this from happening (pause the cat, buy the mouse
+      // time), so it's on the mouse's "team" for win/lose purposes even
+      // though it never touches the mouse directly. Same trigger, meaning
+      // depends on controlledEntity (see Character selection & Mouse-
+      // controlled mode in CLAUDE.md).
+      this.endGame(MESSAGES.CAT_CAUGHT_MOUSE, SOUND_KEYS.CAT_CATCH, this.controlledEntity === 'cat');
     } else if (this.checkMouseEscaped()) {
-      this.endGame(MESSAGES.MOUSE_ESCAPED, SOUND_KEYS.MOUSE_ESCAPE);
+      this.mouseEscaped = true;
+      this.endGame(MESSAGES.MOUSE_ESCAPED, SOUND_KEYS.MOUSE_ESCAPE, this.controlledEntity !== 'cat');
     }
   }
 
-  updateDogCollision(timestamp) {
-    if (!this.catPaused && timestamp >= this.dogCollisionCooldown) {
-      this.dog.update(timestamp, this.cat, () => this.handleDogCollision());
+  // Mouse-controlled mode only: reads arrow-key input directly, same
+  // pattern as tryMoveCat(), but the mouse intentionally ignores furniture
+  // collision — it ducks under furniture visually rather than being blocked
+  // by it (see Mouse.js / drawMouseSilhouette() below) — so only canvas
+  // bounds are checked here.
+  movePlayerMouse() {
+    const direction = this.inputHandler.getDirection();
+
+    if (direction) {
+      const DIRECTION_TO_FACING = { up: 'north', down: 'south', left: 'west', right: 'east' };
+      this.mouse.currentDirection = DIRECTION_TO_FACING[direction];
+
+      const speed = this.layout.mousePlayerSpeed;
+      let proposedX = this.mouse.x;
+      let proposedY = this.mouse.y;
+
+      if (direction === 'up') proposedY -= speed;
+      if (direction === 'down') proposedY += speed;
+      if (direction === 'left') proposedX -= speed;
+      if (direction === 'right') proposedX += speed;
+
+      const clampedX = Math.max(0, Math.min(proposedX, this.canvas.width - this.mouse.size));
+      const clampedY = Math.max(0, Math.min(proposedY, this.canvas.height - this.mouse.size));
+
+      // Match the autonomous mouse's wall-bounce path, which always fires
+      // this on contact — otherwise player-controlled mode never plays the
+      // wall-hit sound at all.
+      if ((clampedX !== proposedX || clampedY !== proposedY) && this.mouse.wallHitCallback) {
+        this.mouse.wallHitCallback();
+      }
+
+      this.mouse.x = clampedX;
+      this.mouse.y = clampedY;
     }
+
+    this.mouse.updateAnimations();
+  }
+
+  // Dog-controlled mode only: reads arrow-key input directly, same per-tick
+  // granularity and bounds/furniture rules as tryMoveCat() (the dog is a
+  // solid obstacle for itself the same way the cat is — no reason for the
+  // player-driven dog to suddenly ignore furniture just because the
+  // autonomous dog also happens to avoid it via a different check).
+  tryMoveDog(direction) {
+    const speed = this.dog.speed;
+    let proposedX = this.dog.x;
+    let proposedY = this.dog.y;
+
+    if (direction === 'up') proposedY -= speed;
+    if (direction === 'down') proposedY += speed;
+    if (direction === 'left') proposedX -= speed;
+    if (direction === 'right') proposedX += speed;
+
+    const isOnEscape = this.escapes.some(escape => escape.isMouseInside(this.dog));
+
+    const WALL_OFFSET = this.layout.wallOffset;
+    const insideWalls = (
+        proposedX >= WALL_OFFSET - this.dog.size &&
+        proposedX <= this.canvas.width - WALL_OFFSET &&
+        proposedY >= WALL_OFFSET - this.dog.size &&
+        proposedY <= this.canvas.height - WALL_OFFSET
+    );
+
+    const proposedEntity = { x: proposedX, y: proposedY, size: this.dog.size };
+    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity));
+    if (canMove) {
+      this.dog.x = proposedX;
+      this.dog.y = proposedY;
+      // Only left/right change facing (see Dog.js's facingLeft) — up/down
+      // keep whichever way it was last actually facing, same convention
+      // the autonomous dog uses.
+      if (direction === 'left') this.dog.facingLeft = true;
+      if (direction === 'right') this.dog.facingLeft = false;
+    }
+    return canMove;
+  }
+
+  movePlayerDog() {
+    const direction = this.inputHandler.getDirection();
+    if (direction) {
+      this.tryMoveDog(direction);
+    }
+    this.dog.updateAnimation();
+  }
+
+  // Drives the power-LED-as-danger-meter in the viewport frame (see
+  // styles.css body::before / body[data-mouse-danger]) — red when the
+  // mouse is right on top of an escape hole, yellow approaching one,
+  // green otherwise. Distance is to the nearest escape's center, since the
+  // mouse can slip out through any of them, not just the guaranteed one.
+  updateEscapeDangerIndicator() {
+    const mouseCenterX = this.mouse.x + this.mouse.size / 2;
+    const mouseCenterY = this.mouse.y + this.mouse.size / 2;
+
+    const nearestDistance = Math.min(...this.escapes.map(escape => {
+      const escapeCenterX = escape.x + escape.width / 2;
+      const escapeCenterY = escape.y + escape.height / 2;
+      return Math.hypot(mouseCenterX - escapeCenterX, mouseCenterY - escapeCenterY);
+    }));
+
+    const { escapeDangerDistance, escapeWarningDistance } = this.layout;
+    let danger = 'low';
+    if (nearestDistance <= escapeDangerDistance) danger = 'high';
+    else if (nearestDistance <= escapeWarningDistance) danger = 'medium';
+
+    document.body.dataset.mouseDanger = danger;
   }
 
   handleDogCollision() {
     this.catPaused = true;
     this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
     this.message = MESSAGES.DOG_CAUGHT;
+    this.playSound(SOUND_KEYS.DOG_BARK);
 
     const OFFSET = 20;
     if (this.dog.x < this.cat.x) this.dog.x -= OFFSET;
@@ -577,10 +1164,12 @@ export default class GameScreen {
     else this.dog.y += OFFSET;
   }
 
-  endGame(message, soundKey) {
+  endGame(message, soundKey, isWin) {
     this.running = false;
     this.gameOver = true;
     this.message = message;
+    this.gameOverIsWin = isWin;
+    this.gameOverStartTime = performance.now();
     this.playSound(soundKey);
 
     // Cleanup autonomous behaviors
@@ -605,12 +1194,19 @@ export default class GameScreen {
     this.escapes.forEach(escape => escape.draw(this.ctx));
     // Mouse draws before furniture so it visually ducks under furniture
     // it's overlapping, even though it isn't blocked by it (see updateMouse).
-    if (this.mouse) this.mouse.draw(this.ctx);
+    // Skipped once it's escaped (see checkMouseEscaped()) so it doesn't
+    // stay visibly sitting at the hole for the rest of the ended round.
+    if (this.mouse && !this.mouseEscaped) this.mouse.draw(this.ctx);
     this.furniture.forEach(furniture => furniture.draw(this.ctx));
+    this.drawMouseSilhouette();
     this.drawGameObjects();
     this.drawShockwave();
 
-    if (this.message) this.displayMessage();
+    if (this.gameOver) {
+      this.displayGameOverModal();
+    } else if (this.message) {
+      this.displayMessage();
+    }
   }
 
   drawFloor() {
@@ -657,6 +1253,38 @@ export default class GameScreen {
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+  // Shared "is this box hidden beneath furniture" test — used both to decide
+  // whether to draw the under-furniture silhouette (drawMouseSilhouette())
+  // and to guarantee the mouse/dog never *start* the game hidden (see
+  // resolveClearSpawn()), so both share one definition of "hidden".
+  isHiddenByFurniture(x, y, size) {
+    return this.furniture.some(f => aabbOverlap(x, y, size, size, f.x, f.y, f.width, f.height));
+  }
+
+  // The mouse draws *under* furniture (see render() above / Mouse.js) so it
+  // visually ducks beneath cabinets etc. instead of being blocked by them —
+  // that leaves it fully invisible while hidden there, which matters more
+  // now that Mouse-controlled mode means a player is actively steering it.
+  // Draws a faint shadow-like silhouette on top of furniture whenever the
+  // mouse's box overlaps any furniture box, so its position stays legible
+  // without undoing the "ducking under" look. Runs in both modes — harmless
+  // in Cat-controlled mode, just a rendering nicety there.
+  drawMouseSilhouette() {
+    if (!this.mouse || this.mouseEscaped) return;
+    if (!this.isHiddenByFurniture(this.mouse.x, this.mouse.y, this.mouse.size)) return;
+
+    const centerX = this.mouse.x + this.mouse.size / 2;
+    const centerY = this.mouse.y + this.mouse.size / 2;
+
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.35;
+    this.ctx.fillStyle = '#000000';
+    this.ctx.beginPath();
+    this.ctx.ellipse(centerX, centerY, this.mouse.size / 2, this.mouse.size / 2.5, 0, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
   drawGameObjects() {
     this.dog.draw(this.ctx);
 
@@ -687,44 +1315,198 @@ export default class GameScreen {
     this.ctx.restore();
   }
 
+  // Lazily builds (once per distinct animation frame, not per render call) a
+  // red silhouette of that frame: draw the frame to a small offscreen
+  // canvas, then `globalCompositeOperation = 'source-in'` recolors only the
+  // pixels the sprite actually painted (its alpha shape), leaving
+  // transparent pixels transparent. The result is a red cutout shaped like
+  // the cat, not a rectangle — cached per frame index since there are only
+  // a handful of frames and the source sprite sheet never changes.
+  getCatOutlineFrame(frameIndex) {
+    if (!this.catOutlineFrames) this.catOutlineFrames = [];
+    if (this.catOutlineFrames[frameIndex]) return this.catOutlineFrames[frameIndex];
+
+    const cat = this.cat;
+    if (!cat.spriteSheet.complete || cat.spriteSheet.naturalWidth === 0) return null;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = cat.frameWidth;
+    offscreen.height = cat.frameHeight;
+    const offCtx = offscreen.getContext('2d');
+    offCtx.drawImage(
+      cat.spriteSheet,
+      0, frameIndex * cat.frameHeight, cat.frameWidth, cat.frameHeight,
+      0, 0, cat.frameWidth, cat.frameHeight
+    );
+    offCtx.globalCompositeOperation = 'source-in';
+    offCtx.fillStyle = COLORS.CAT_OUTLINE;
+    offCtx.fillRect(0, 0, cat.frameWidth, cat.frameHeight);
+
+    this.catOutlineFrames[frameIndex] = offscreen;
+    return offscreen;
+  }
+
+  // Draws the red silhouette (see getCatOutlineFrame()) offset in a ring of
+  // directions around the cat's actual draw position, called before
+  // cat.draw() (see drawGameObjects()) so the real sprite paints over the
+  // silhouette's interior right after — only the rim where an offset copy
+  // sticks out past the un-offset sprite stays visible, producing an
+  // outline that hugs the cat's actual shape instead of its bounding box.
   drawRedOutline() {
+    const cat = this.cat;
+    const silhouette = this.getCatOutlineFrame(cat.currentFrame);
+    const width = Math.max(1, this.layout.catOutlineWidth);
+
     this.ctx.save();
-    this.ctx.strokeStyle = COLORS.CAT_OUTLINE;
-    this.ctx.lineWidth = Math.max(1, this.layout.catOutlineWidth);
-    const { x, y, displayWidth, displayHeight } = this.cat;
-    this.ctx.strokeRect(x, y, displayWidth, displayHeight);
+    if (!silhouette) {
+      // Sprite sheet hasn't finished loading yet — fall back to the old
+      // bounding-box outline rather than drawing nothing.
+      this.ctx.strokeStyle = COLORS.CAT_OUTLINE;
+      this.ctx.lineWidth = width;
+      this.ctx.strokeRect(cat.x, cat.y, cat.displayWidth, cat.displayHeight);
+      this.ctx.restore();
+      return;
+    }
+
+    // Each ring offset gets its own save/restore: the offsets themselves
+    // stay in plain screen space (a circle around the cat) while the
+    // silhouette drawn at each one is rotated/stretched via
+    // cat.applyDirectionalTransform() — the same transform draw() applies
+    // to the real sprite — so the outline still hugs a tilted cat instead
+    // of drifting out of alignment with it.
+    const centerX = cat.x + cat.displayWidth / 2;
+    const centerY = cat.y + cat.displayHeight / 2;
+    const RING_STEPS = 8;
+    for (let i = 0; i < RING_STEPS; i++) {
+      const angle = (i / RING_STEPS) * Math.PI * 2;
+      const dx = Math.cos(angle) * width;
+      const dy = Math.sin(angle) * width;
+      this.ctx.save();
+      this.ctx.translate(centerX + dx, centerY + dy);
+      cat.applyDirectionalTransform(this.ctx);
+      this.ctx.drawImage(silhouette, -cat.displayWidth / 2, -cat.displayHeight / 2, cat.displayWidth, cat.displayHeight);
+      this.ctx.restore();
+    }
     this.ctx.restore();
   }
 
+  // Only reached while !gameOver (see render()) — the transient "Dummy
+  // caught Mia!" pause message. Plain text over the live board is fine
+  // here since gameplay is still visibly running underneath; the actual
+  // game-over screen uses displayGameOverModal() instead.
   displayMessage() {
     this.ctx.fillStyle = COLORS.MESSAGE;
     this.ctx.font = `${this.layout.messageFontSize}px Arial`;
     this.ctx.textAlign = 'center';
 
-    // Adjust message position higher
-    const messageY = this.canvas.height / 2 - this.layout.messageYOffset; // Position higher above the button
+    const messageY = this.canvas.height / 2 - this.layout.messageYOffset;
     this.ctx.fillText(this.message, this.canvas.width / 2, messageY);
-
-    if (this.gameOver) {
-        this.displayPlayAgainButton(messageY); // Pass messageY to ensure alignment
-    }
   }
 
-  displayPlayAgainButton(messageY) {
-    const { playButtonWidth, playButtonHeight, playButtonGap, playButtonTextOffsetY, messageFontSize } = this.layout;
+  // Replaces the old plain-text end screen with a proper modal: a dimming
+  // scrim over the whole board (so the card reads clearly regardless of
+  // what's drawn underneath — the previous plain text sometimes wasn't
+  // legible depending on the board state behind it), a gradient card
+  // (gold for a win, teal/blue for a loss — see COLORS.MODAL), a big bold
+  // "You Win!"/"You Lose!" headline with an outline stroke so it pops
+  // against either gradient, the narration message as a subtitle, and a
+  // rounded "Play Again" button. this.gameOverIsWin (set by endGame(), see
+  // Character selection & Mouse-controlled mode in CLAUDE.md) decides which
+  // headline/palette to use — the underlying trigger (cat caught mouse /
+  // mouse escaped) is the same regardless of who's playing.
+  displayGameOverModal() {
+    const ctx = this.ctx;
+    const { width, height } = this.canvas;
+    const {
+      scale, modalWidth, modalHeight, modalRadius,
+      modalTitleFontSize, modalSubtitleFontSize,
+      modalButtonWidth, modalButtonHeight, modalButtonRadius, modalButtonFontSize,
+    } = this.layout;
 
-    // Place the button distinctly below the message
-    const buttonX = this.canvas.width / 2 - playButtonWidth / 2;
-    const buttonY = messageY + playButtonGap; // Offset below the message
+    ctx.save();
+    ctx.fillStyle = COLORS.MODAL.SCRIM;
+    ctx.fillRect(0, 0, width, height);
 
-    this.ctx.fillStyle = COLORS.PLAY_BUTTON.BACKGROUND;
-    this.ctx.fillRect(buttonX, buttonY, playButtonWidth, playButtonHeight);
-    this.ctx.fillStyle = COLORS.PLAY_BUTTON.TEXT;
-    this.ctx.font = `${messageFontSize}px Arial`;
-    this.ctx.fillText('Play Again', this.canvas.width / 2, buttonY + playButtonTextOffsetY);
+    // Pop-in animation: scales the card up from slightly smaller while
+    // fading in over MODAL_POP_IN_DURATION — same performance.now()-diff
+    // pattern as drawShockwave(). The click hit-area below intentionally
+    // uses the *final* (unscaled) button position throughout, rather than
+    // tracking this animation — a purely cosmetic quarter-second effect
+    // isn't worth hit-testing against a live transform.
+    const elapsed = performance.now() - this.gameOverStartTime;
+    const progress = Math.min(1, elapsed / MODAL_POP_IN_DURATION);
+    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+    const popScale = 0.85 + 0.15 * eased;
 
-    // Update the playAgainButtonArea for accurate click detection
-    this.playAgainButtonArea = { x: buttonX, y: buttonY, width: playButtonWidth, height: playButtonHeight };
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    ctx.globalAlpha = eased;
+    ctx.translate(centerX, centerY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-centerX, -centerY);
+
+    const modalX = centerX - modalWidth / 2;
+    const modalY = centerY - modalHeight / 2;
+
+    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    if (this.gameOverIsWin) {
+      gradient.addColorStop(0, COLORS.MODAL.WIN_GRADIENT_START);
+      gradient.addColorStop(1, COLORS.MODAL.WIN_GRADIENT_END);
+    } else {
+      gradient.addColorStop(0, COLORS.MODAL.LOSE_GRADIENT_START);
+      gradient.addColorStop(1, COLORS.MODAL.LOSE_GRADIENT_END);
+    }
+
+    drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    ctx.fillStyle = gradient;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 24 * scale;
+    ctx.shadowOffsetY = 8 * scale;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.lineWidth = Math.max(2, 4 * scale);
+    ctx.strokeStyle = COLORS.MODAL.BORDER;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    const title = this.gameOverIsWin ? 'You Win!' : 'You Lose!';
+    const titleY = centerY - modalHeight * 0.12;
+    // 'Impact'/'Arial Black' aren't available on every OS — the bold
+    // sans-serif fallback plus the outline stroke below keep it reading as
+    // "big playful headline" either way, without loading an external font.
+    ctx.font = `900 ${modalTitleFontSize}px Impact, 'Arial Black', sans-serif`;
+    ctx.lineWidth = Math.max(2, 3 * scale);
+    ctx.strokeStyle = COLORS.MODAL.TITLE_STROKE;
+    ctx.strokeText(title, centerX, titleY);
+    ctx.fillStyle = COLORS.MODAL.TITLE_FILL;
+    ctx.fillText(title, centerX, titleY);
+
+    ctx.font = `bold ${modalSubtitleFontSize}px Arial`;
+    ctx.fillStyle = COLORS.MODAL.SUBTITLE;
+    ctx.fillText(this.message, centerX, centerY + modalHeight * 0.06);
+
+    const buttonX = centerX - modalButtonWidth / 2;
+    const buttonY = centerY + modalHeight * 0.22;
+    drawRoundedRect(ctx, buttonX, buttonY, modalButtonWidth, modalButtonHeight, modalButtonRadius);
+    ctx.shadowColor = COLORS.MODAL.BUTTON_SHADOW;
+    ctx.shadowBlur = 10 * scale;
+    ctx.shadowOffsetY = 4 * scale;
+    ctx.fillStyle = COLORS.MODAL.BUTTON_BACKGROUND;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    ctx.font = `bold ${modalButtonFontSize}px Arial`;
+    ctx.fillStyle = COLORS.MODAL.BUTTON_TEXT;
+    ctx.fillText('Play Again', centerX, buttonY + modalButtonHeight / 2 + modalButtonFontSize * 0.35);
+
+    ctx.restore();
+
+    this.playAgainButtonArea = { x: buttonX, y: buttonY, width: modalButtonWidth, height: modalButtonHeight };
   }
 
   // A wall band flush against all four canvas edges, drawn under the
@@ -927,6 +1709,12 @@ export default class GameScreen {
     const playableRightEdge = this.canvas.width - wallOffset - INTERIOR_MARGIN - rightWallWidth;
     const playableMaxWidth = playableRightEdge - playableX;
     const playableMaxHeight = this.canvas.height - bottomWallHeight - INTERIOR_MARGIN - playableY;
+
+    // Exposed for resetGameObjects()'s resolveClearSpawn() — the same
+    // interior bounds the dining set below searches within, reused so a
+    // fallback mouse spawn is guaranteed to fit the same way the dining set
+    // does.
+    this.playableArea = { x: playableX, y: playableY, width: playableMaxWidth, height: playableMaxHeight };
 
     // 4. Dining set: table and one chair placed side by side (not stacked
     // front/back like an earlier round), sharing a random-search footprint

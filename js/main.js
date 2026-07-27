@@ -2,6 +2,8 @@ import ScreenManager from './classes/screens/ScreenManager.js';
 import SetupScreen from './classes/screens/SetupScreen.js';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls } from './utils/touchControls.js';
+import { setupSettingsMenu } from './utils/settingsMenu.js';
+import { isTouch } from './utils/scale.js';
 
 const gameCanvas = document.getElementById('gameCanvas');
 const ctx = gameCanvas.getContext('2d');
@@ -9,6 +11,7 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 setupOrientationGate();
 setupTouchControls();
+setupSettingsMenu();
 
 const screenManager = new ScreenManager(ctx);
 const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);
@@ -16,8 +19,21 @@ const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);
 // Start with the setup screen
 screenManager.setScreen(setupScreen);
 
+// Canvas width is capped at a fraction of the viewport, leaving the rest as
+// side margin. On a touch device that margin is where the d-pad/action
+// buttons live (see touchControls.js), and on aspect ratios close to the
+// canvas's own 4:3 (a standard iPad landscape, notably) the default 90%
+// leaves as little as ~50px per side — not enough room for a usable touch
+// control. Reserving more width (80%) specifically on touch devices fixes
+// that; it has no effect on the common case where a touch device's aspect
+// ratio makes the canvas *height*-constrained instead (most phones in
+// landscape), since this fraction is only ever the binding constraint on
+// wider/squarer aspect ratios. Desktop keeps 90% — there's no touch control
+// competing for that space there, and shrinking the board for no benefit
+// isn't worth it.
 function resizeCanvas() {
-  const maxCanvasWidth = Math.min(window.innerWidth * 0.9, 1280);
+  const widthFraction = isTouch() ? 0.8 : 0.9;
+  const maxCanvasWidth = Math.min(window.innerWidth * widthFraction, 1280);
   const maxCanvasHeight = Math.min(window.innerHeight * 0.95, 960);
   let canvasWidth = maxCanvasWidth;
   let canvasHeight = canvasWidth * (3 / 4);

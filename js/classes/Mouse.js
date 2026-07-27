@@ -1,16 +1,20 @@
 export default class Mouse {
-  // `scale` (see js/utils/scale.js) shrinks size/speed together on a small
-  // canvas. frameWidth/frameHeight stay native (used only to slice the
-  // source sheet); this.size is the scaled on-screen/collision size.
-  constructor(x, y, canvasWidth, canvasHeight, scale = 1) {
+  // `scale` (see js/utils/scale.js) shrinks movement speed on a small
+  // canvas. `sizeScale` (getCharacterScale() — defaults to `scale` if not
+  // given) separately controls this.size, the on-screen/collision size —
+  // kept apart from `scale` so a desktop size boost doesn't also speed the
+  // mouse's wander velocity up (see DESKTOP_CHARACTER_SIZE_MULTIPLIER in
+  // scale.js). frameWidth/frameHeight stay native (used only to slice the
+  // source sheet).
+  constructor(x, y, canvasWidth, canvasHeight, scale = 1, sizeScale = scale) {
     this.x = x;
     this.y = y;
     this.scale = scale;
-    this.size = 32 * scale; // Match in-game size to sprite size
+    this.size = 32 * sizeScale; // Match in-game size to sprite size
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
-    this.speedX = (Math.random() * 2 + 1) * scale * (Math.random() < 1.0 ? 1 : -1);
-    this.speedY = (Math.random() * 2 + 1) * scale * (Math.random() < 1.0 ? 1 : -1);
+    this.speedX = (Math.random() * 2 + 1) * scale * (Math.random() < 0.5 ? 1 : -1);
+    this.speedY = (Math.random() * 2 + 1) * scale * (Math.random() < 0.5 ? 1 : -1);
 
     // Sprite sheet
     this.spriteSheet = new Image();
@@ -70,6 +74,18 @@ export default class Mouse {
       this.speedY *= -1;
       this.y = Math.max(0, Math.min(this.y, this.canvasHeight - this.size));
       if (this.wallHitCallback) this.wallHitCallback();
+    }
+
+    // Face whichever way it's actually heading (post-bounce, so a wall hit
+    // updates the facing the same tick it turns around) — previously only
+    // set from player input in Mouse-controlled mode, so the autonomous
+    // mouse stayed visually stuck facing 'south' (its construction default)
+    // for the whole game regardless of which way it was really moving.
+    // Dominant-axis pick, same idea as GameScreen's moveCatTowardMouse().
+    if (Math.abs(this.speedX) >= Math.abs(this.speedY)) {
+      this.currentDirection = this.speedX > 0 ? 'east' : 'west';
+    } else {
+      this.currentDirection = this.speedY > 0 ? 'south' : 'north';
     }
 
     // Update animation

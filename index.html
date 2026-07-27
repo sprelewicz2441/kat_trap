@@ -9,16 +9,40 @@
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./js/main.js"></script>
 </head>
-<body class="bg-gray-900 text-white flex flex-col items-center justify-start min-h-screen">
-  <!-- Game Canvas -->
-  <main class="flex items-center justify-center mt-2">
-    <canvas id="gameCanvas" class="border border-gray-500 bg-white"></canvas>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen">
+  <!-- Game Canvas. justify-center (not justify-start) is load-bearing: on
+       viewport aspect ratios closer to square than 4:3, the canvas is
+       width- rather than height-constrained (see resizeCanvas() in
+       js/main.js) and ends up shorter than the viewport, leaving empty
+       space below it — justify-start dumped all of that space below the
+       canvas instead of splitting it top/bottom, which looked broken
+       (confirmed live) and also threw off the touch controls' vertical
+       centering (they center on viewport-middle, which only lines up with
+       the canvas's own middle once the canvas itself is centered). The
+       retro handheld-console frame lives around the whole viewport instead
+       (see styles.css, body::before/::after) — not here. -->
+  <main class="flex items-center justify-center">
+    <canvas id="gameCanvas" class="bg-white"></canvas>
   </main>
 
   <!-- Landscape-only gate (mobile milestone — see CLAUDE.md Mobile responsiveness) -->
   <div id="orientationGate">
     <div class="rotate-icon">🔄</div>
     <p class="text-xl font-bold">Please rotate your device to landscape to play!</p>
+  </div>
+
+  <!-- Settings (hamburger) menu — visible on ALL devices during gameplay
+       (unlike the touch-only controls below, sound isn't touch-specific).
+       Lives in the top-right corner, the spot already earmarked below as
+       the natural home for menu-style icons. See js/utils/settingsMenu.js
+       and js/utils/audio.js for the two independent mute flags: music
+       starts muted, sounds (SFX) start unmuted. -->
+  <div id="settingsMenu">
+    <button id="settingsToggle" aria-label="Settings" aria-expanded="false">&#9776;</button>
+    <div id="settingsPanel" hidden>
+      <button id="musicToggleBtn" aria-pressed="false"></button>
+      <button id="sfxToggleBtn" aria-pressed="true"></button>
+    </div>
   </div>
 
   <!-- On-screen touch controls — only visible on touch devices during

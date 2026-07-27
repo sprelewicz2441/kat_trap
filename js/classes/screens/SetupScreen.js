@@ -1,4 +1,4 @@
-import GameScreen from './GameScreen.js';
+import CharacterSelectScreen from './CharacterSelectScreen.js';
 
 export default class SetupScreen {
   constructor(screenManager, canvas) {
@@ -7,8 +7,12 @@ export default class SetupScreen {
     this.ctx = canvas.getContext('2d');
     this.backgroundImage = new Image();
     this.backgroundImage.src = './assets/start_screen.jpg'; 
-    this.startButtonArea = null; 
+    this.startButtonArea = null;
     this.animationOffset = 0;
+    // Lets animateBackground()'s self-perpetuating rAF loop stop once this
+    // screen is no longer active (see cleanup()) — previously nothing ever
+    // set this, so the loop (and a stray mousemove listener) ran forever.
+    this.running = true;
   }
 
   init() {
@@ -95,6 +99,8 @@ export default class SetupScreen {
   }
 
   animateBackground() {
+    if (!this.running) return;
+
     // Continuously animate the background
     this.render(); // Re-render with the animated background
     requestAnimationFrame(() => this.animateBackground());
@@ -111,18 +117,19 @@ export default class SetupScreen {
             offsetY >= this.startButtonArea.y &&
             offsetY <= this.startButtonArea.y + this.startButtonArea.height
         ) {
-            // Remove the listener before transitioning
-            this.canvas.removeEventListener('click', this.startClickHandler);
+            // Stop the animation loop and remove listeners before transitioning
+            this.cleanup();
 
-            // Transition to the GameScreen
-            this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx));
+            // Transition to character selection before gameplay starts
+            this.screenManager.setScreen(new CharacterSelectScreen(this.screenManager, this.canvas));
         }
     };
 
     // Add the event listener
     this.canvas.addEventListener('click', this.startClickHandler);
 
-    this.canvas.addEventListener('mousemove', (event) => {
+    // Named (not anonymous) so cleanup() can actually remove it.
+    this.moveHandler = (event) => {
       const { offsetX, offsetY } = event;
 
       if (
@@ -135,6 +142,16 @@ export default class SetupScreen {
       } else {
         this.canvas.style.cursor = 'default'; // Reset cursor to default
       }
-    });
+    };
+    this.canvas.addEventListener('mousemove', this.moveHandler);
+  }
+
+  // Stops animateBackground()'s rAF loop and removes both listeners —
+  // called both from the Start click (before transitioning) and
+  // automatically by ScreenManager.setScreen() on any screen swap.
+  cleanup() {
+    this.running = false;
+    this.canvas.removeEventListener('click', this.startClickHandler);
+    this.canvas.removeEventListener('mousemove', this.moveHandler);
   }
 }

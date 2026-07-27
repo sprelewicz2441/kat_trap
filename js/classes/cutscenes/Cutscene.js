@@ -1,4 +1,7 @@
 import { getUIScale } from '../../utils/scale.js';
+import { drawRoundedRect } from '../../utils/canvasShapes.js';
+
+const POP_IN_DURATION = 250; // ms — same ease-out-cubic pop as GameScreen's game-over modal
 
 export default class Cutscene {
   constructor(ctx, characterAnimation, text, soundCallback) {
@@ -25,18 +28,22 @@ export default class Cutscene {
     // in-game asset, so it uses getUIScale rather than getScale — see
     // js/utils/scale.js.
     this.scale = getUIScale(this.ctx.canvas.width);
+    this.startTime = 0; // Set in init() — drives the pop-in animation below
   }
 
   init(nextCallback) {
     this.nextCallback = nextCallback;
+    this.startTime = performance.now();
 
     if (this.soundCallback) {
       this.soundCallback();
     }
 
-    // Center the animation
+    // Centered horizontally, shifted up from dead-center vertically to
+    // leave room for the text/button below it within the card (see
+    // render()) without overlapping.
     this.characterAnimation.x = this.ctx.canvas.width / 2 - this.frameWidth / 2;
-    this.characterAnimation.y = this.ctx.canvas.height / 2 - this.frameHeight / 2;
+    this.characterAnimation.y = this.ctx.canvas.height / 2 - this.frameHeight / 2 - 40 * this.scale;
 
     this.addEventListeners();
   }
@@ -46,21 +53,22 @@ export default class Cutscene {
     this.ctx.canvas.addEventListener('click', this.canvasClickHandler);
   }
 
+  // Shared by render() and handleNextClick() so the drawn button and its
+  // click hit box can never drift apart — previously these were two
+  // separate copies of the same four numbers.
+  getButtonRect() {
+    const width = 160 * this.scale;
+    const height = 54 * this.scale;
+    const x = this.ctx.canvas.width / 2 - width / 2;
+    const y = this.ctx.canvas.height / 2 + 110 * this.scale;
+    return { x, y, width, height };
+  }
+
   handleNextClick(event) {
     const { offsetX, offsetY } = event;
+    const { x, y, width, height } = this.getButtonRect();
 
-    // Define "Next" button position
-    const buttonWidth = 150 * this.scale;
-    const buttonHeight = 50 * this.scale;
-    const buttonX = this.ctx.canvas.width / 2 - buttonWidth / 2;
-    const buttonY = this.ctx.canvas.height / 2 + 100 * this.scale;
-
-    if (
-      offsetX >= buttonX &&
-      offsetX <= buttonX + buttonWidth &&
-      offsetY >= buttonY &&
-      offsetY <= buttonY + buttonHeight
-    ) {
+    if (offsetX >= x && offsetX <= x + width && offsetY >= y && offsetY <= y + height) {
       this.cleanup();
       if (this.nextCallback) this.nextCallback();
     }
@@ -71,19 +79,67 @@ export default class Cutscene {
   }
 
   render() {
-    // Draw a red-bordered modal background
-    this.ctx.save();
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    //this.ctx.strokeStyle = 'red'; // Red border for debug visibility
-    //this.ctx.lineWidth = 5;
+    const ctx = this.ctx;
+    const canvasWidth = ctx.canvas.width;
+    const canvasHeight = ctx.canvas.height;
+
+    // Full-canvas backdrop — same blue/teal family as SetupScreen/
+    // CharacterSelectScreen, so cutscenes don't drop out of that flow into
+    // a flat gap. Previously this was left uncleared, showing the canvas
+    // element's own white CSS background — which the modal's own
+    // near-white fill (rgba(255,255,255,0.9)) barely stood out against.
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+    bgGradient.addColorStop(0, '#0f2a43');
+    bgGradient.addColorStop(1, '#123a4d');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    ctx.save();
+
+    // Pop-in animation: same ease-out-cubic scale+fade as
+    // GameScreen.displayGameOverModal(), keyed off this.startTime (set in
+    // init(), i.e. when this cutscene actually became active) — so the card
+    // (and the character sprite drawn on top of it, since both sit inside
+    // this transform) eases in each time "Next" advances to a new
+    // cutscene, rather than snapping straight to its final state.
+    const elapsed = performance.now() - this.startTime;
+    const progress = Math.min(1, elapsed / POP_IN_DURATION);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const popScale = 0.92 + 0.08 * eased;
+
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    ctx.globalAlpha = eased;
+    ctx.translate(centerX, centerY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-centerX, -centerY);
+
     const modalMargin = 50 * this.scale;
     const modalX = modalMargin;
     const modalY = modalMargin;
-    const modalWidth = this.ctx.canvas.width - modalMargin * 2;
-    const modalHeight = this.ctx.canvas.height - modalMargin * 2;
+    const modalWidth = canvasWidth - modalMargin * 2;
+    const modalHeight = canvasHeight - modalMargin * 2;
+    const modalRadius = 28 * this.scale;
 
-    this.ctx.fillRect(modalX, modalY, modalWidth, modalHeight);
-    //this.ctx.strokeRect(modalX, modalY, modalWidth, modalHeight);
+    const cardGradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    cardGradient.addColorStop(0, '#fff8ee');
+    cardGradient.addColorStop(1, '#ffe9c7');
+
+    drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    ctx.fillStyle = cardGradient;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 24 * this.scale;
+    ctx.shadowOffsetY = 8 * this.scale;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.lineWidth = Math.max(2, 4 * this.scale);
+    // Same purple accent used elsewhere in the game's chrome (action
+    // buttons, settings menu, punch shockwave) — ties the cutscene card
+    // back into the rest of the UI instead of introducing a new accent.
+    ctx.strokeStyle = 'rgba(138, 43, 226, 0.55)';
+    ctx.stroke();
 
     // Draw the character animation
     if (this.characterAnimation) {
@@ -93,25 +149,33 @@ export default class Cutscene {
 
     // Draw the text — clamped to a minimum so it stays legible even at a
     // small canvas scale, rather than shrinking indefinitely.
-    const textFontSize = Math.max(14, 32 * this.scale);
-    const buttonFontSize = Math.max(12, 24 * this.scale);
-    this.ctx.fillStyle = 'navy';
-    this.ctx.font = `${textFontSize}px Arial`;
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(this.text, this.ctx.canvas.width / 2, this.ctx.canvas.height / 2 + 50 * this.scale);
+    const textFontSize = Math.max(16, 32 * this.scale);
+    ctx.fillStyle = '#2b1d3d';
+    ctx.font = `bold ${textFontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.fillText(this.text, centerX, centerY + 55 * this.scale);
 
-    // Draw the "Next" button
-    const buttonWidth = 150 * this.scale;
-    const buttonHeight = 50 * this.scale;
-    const buttonX = this.ctx.canvas.width / 2 - buttonWidth / 2;
-    const buttonY = this.ctx.canvas.height / 2 + 100 * this.scale;
-    this.ctx.fillStyle = 'blue';
-    this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+    // Draw the "Next" button — rounded pill, matching the purple accent
+    // rather than the old flat blue rect.
+    const button = this.getButtonRect();
+    const buttonGradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
+    buttonGradient.addColorStop(0, '#9c6fd6');
+    buttonGradient.addColorStop(1, '#6a1fc2');
+    drawRoundedRect(ctx, button.x, button.y, button.width, button.height, button.height / 2);
+    ctx.fillStyle = buttonGradient;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 10 * this.scale;
+    ctx.shadowOffsetY = 4 * this.scale;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
 
-    this.ctx.fillStyle = 'white';
-    this.ctx.font = `${buttonFontSize}px Arial`;
-    this.ctx.fillText('Next', this.ctx.canvas.width / 2, buttonY + buttonHeight * 0.66);
+    const buttonFontSize = Math.max(14, 22 * this.scale);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${buttonFontSize}px Arial`;
+    ctx.fillText('Next', centerX, button.y + button.height / 2 + buttonFontSize * 0.35);
 
-    this.ctx.restore();
+    ctx.restore();
   }
 }

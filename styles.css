@@ -21,35 +21,106 @@
   margin-bottom: 1rem;
 }
 
-/* On-screen D-pad (movement) — see js/utils/touchControls.js. Anchored to
-   the viewport's left margin, vertically centered, rather than the canvas
-   itself: resizeCanvas() (js/main.js) locks the canvas to 4:3, and on a
-   real landscape phone the canvas fills nearly the full viewport *height*
-   (its width is what's left over), so the actual empty space to anchor
-   controls into is beside the canvas, not below it — confirmed live by
-   resizing to a realistic phone-landscape viewport (canvas ended up ~10px
-   from the viewport's top/bottom edges, but ~200px of clear margin on each
-   side). A full viewport-bottom-center position was tried first for
-   "centered" and rejected: at that aspect ratio it sat directly on top of
-   the board (and would've covered the Play Again button), which is exactly
-   what the side-margin anchor was already chosen to avoid — see CLAUDE.md
-   Mobile responsiveness. Vertically centering in that left margin (instead
-   of the old bottom-pinned corner position) is what "centered" means here.
+/* Retro handheld-console frame around the whole viewport — NOT the canvas
+   (an earlier pass framed the canvas itself; that was the wrong element,
+   per feedback). A fixed, non-interactive overlay (pointer-events: none)
+   drawn on top of everything except the orientation gate, rather than a
+   real layout border: resizeCanvas() (js/main.js) sizes the canvas off raw
+   window.innerWidth/innerHeight, so an actual border on html/body would
+   silently eat into that budget and risk overflow/scrollbars. This is
+   drawn on top instead, so it never touches that math.
+   Thinned down from an earlier, chunkier pass (16px) and given a directional
+   bevel instead of a uniform ring — a real molded-plastic edge catches light
+   unevenly (lighter along the top/left, shadowed along the bottom/right),
+   which a symmetric inset ring doesn't convey — for a more realistic
+   handheld-console-bezel look. The small power-LED dot in the top-left
+   corner doubles as a live mouse-escape-danger meter, not just a static
+   power light: GameScreen.updateEscapeDangerIndicator() sets
+   `document.body.dataset.mouseDanger` ('low'/'medium'/'high', based on the
+   mouse's distance to the nearest escape hole) every frame regardless of
+   device — harmless on desktop since the rules below (and the frame
+   itself) are gated behind the same `pointer: coarse` check already used
+   for the touch controls: a handheld-console bezel only makes sense
+   framing an actual touch device, not a mouse-and-keyboard desktop window,
+   so this whole frame is mobile-only. */
+@media (pointer: coarse) {
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    pointer-events: none;
+    box-sizing: border-box;
+    border: 8px solid #a8a1b8;
+    box-shadow:
+      inset 2px 2px 3px rgba(255, 255, 255, 0.55),
+      inset -2px -2px 4px rgba(0, 0, 0, 0.4);
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 15px;
+    left: 20px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9bff9f, #1ec83f 75%);
+    box-shadow: 0 0 4px rgba(40, 255, 80, 0.7);
+    z-index: 9991;
+    pointer-events: none;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  body[data-mouse-danger="medium"]::before {
+    background: radial-gradient(circle at 35% 30%, #fff59b, #c8961e 75%);
+    box-shadow: 0 0 4px rgba(255, 200, 40, 0.75);
+  }
+
+  body[data-mouse-danger="high"]::before {
+    background: radial-gradient(circle at 35% 30%, #ff9b9b, #c81e1e 75%);
+    box-shadow: 0 0 5px rgba(255, 40, 40, 0.85);
+  }
+}
+
+/* On-screen D-pad (movement) — see js/utils/touchControls.js. Anchored
+   within the left gutter (the empty space between the viewport frame and
+   the canvas's left edge), centered both horizontally and vertically
+   *within that gutter's own footprint* rather than at a fixed offset from
+   the viewport edge. Horizontal centering depends on the canvas's actual
+   runtime position (its width isn't fixed — see resizeCanvas() in
+   js/main.js), so `left` here is just a fallback; touchControls.js sets
+   the real value from the canvas's bounding rect on load/resize/
+   orientationchange, using the same transform: translate(-50%, -50%) this
+   rule establishes. Vertical centering (top: 50%) doesn't need that same
+   JS treatment — the gutter spans the full viewport height regardless of
+   where the canvas sits vertically, so viewport-center is already correct.
    Hidden by default; only shown when both the pointer is coarse (touch) and
    gameplay is actually running (GameScreen adds .in-game to <body> in
    init() and removes it in cleanup()) — this keeps desktop play
    uncluttered and keeps the control off the setup screen.
-   Styled as a single rounded "joystick" disc (radial-gradient glass panel,
-   soft outer shadow, inset highlight) rather than four separate square
+   Styled as a single rounded disc rather than four separate square
    buttons, with a decorative non-interactive center dot standing in for a
    stick base. Sized down from an earlier, larger pass once it read as too
    big alongside the (also re-added) action-button cluster on the right —
-   see #actionButtons below for why actions live on the right and not here. */
+   see #actionButtons below for why actions live on the right and not here.
+   Reskinned from an earlier dark-glass look to a brushed-metal/chrome
+   controller finish (layered grey gradients for the "brushed" look, plus
+   inset highlight/shadow pairs on the disc, buttons, and center nub to read
+   as physically raised/beveled plastic-and-metal rather than a flat tint) —
+   asked for explicitly as "a real joystick you'd see on a control pad."
+   Button glyphs switched from white to dark grey since they now sit on a
+   light silver background. */
 #dpad {
   position: fixed;
-  left: 16px;
+  left: 0;
   top: 50%;
-  transform: translateY(-50%);
+  /* --dpad-scale (set by touchControls.js) shrinks the whole control
+     proportionally — padding/gaps/icon sizes included — when the gutter
+     beside the canvas is narrower than this control's natural 116px, e.g.
+     on a standard-aspect iPad landscape. Defaults to 1 (full size) before
+     JS runs or on any device with a roomy-enough gutter. */
+  transform: translate(-50%, -50%) scale(var(--dpad-scale, 1));
   z-index: 40;
   width: 116px;
   height: 116px;
@@ -60,11 +131,14 @@
   grid-template-rows: repeat(3, 1fr);
   gap: 5px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.16), rgba(15, 15, 25, 0.6) 72%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 30%),
+    linear-gradient(155deg, #f4f4f6 0%, #d6d6da 30%, #aeaeb4 55%, #86868c 78%, #66666b 100%);
+  border: 2px solid #55555a;
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.45),
+    inset 0 2px 3px rgba(255, 255, 255, 0.8),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.35);
 }
 
 @media (pointer: coarse) {
@@ -77,29 +151,39 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(160deg, #f6f6f8 0%, #d8d8dc 45%, #aeaeb4 100%);
+  border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 10px;
-  color: rgba(255, 255, 255, 0.92);
+  color: #3a3a3e;
   font-size: 1rem;
   line-height: 1;
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
   user-select: none;
-  transition: background 0.12s ease, transform 0.12s ease;
+  box-shadow:
+    0 2px 3px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.18);
+  transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .dpad-btn:active {
-  background: rgba(138, 43, 226, 0.5);
-  transform: scale(0.9);
+  background: linear-gradient(160deg, #c6c6cb 0%, #a8a8ae 50%, #8c8c92 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.4),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+  transform: scale(0.92) translateY(1px);
 }
 
 .dpad-center {
   grid-column: 2;
   grid-row: 2;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d8d8dc 40%, #98989e 75%, #6a6a70 100%);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.7);
 }
 
 .dpad-up { grid-column: 2; grid-row: 1; }
@@ -109,9 +193,13 @@
 
 /* Action buttons (punch/toot/meow) — these map to the same keystrokes as
    desktop ('p'/space/'m', see InputHandler.js), so touch users need direct
-   access to them too, not just movement. Anchored to the right margin,
-   vertically centered to match the d-pad's anchor on the left (standard
-   movement-left/actions-right split, and visually symmetric with it).
+   access to them too, not just movement. Anchored within the right gutter
+   (mirror of #dpad's left gutter above), centered both horizontally and
+   vertically within that gutter's own footprint — same reasoning as
+   #dpad: `left` here is a fallback, touchControls.js sets the real
+   horizontal center from the canvas's bounding rect (using `left` rather
+   than `right`, so both controls share one positioning scheme). Standard
+   movement-left/actions-right split, visually symmetric with the d-pad.
    Deliberately kept vertically centered rather than pushed toward a
    corner: a future credits/settings/etc. icon row is planned, and the
    *top* corners are the natural home for menu-style icons (they don't
@@ -120,9 +208,12 @@
    a re-layout. */
 #actionButtons {
   position: fixed;
-  right: 16px;
+  left: 0;
   top: 50%;
-  transform: translateY(-50%);
+  /* --action-scale (set by touchControls.js) — same shrink-to-fit
+     reasoning as #dpad's --dpad-scale above, against this cluster's own
+     52px natural button size. */
+  transform: translate(-50%, -50%) scale(var(--action-scale, 1));
   z-index: 40;
   display: none;
   flex-direction: column;
@@ -157,4 +248,110 @@
 .action-btn:active {
   background: radial-gradient(circle at 35% 30%, rgba(138, 43, 226, 0.7), rgba(15, 15, 25, 0.7) 72%);
   transform: scale(0.9);
+}
+
+/* Settings (hamburger) menu (see js/utils/settingsMenu.js) — NOT gated to
+   pointer:coarse like #dpad/#actionButtons above, since sound isn't a
+   touch-only concern; this shows on desktop too, just positioned
+   differently there. The toggle button reuses the action-btn purple-glow
+   look for visual consistency with the other round buttons; the dropdown
+   panel holds the two independent mute toggles (music, sounds — see
+   js/utils/audio.js).
+
+   Desktop default: vertically centered (top: 50%) and horizontally anchored
+   to the right gutter's center via `left`, set inline by
+   layoutSettingsMenuDesktop() in js/utils/settingsMenu.js using the exact
+   same formula #actionButtons uses below — same "vertical line" the
+   action-icon column would sit on, tracked against the canvas's actual
+   position rather than a fixed viewport corner. Mobile overrides this
+   (see the pointer:coarse block below) back to a fixed top-right corner —
+   the action-button cluster is already crowded there, so this stays
+   separate rather than joining it. */
+#settingsMenu {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 45;
+  display: none;
+}
+
+body.in-game #settingsMenu {
+  display: block;
+}
+
+@media (pointer: coarse) {
+  #settingsMenu {
+    left: auto;
+    top: 14px;
+    right: 16px;
+    transform: none;
+  }
+}
+
+#settingsToggle {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(138, 43, 226, 0.45), rgba(15, 15, 25, 0.6) 72%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+#settingsToggle:active {
+  background: radial-gradient(circle at 35% 30%, rgba(138, 43, 226, 0.7), rgba(15, 15, 25, 0.7) 72%);
+  transform: scale(0.9);
+}
+
+/* Dropdown panel — absolutely positioned under the toggle button rather
+   than a fixed offset, so it stays anchored to it regardless of where
+   #settingsMenu ends up. `hidden` (a real HTML attribute, toggled in JS)
+   drives visibility rather than a class, since there's no animation here
+   to justify a display:none-vs-opacity distinction. */
+#settingsPanel {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  min-width: 170px;
+  border-radius: 12px;
+  background: rgba(20, 18, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+#settingsPanel[hidden] {
+  display: none;
+}
+
+#settingsPanel button {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
+}
+
+#settingsPanel button:hover,
+#settingsPanel button:active {
+  background: rgba(255, 255, 255, 0.18);
 }
