@@ -9,6 +9,13 @@ const gameCanvas = document.getElementById('gameCanvas');
 const ctx = gameCanvas.getContext('2d');
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+// Rotating a phone doesn't reliably fire a plain 'resize' the way resizing
+// a desktop window does — every other layout-critical module in this repo
+// (orientationGate.js, touchControls.js, settingsMenu.js) already listens
+// for 'orientationchange' too; resizeCanvas() was the one exception, which
+// could leave the canvas sized off its pre-rotation dimensions (leaving a
+// gap) until something else happened to trigger a 'resize'.
+window.addEventListener('orientationchange', resizeCanvas);
 setupOrientationGate();
 setupTouchControls();
 setupSettingsMenu();
