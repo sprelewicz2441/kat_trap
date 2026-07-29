@@ -31,10 +31,21 @@ screenManager.setScreen(setupScreen);
 // wider/squarer aspect ratios. Desktop keeps 90% — there's no touch control
 // competing for that space there, and shrinking the board for no benefit
 // isn't worth it.
+//
+// No hard pixel caps on either axis (previously 1280x960): those caps were
+// what left a visible margin above/below the canvas on most desktop/laptop
+// viewports even though nothing else needed it — the four scale functions
+// in scale.js already derive every size from canvasWidth/REFERENCE_WIDTH,
+// so a canvas taller or wider than the old caps scales up cleanly instead
+// of needing a ceiling. Height gets the full viewport (maxCanvasHeight),
+// so on any landscape-oriented viewport (guaranteed by the orientation
+// gate) the board ends up height-constrained and sits flush top-to-bottom;
+// width then follows from the 4:3 aspect ratio and is only ever bounded by
+// maxCanvasWidth on unusually short/wide windows.
 function resizeCanvas() {
   const widthFraction = isTouch() ? 0.8 : 0.9;
-  const maxCanvasWidth = Math.min(window.innerWidth * widthFraction, 1280);
-  const maxCanvasHeight = Math.min(window.innerHeight * 0.95, 960);
+  const maxCanvasWidth = window.innerWidth * widthFraction;
+  const maxCanvasHeight = window.innerHeight;
   let canvasWidth = maxCanvasWidth;
   let canvasHeight = canvasWidth * (3 / 4);
   if (canvasHeight > maxCanvasHeight) {
