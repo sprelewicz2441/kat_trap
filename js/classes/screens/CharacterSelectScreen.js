@@ -84,6 +84,22 @@ export default class CharacterSelectScreen {
     const { width, height } = this.canvas;
     const uiScale = getUIScale(width);
 
+    // The 3-card row can overflow the canvas at this uiScale — confirmed
+    // live specifically on touch devices, where getUIScale() applies an
+    // extra 2x multiplier (tuned for a single centered button/message, not
+    // a 3-wide row) against a canvas that's only modestly narrower than
+    // desktop's own. Rather than just retuning BASE_CARD_WIDTH/GAP (which
+    // would only fix today's numbers and could overflow again the next time
+    // any of them change), clamp the whole layout proportionally so it
+    // always fits — everything below reads from effectiveScale, not
+    // uiScale directly, so cards/portraits/fonts/gaps all shrink together
+    // rather than the row fitting horizontally while text spills its card.
+    const sideMargin = 20 * uiScale;
+    const availableWidth = width - sideMargin * 2;
+    const naiveTotalWidth = (BASE_CARD_WIDTH * OPTIONS.length + BASE_CARD_GAP * (OPTIONS.length - 1)) * uiScale;
+    const fitScale = naiveTotalWidth > availableWidth ? availableWidth / naiveTotalWidth : 1;
+    const effectiveScale = uiScale * fitScale;
+
     ctx.clearRect(0, 0, width, height);
 
     // Same blue/teal family as SetupScreen's animated background — this
@@ -97,10 +113,10 @@ export default class CharacterSelectScreen {
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, width, height);
 
-    const cardWidth = BASE_CARD_WIDTH * uiScale;
-    const cardHeight = BASE_CARD_HEIGHT * uiScale;
-    const gap = BASE_CARD_GAP * uiScale;
-    const radius = BASE_CARD_RADIUS * uiScale;
+    const cardWidth = BASE_CARD_WIDTH * effectiveScale;
+    const cardHeight = BASE_CARD_HEIGHT * effectiveScale;
+    const gap = BASE_CARD_GAP * effectiveScale;
+    const radius = BASE_CARD_RADIUS * effectiveScale;
     const totalWidth = cardWidth * OPTIONS.length + gap * (OPTIONS.length - 1);
     let x = width / 2 - totalWidth / 2;
     const y = height / 2 - cardHeight / 2;
@@ -111,13 +127,13 @@ export default class CharacterSelectScreen {
     // directly so the title sits close to the cards at any canvas size,
     // instead of two separately-tuned positions that happened to look right
     // together only at one reference size and drifted apart at others.
-    const titleY = y - BASE_TITLE_GAP * uiScale;
+    const titleY = y - BASE_TITLE_GAP * effectiveScale;
     // 'Impact'/'Arial Black' aren't available on every OS — the bold
     // sans-serif fallback plus the outline stroke keep it reading as a big
     // playful headline either way, same treatment as the game-over modal's
     // title (see GameScreen.displayGameOverModal()).
-    ctx.font = `900 ${BASE_TITLE_FONT_SIZE * uiScale}px Impact, 'Arial Black', sans-serif`;
-    ctx.lineWidth = Math.max(2, 3 * uiScale);
+    ctx.font = `900 ${BASE_TITLE_FONT_SIZE * effectiveScale}px Impact, 'Arial Black', sans-serif`;
+    ctx.lineWidth = Math.max(2, 3 * effectiveScale);
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.strokeText('Choose Your Character', width / 2, titleY);
     ctx.fillStyle = '#ffffff';
@@ -139,7 +155,7 @@ export default class CharacterSelectScreen {
       // push it" feel the touch action buttons already have (see
       // .action-btn:active in styles.css), translated to canvas since
       // these are drawn shapes, not real DOM buttons.
-      const liftY = isPressed ? 2 * uiScale : isHovered ? -4 * uiScale : 0;
+      const liftY = isPressed ? 2 * effectiveScale : isHovered ? -4 * effectiveScale : 0;
       const drawY = area.y + liftY;
 
       ctx.save();
@@ -150,19 +166,19 @@ export default class CharacterSelectScreen {
       drawRoundedRect(ctx, area.x, drawY, cardWidth, cardHeight, radius);
       ctx.fillStyle = gradient;
       ctx.shadowColor = isHovered ? theme.glow : 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = (isHovered ? 22 : 12) * uiScale;
-      ctx.shadowOffsetY = (isPressed ? 2 : 6) * uiScale;
+      ctx.shadowBlur = (isHovered ? 22 : 12) * effectiveScale;
+      ctx.shadowOffsetY = (isPressed ? 2 : 6) * effectiveScale;
       ctx.fill();
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
-      ctx.lineWidth = Math.max(1, 2 * uiScale);
+      ctx.lineWidth = Math.max(1, 2 * effectiveScale);
       ctx.strokeStyle = option.enabled ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.15)';
       ctx.stroke();
 
       const portrait = PORTRAITS[option.entity];
       const img = this.portraitImages[option.entity];
-      const boxSize = BASE_PORTRAIT_SIZE * uiScale;
+      const boxSize = BASE_PORTRAIT_SIZE * effectiveScale;
       const boxCenterX = area.x + cardWidth / 2;
       const boxCenterY = drawY + cardHeight * 0.32;
       if (img.complete && img.naturalWidth > 0) {
@@ -192,14 +208,14 @@ export default class CharacterSelectScreen {
       // above, keeps both lines legible regardless of exactly where they
       // land on the gradient.
       ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-      ctx.shadowBlur = 5 * uiScale;
-      ctx.shadowOffsetY = 1 * uiScale;
+      ctx.shadowBlur = 5 * effectiveScale;
+      ctx.shadowOffsetY = 1 * effectiveScale;
 
       ctx.fillStyle = option.enabled ? '#ffffff' : 'rgba(255, 255, 255, 0.6)';
-      ctx.font = `bold ${BASE_NAME_FONT_SIZE * uiScale}px Arial`;
+      ctx.font = `bold ${BASE_NAME_FONT_SIZE * effectiveScale}px Arial`;
       ctx.fillText(`${option.name} — ${option.role}`, boxCenterX, drawY + cardHeight * 0.68);
 
-      ctx.font = `bold ${BASE_SUBLABEL_FONT_SIZE * uiScale}px Arial`;
+      ctx.font = `bold ${BASE_SUBLABEL_FONT_SIZE * effectiveScale}px Arial`;
       ctx.fillStyle = option.enabled ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.45)';
       ctx.fillText(option.subtitle, boxCenterX, drawY + cardHeight * 0.85);
 

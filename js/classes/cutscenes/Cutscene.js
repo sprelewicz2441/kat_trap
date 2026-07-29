@@ -148,10 +148,23 @@ export default class Cutscene {
     }
 
     // Draw the text — clamped to a minimum so it stays legible even at a
-    // small canvas scale, rather than shrinking indefinitely.
-    const textFontSize = Math.max(16, 32 * this.scale);
-    ctx.fillStyle = '#2b1d3d';
+    // small canvas scale, rather than shrinking indefinitely. That minimum
+    // is exactly what let it overflow the card at small scales/long text
+    // (confirmed live: "Say hello to Dummy, the dumb dog!" touched both
+    // edges of the card on a narrow canvas) — the fixed floor has no idea
+    // how wide the actual sentence is. Measuring the real text width and
+    // shrinking further when it doesn't fit (down to an absolute floor, so
+    // it degrades to "small but there" rather than vanishing) fixes that
+    // without giving up the normal-case minimum.
+    let textFontSize = Math.max(16, 32 * this.scale);
     ctx.font = `bold ${textFontSize}px Arial`;
+    const availableTextWidth = modalWidth - 40 * this.scale;
+    const measuredWidth = ctx.measureText(this.text).width;
+    if (measuredWidth > availableTextWidth) {
+      textFontSize = Math.max(10, textFontSize * (availableTextWidth / measuredWidth));
+      ctx.font = `bold ${textFontSize}px Arial`;
+    }
+    ctx.fillStyle = '#2b1d3d';
     ctx.textAlign = 'center';
     ctx.fillText(this.text, centerX, centerY + 55 * this.scale);
 

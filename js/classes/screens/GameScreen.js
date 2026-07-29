@@ -834,7 +834,10 @@ export default class GameScreen {
 
   moveCat() {
     const direction = this.inputHandler.getDirection();
-    if (!direction) return;
+    if (!direction) {
+      this.cat.stand();
+      return;
+    }
     this.tryMoveCat(direction);
   }
 
@@ -870,6 +873,8 @@ export default class GameScreen {
     const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity));
     if (canMove) {
         this.cat.move(direction, speed);
+    } else {
+        this.cat.stand();
     }
     return canMove;
   }

@@ -77,6 +77,12 @@ export default class Cat {
   move(direction, speed = this.speed) {
     this.facingDirection = direction;
     this.hasMoved = true;
+    // Only called when a move actually goes through (tryMoveCat() gates
+    // this on canMove), so the walk-cycle only plays while the cat is
+    // actually moving rather than continuously like Dog/Mouse — unlike
+    // those two, cat.png's frames read as a walk cycle, not idle poses, so
+    // animating in place looked wrong.
+    this.updateAnimations();
 
     const scaledHeight = this.displayHeight; // Scaled height for collision detection
     const scaledWidth = this.displayWidth;  // Scaled width for collision detection
@@ -107,6 +113,14 @@ export default class Cat {
       this.currentFrame = (this.currentFrame + 1) % this.totalFrames;
       this.frameCounter = 0;
     }
+  }
+
+  // Called whenever a tick ends without move() running (see tryMoveCat() in
+  // GameScreen), so the walk-cycle snaps back to a resting pose instead of
+  // freezing on whatever frame the cat happened to be mid-stride on.
+  stand() {
+    this.currentFrame = 0;
+    this.frameCounter = 0;
   }
 
   // Exposed as its own method (rather than inlined in draw()) so
