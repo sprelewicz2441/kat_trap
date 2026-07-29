@@ -102,13 +102,13 @@ body.min-h-screen {
    was tried and reverted — didn't read right — so this is deliberately
    still the original square-button-on-a-grid layout, just bigger and
    without the dot.
-   Reskinned from an earlier dark-glass look to a brushed-metal/chrome
-   controller finish (layered grey gradients for the "brushed" look, plus
-   inset highlight/shadow pairs on the disc and buttons to read as
-   physically raised/beveled plastic-and-metal rather than a flat tint) —
-   asked for explicitly as "a real joystick you'd see on a control pad."
-   Button glyphs switched from white to dark grey since they now sit on a
-   light silver background. */
+   Button caps (.dpad-btn below) are recolored to a matte, warm off-white
+   finish modeled on a PS5 DualSense's d-pad (a specific reference image
+   was supplied), with muted grey engraved-looking (not solid-filled)
+   arrows. The disc itself (`#dpad`'s own background, right below) went
+   back to black by explicit request after a first pass also lightened it
+   to match the buttons — black disc, white caps, rather than an
+   all-matte-white cluster. */
 #dpad {
   position: fixed;
   left: 0;
@@ -129,14 +129,12 @@ body.min-h-screen {
   grid-template-rows: repeat(3, 1fr);
   gap: 6px;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 30%),
-    linear-gradient(155deg, #f4f4f6 0%, #d6d6da 30%, #aeaeb4 55%, #86868c 78%, #66666b 100%);
-  border: 2px solid #55555a;
+  background: linear-gradient(165deg, #2c2c30 0%, #17171a 55%, #050506 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
-    0 10px 22px rgba(0, 0, 0, 0.45),
-    inset 0 2px 3px rgba(255, 255, 255, 0.8),
-    inset 0 -4px 8px rgba(0, 0, 0, 0.35);
+    0 10px 22px rgba(0, 0, 0, 0.5),
+    inset 0 1px 2px rgba(255, 255, 255, 0.08),
+    inset 0 -3px 7px rgba(0, 0, 0, 0.5);
   /* iOS's long-press text-selection/lookup callout ("Copy | Search with
      Google") was popping up over the d-pad during holds — touch-action and
      user-select on .dpad-btn below weren't enough to suppress it, since
@@ -158,30 +156,34 @@ body.min-h-screen {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, #f6f6f8 0%, #d8d8dc 45%, #aeaeb4 100%);
-  border: 1px solid rgba(0, 0, 0, 0.3);
-  border-radius: 10px;
-  color: #3a3a3e;
+  background: linear-gradient(165deg, #fbfaf7 0%, #ece9e3 100%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  color: #8c8a83;
   font-size: 1.2rem;
   line-height: 1;
+  /* A light shelf just under the glyph reads as engraved/debossed into
+     the cap, matching the low-contrast grey-on-white arrows in the
+     reference photo, rather than a solid dark icon sitting on top. */
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   touch-action: none;
   user-select: none;
   box-shadow:
-    0 2px 3px rgba(0, 0, 0, 0.35),
+    0 2px 3px rgba(0, 0, 0, 0.15),
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -2px 2px rgba(0, 0, 0, 0.18);
+    inset 0 -1px 2px rgba(0, 0, 0, 0.06);
   transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .dpad-btn:active {
-  background: linear-gradient(160deg, #c6c6cb 0%, #a8a8ae 50%, #8c8c92 100%);
+  background: linear-gradient(165deg, #d9d7d0 0%, #c7c5be 100%);
   box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.4),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.3);
-  transform: scale(0.92) translateY(1px);
+    inset 0 2px 4px rgba(0, 0, 0, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4);
+  transform: scale(0.94) translateY(1px);
 }
 
 .dpad-up { grid-column: 2; grid-row: 1; }
