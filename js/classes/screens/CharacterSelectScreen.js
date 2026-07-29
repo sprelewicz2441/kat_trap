@@ -1,7 +1,7 @@
 import GameScreen from './GameScreen.js';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js';
-import { drawRoundedRect } from '../../utils/canvasShapes.js';
+import { drawCatEarCard, drawCatEarInner } from '../../utils/canvasShapes.js';
 
 // Sized like the rest of the game's UI chrome (play-again button, cutscene
 // modal) — see getUIScale() in js/utils/scale.js — so this screen scales the
@@ -19,8 +19,11 @@ const BASE_SUBLABEL_FONT_SIZE = 20;
 // here scales with uiScale like the rest of this screen (see below), so
 // this stays proportionally the same gap at any canvas size rather than a
 // fixed pixel distance that would look too tight or too loose off the
-// reference size.
-const BASE_TITLE_GAP = 46;
+// reference size. Bigger than it needs to be for the title text alone
+// (which would fit in ~46) specifically to clear the cat-ear cards' ears,
+// which poke up above the cards' own top edge — see drawCatEarCard() in
+// canvasShapes.js.
+const BASE_TITLE_GAP = 70;
 
 const OPTIONS = [
   { entity: 'cat', name: CHARACTER_NAMES.CAT, role: 'Cat', enabled: true, subtitle: 'Chase the mouse' },
@@ -28,17 +31,21 @@ const OPTIONS = [
   { entity: 'dog', name: CHARACTER_NAMES.DOG, role: 'Dog', enabled: true, subtitle: 'Save the mouse' },
 ];
 
-// One gradient per character rather than a single shared color for every
-// card — a cheap way to give each option its own identity (and a visual
-// callback to the mascots on the start screen) without commissioning new
-// art. Picked loosely off each character's own palette: cat's orange,
-// mouse's cool purple/gray (also ties into the purple glow already used by
-// the action buttons/settings menu elsewhere in the game's chrome), dog's
-// warm brown.
+// Full saturated gradient per character, filling the whole card — a cream/
+// parchment fill (matching Cutscene's modal) was tried here so the two
+// screens shared one card language, but confirmed live that made the
+// *cards* look like the cutscenes rather than the *backdrop*, which was
+// the actual ask; cream cards also crowded out the backdrop's own teal-to-
+// gold visually. Reverted to a bold per-character fill, keeping the
+// backdrop (see render() below) as the shared element with Cutscene
+// instead. Dog is blue rather than the amber/brown this had before —
+// confirmed live that orange and brown/amber read as too close to tell
+// apart at a glance; a completely different hue family sidesteps that
+// regardless of exactly which warm tone dog would otherwise get.
 const THEMES = {
-  cat: { start: '#ffcc80', end: '#f57c00', glow: 'rgba(245, 124, 0, 0.6)' },
-  mouse: { start: '#b39ddb', end: '#673ab7', glow: 'rgba(103, 58, 183, 0.6)' },
-  dog: { start: '#bcaaa4', end: '#6d4c41', glow: 'rgba(109, 76, 65, 0.6)' },
+  cat: { start: '#ffd54f', end: '#fb8c00', glow: 'rgba(251, 140, 0, 0.6)' },
+  mouse: { start: '#d9a6e0', end: '#9c4bc4', glow: 'rgba(156, 75, 196, 0.6)' },
+  dog: { start: '#7ec8e3', end: '#1f7fc4', glow: 'rgba(31, 127, 196, 0.6)' },
 };
 const DISABLED_THEME = { start: '#6b7280', end: '#3f4653', glow: 'rgba(0, 0, 0, 0)' };
 
@@ -102,21 +109,23 @@ export default class CharacterSelectScreen {
 
     ctx.clearRect(0, 0, width, height);
 
-    // Same blue/teal family as SetupScreen's animated background — this
-    // screen sits directly between the title screen and gameplay, so a
-    // flat unrelated dark navy (the old background) made it feel like a
-    // separate, unfinished screen bolted on rather than part of the same
-    // flow.
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
-    bgGradient.addColorStop(0, '#0f2a43');
-    bgGradient.addColorStop(1, '#123a4d');
+    // Teal-to-gold diagonal gradient sampled off assets/start_screen.jpg's
+    // actual pixels (its sky teal, its "KAT TRAP!" lettering gold) — this
+    // screen is the very next thing the player sees after that title
+    // screen, so it picks up that screen's own candy-bright palette rather
+    // than either a generic app gradient or (an earlier version of this)
+    // a muted kitchen-wood brown that read as flat by comparison
+    // (confirmed live: "boring colors"). Diagonal rather than a flat
+    // top-to-bottom fade for a bit more of that same candy-poster energy.
+    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#2fa8b8');
+    bgGradient.addColorStop(1, '#ffb238');
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, width, height);
 
     const cardWidth = BASE_CARD_WIDTH * effectiveScale;
     const cardHeight = BASE_CARD_HEIGHT * effectiveScale;
     const gap = BASE_CARD_GAP * effectiveScale;
-    const radius = BASE_CARD_RADIUS * effectiveScale;
     const totalWidth = cardWidth * OPTIONS.length + gap * (OPTIONS.length - 1);
     let x = width / 2 - totalWidth / 2;
     const y = height / 2 - cardHeight / 2;
@@ -133,11 +142,23 @@ export default class CharacterSelectScreen {
     // playful headline either way, same treatment as the game-over modal's
     // title (see GameScreen.displayGameOverModal()).
     ctx.font = `900 ${BASE_TITLE_FONT_SIZE * effectiveScale}px Impact, 'Arial Black', sans-serif`;
-    ctx.lineWidth = Math.max(2, 3 * effectiveScale);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+    // The backdrop is a mid-brightness teal-to-gold diagonal (see above),
+    // not the near-black top this title used to sit against, so the
+    // stroke alone isn't a reliable contrast guarantee everywhere the
+    // title could land on it — a soft drop shadow (same idea as the card
+    // subtitles further down) backs it up regardless of exactly which
+    // color it's over.
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 8 * effectiveScale;
+    ctx.shadowOffsetY = 2 * effectiveScale;
+    ctx.lineWidth = Math.max(2, 4 * effectiveScale);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.strokeText('Choose Your Character', width / 2, titleY);
     ctx.fillStyle = '#ffffff';
     ctx.fillText('Choose Your Character', width / 2, titleY);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
 
     this.buttonAreas = OPTIONS.map((option, index) => {
       // Hit-testing always uses this original (unlifted) area — only the
@@ -159,12 +180,18 @@ export default class CharacterSelectScreen {
       const drawY = area.y + liftY;
 
       ctx.save();
-      const gradient = ctx.createLinearGradient(area.x, drawY, area.x, drawY + cardHeight);
-      gradient.addColorStop(0, theme.start);
-      gradient.addColorStop(1, theme.end);
+      const cardGradient = ctx.createLinearGradient(area.x, drawY, area.x, drawY + cardHeight);
+      cardGradient.addColorStop(0, theme.start);
+      cardGradient.addColorStop(1, theme.end);
 
-      drawRoundedRect(ctx, area.x, drawY, cardWidth, cardHeight, radius);
-      ctx.fillStyle = gradient;
+      // Cat-ear card (see drawCatEarCard() in canvasShapes.js), not a
+      // generic rounded rect — the one deliberate visual risk on this
+      // screen, and a callback to the game's own name rather than to a
+      // specific mechanic. Portrait/name/subtitle positions below are
+      // unchanged from before this shape existed — the ears sit above the
+      // card's normal top edge, not inside it.
+      drawCatEarCard(ctx, area.x, drawY, cardWidth, cardHeight, BASE_CARD_RADIUS * effectiveScale);
+      ctx.fillStyle = cardGradient;
       ctx.shadowColor = isHovered ? theme.glow : 'rgba(0, 0, 0, 0.35)';
       ctx.shadowBlur = (isHovered ? 22 : 12) * effectiveScale;
       ctx.shadowOffsetY = (isPressed ? 2 : 6) * effectiveScale;
@@ -175,6 +202,17 @@ export default class CharacterSelectScreen {
       ctx.lineWidth = Math.max(1, 2 * effectiveScale);
       ctx.strokeStyle = option.enabled ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.15)';
       ctx.stroke();
+
+      // Two-tone inner ears (drawCatEarInner) — a shared pale pink across
+      // all three cards (the classic cartoon-cat "pink inner ear," same
+      // idea regardless of the outer ear's own color), filled after the
+      // card body so it sits on top. This is the concrete "more cat-like"
+      // detail: real cat ears are two-toned, and a flat single-color ear
+      // read as more of a generic pointed tab than an actual ear
+      // (confirmed live).
+      drawCatEarInner(ctx, area.x, drawY, cardWidth, cardHeight);
+      ctx.fillStyle = option.enabled ? '#ffd7d0' : 'rgba(0, 0, 0, 0.1)';
+      ctx.fill();
 
       const portrait = PORTRAITS[option.entity];
       const img = this.portraitImages[option.entity];

@@ -83,14 +83,20 @@ export default class Cutscene {
     const canvasWidth = ctx.canvas.width;
     const canvasHeight = ctx.canvas.height;
 
-    // Full-canvas backdrop — same blue/teal family as SetupScreen/
-    // CharacterSelectScreen, so cutscenes don't drop out of that flow into
-    // a flat gap. Previously this was left uncleared, showing the canvas
+    // Full-canvas backdrop — same teal-to-gold diagonal as
+    // CharacterSelectScreen (see the comment there — sampled off
+    // assets/start_screen.jpg's own sky/lettering colors), not the flatter
+    // blue/teal family this used to share with SetupScreen, and not the
+    // muted kitchen-wood brown this briefly used either (both read as flat
+    // next to the title screen's own candy-bright palette). Cutscenes sit
+    // directly between character select and gameplay, so keeping this in
+    // step with select keeps that stretch of the flow reading as one
+    // sequence. Previously this was left uncleared, showing the canvas
     // element's own white CSS background — which the modal's own
     // near-white fill (rgba(255,255,255,0.9)) barely stood out against.
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
-    bgGradient.addColorStop(0, '#0f2a43');
-    bgGradient.addColorStop(1, '#123a4d');
+    const bgGradient = ctx.createLinearGradient(0, 0, canvasWidth, canvasHeight);
+    bgGradient.addColorStop(0, '#2fa8b8');
+    bgGradient.addColorStop(1, '#ffb238');
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
