@@ -7,7 +7,7 @@ Open `index.html` directly in a browser (or serve the folder statically) to run 
 
 ## Deployment & hosting
 
-This is one game in a family site for my daughter; the landing page (`kpground.com`) is a sibling repo at `../kpground`, which is the hub for the overall hosting/auth architecture. See `../kpground/CLAUDE.md` for the full plan — short version: this game will eventually deploy as its own Render Web Service (Rails or Django wrapping these static assets), on a `kpground.com` subdomain (e.g. `kattrap.kpground.com`) or its own domain later, with accounts/auth shared across the whole site via the landing page's identity provider rather than built independently here. Currently still plain static files with no backend, per that doc's "live now" list.
+This is one game in a family site for my daughter; the landing page (`kpground.com`) is a sibling repo at `../kpground`, which is the hub for the overall hosting/auth architecture. **Deployed and live**: this repo (`github.com/sprelewicz2441/kat_trap`) is a Render Static Site named `kattrap` (publish directory `.`, no build command — these are still plain static files, no backend/build step), auto-deploying on every push to `main`. Live at `https://kattrap.onrender.com` and `https://kattrap.kpground.com` (Cloudflare CNAME, same pattern as the landing page itself), confirmed live 2026-07-28. **`git push origin main` is the deploy step** — no separate deploy command or dashboard action needed. See `../kpground/CLAUDE.md` for the full hosting plan and DNS/Render account details — accounts/auth shared across the whole site via the landing page's identity provider is still planned but not built independently here yet.
 
 ## Architecture
 
