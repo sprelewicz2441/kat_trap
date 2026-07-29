@@ -92,49 +92,43 @@ body.min-h-screen {
    gameplay is actually running (GameScreen adds .in-game to <body> in
    init() and removes it in cleanup()) — this keeps desktop play
    uncluttered and keeps the control off the setup screen.
-   Styled as a single rounded disc with four square buttons in a plus
-   arrangement (up/left/right/down around empty corners) — previously also
-   had a decorative, non-interactive center dot standing in for a stick
-   base; removed (along with its now-unused .dpad-center rule and markup)
-   since it didn't do anything but take up space, and the freed-up middle
-   let the control grow overall (116px → 150px) without the four buttons
-   getting relatively smaller. A pie/Trivial-Pursuit-wedge version of this
-   was tried and reverted — didn't read right — so this is deliberately
-   still the original square-button-on-a-grid layout, just bigger and
-   without the dot.
-   Button caps (.dpad-btn below) are recolored to a matte, warm off-white
-   finish modeled on a PS5 DualSense's d-pad (a specific reference image
-   was supplied), with muted grey engraved-looking (not solid-filled)
-   arrows. The disc itself (`#dpad`'s own background, right below) went
-   back to black by explicit request after a first pass also lightened it
-   to match the buttons — black disc, white caps, rather than an
-   all-matte-white cluster. */
+   A hand-tuned CSS approximation of a supplied reference photo (rounded-
+   corner + clip-path shapes, gradients, shadows) read as amateurish next
+   to the actual photo — CSS shading can't reproduce a real render's
+   curvature and material look. So this now uses the reference image
+   itself: `assets/dpad_cross.png`, cropped tightly from the full-
+   resolution (1672x941) source down to just the cross plus a small
+   margin, resized to 320x320. `#dpad` just displays that image; there's
+   no drawn disc, gradient, or button shape here anymore, which is also
+   why there's no circular rim — the reference has none. The four
+   `<button>` elements are invisible, absolutely-positioned hit zones
+   layered on top at the image's own button positions (measured directly
+   from the source photo's pixels, not eyeballed — see the percentages
+   below) so touch targets line up with what's actually drawn; each is
+   empty of visible content (no glyph) since the arrows are already baked
+   into the image, and `aria-label` alone carries the accessible name.
+   `.dpad-btn:active` fakes a press with a soft radial glow (the image
+   itself can't change state) rather than swapping in a second image for
+   a pressed look — simpler, and good enough for a touch-feedback cue. */
 #dpad {
   position: fixed;
   left: 0;
   top: 50%;
   /* --dpad-scale (set by touchControls.js) shrinks the whole control
-     proportionally — padding/gaps/icon sizes included — when the gutter
-     beside the canvas is narrower than this control's natural 150px, e.g.
-     on a standard-aspect iPad landscape. Defaults to 1 (full size) before
-     JS runs or on any device with a roomy-enough gutter. */
+     proportionally when the gutter beside the canvas is narrower than
+     this control's natural 150px, e.g. on a standard-aspect iPad
+     landscape. Defaults to 1 (full size) before JS runs or on any device
+     with a roomy-enough gutter. */
   transform: translate(-50%, -50%) scale(var(--dpad-scale, 1));
   z-index: 40;
   width: 150px;
   height: 150px;
-  padding: 10px;
-  box-sizing: border-box;
   display: none;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  gap: 6px;
-  border-radius: 50%;
-  background: linear-gradient(165deg, #2c2c30 0%, #17171a 55%, #050506 100%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 10px 22px rgba(0, 0, 0, 0.5),
-    inset 0 1px 2px rgba(255, 255, 255, 0.08),
-    inset 0 -3px 7px rgba(0, 0, 0, 0.5);
+  background-image: url('./assets/dpad_cross.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  border-radius: 22px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
   /* iOS's long-press text-selection/lookup callout ("Copy | Search with
      Google") was popping up over the d-pad during holds — touch-action and
      user-select on .dpad-btn below weren't enough to suppress it, since
@@ -148,48 +142,59 @@ body.min-h-screen {
 
 @media (pointer: coarse) {
   body.in-game #dpad {
-    display: grid;
+    display: block;
   }
 }
 
 .dpad-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(165deg, #fbfaf7 0%, #ece9e3 100%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 9px;
-  color: #8c8a83;
-  font-size: 1.2rem;
-  line-height: 1;
-  /* A light shelf just under the glyph reads as engraved/debossed into
-     the cap, matching the low-contrast grey-on-white arrows in the
-     reference photo, rather than a solid dark icon sitting on top. */
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  position: absolute;
+  border: none;
+  background: transparent;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   touch-action: none;
   user-select: none;
-  box-shadow:
-    0 2px 3px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 2px rgba(0, 0, 0, 0.06);
-  transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.1s ease;
 }
 
 .dpad-btn:active {
-  background: linear-gradient(165deg, #d9d7d0 0%, #c7c5be 100%);
-  box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.22),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.4);
-  transform: scale(0.94) translateY(1px);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 70%);
 }
 
-.dpad-up { grid-column: 2; grid-row: 1; }
-.dpad-left { grid-column: 1; grid-row: 2; }
-.dpad-right { grid-column: 3; grid-row: 2; }
-.dpad-down { grid-column: 2; grid-row: 3; }
+/* Hit-zone rectangles measured from the source photo (percentages of the
+   cropped 320x320 image) — each roughly bounds one button's visible
+   shape, rounded on its outer corner pair to stay close to that shape
+   without needing to match it exactly (an invisible hit target doesn't
+   need pixel-perfect edges the way a visible one would). */
+.dpad-up {
+  left: 36.7%;
+  top: 12.2%;
+  width: 26%;
+  height: 33.1%;
+  border-radius: 50% 50% 12px 12px;
+}
+.dpad-down {
+  left: 37.6%;
+  top: 56.1%;
+  width: 25.1%;
+  height: 31.8%;
+  border-radius: 12px 12px 50% 50%;
+}
+.dpad-left {
+  left: 12.3%;
+  top: 37.3%;
+  width: 32%;
+  height: 26.7%;
+  border-radius: 50% 12px 12px 50%;
+}
+.dpad-right {
+  left: 55.8%;
+  top: 37.3%;
+  width: 32%;
+  height: 26.7%;
+  border-radius: 12px 50% 50% 12px;
+}
 
 /* Action buttons (punch/toot/meow) — these map to the same keystrokes as
    desktop ('p'/space/'m', see InputHandler.js), so touch users need direct
