@@ -116,13 +116,13 @@ body.min-h-screen {
   top: 50%;
   /* --dpad-scale (set by touchControls.js) shrinks the whole control
      proportionally when the gutter beside the canvas is narrower than
-     this control's natural 150px, e.g. on a standard-aspect iPad
+     this control's natural 168px, e.g. on a standard-aspect iPad
      landscape. Defaults to 1 (full size) before JS runs or on any device
      with a roomy-enough gutter. */
   transform: translate(-50%, -50%) scale(var(--dpad-scale, 1));
   z-index: 40;
-  width: 150px;
-  height: 150px;
+  width: 168px;
+  height: 168px;
   display: none;
   background-image: url('./assets/dpad_cross.png');
   background-size: 100% 100%;
@@ -162,36 +162,45 @@ body.min-h-screen {
   background: radial-gradient(circle, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 70%);
 }
 
-/* Hit-zone rectangles measured from the source photo (percentages of the
-   cropped 320x320 image) — each roughly bounds one button's visible
-   shape, rounded on its outer corner pair to stay close to that shape
-   without needing to match it exactly (an invisible hit target doesn't
-   need pixel-perfect edges the way a visible one would). */
+/* Hit-zone rectangles start from the visible shape measured off the
+   source photo (percentages of the cropped 320x320 image — see the
+   original bounds this grew from in git history) then grow *only* along
+   each button's own outer/inner axis — up's top edge moves further up
+   into the image's black margin, its bottom edge nudges toward center,
+   but its left/right edges are untouched. Deliberately not grown
+   sideways: the perpendicular edges are what determine how much a
+   button's hit zone overlaps its two diagonal neighbors (e.g. up
+   overlapping left in the corner where their zones meet near the
+   center), and growing those would start stealing taps meant for the
+   adjacent direction. Growing only the untouched axis makes each target
+   meaningfully bigger — the actual "hard to hit" complaint — without
+   introducing new cross-direction ambiguity beyond the small amount that
+   already existed at the shapes' shared center point. */
 .dpad-up {
   left: 36.7%;
-  top: 12.2%;
+  top: 4.2%;
   width: 26%;
-  height: 33.1%;
+  height: 44.1%;
   border-radius: 50% 50% 12px 12px;
 }
 .dpad-down {
   left: 37.6%;
-  top: 56.1%;
+  top: 53.1%;
   width: 25.1%;
-  height: 31.8%;
+  height: 42.8%;
   border-radius: 12px 12px 50% 50%;
 }
 .dpad-left {
-  left: 12.3%;
+  left: 4.3%;
   top: 37.3%;
-  width: 32%;
+  width: 43%;
   height: 26.7%;
   border-radius: 50% 12px 12px 50%;
 }
 .dpad-right {
-  left: 55.8%;
+  left: 52.8%;
   top: 37.3%;
-  width: 32%;
+  width: 43%;
   height: 26.7%;
   border-radius: 12px 50% 50% 12px;
 }

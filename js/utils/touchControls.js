@@ -60,7 +60,7 @@ function wireTapButton(id, key) {
 // height set in styles.css for #dpad and .action-btn respectively, since
 // they're the reference sizes the shrink-to-fit scale below is computed
 // against.
-const DPAD_NATURAL_SIZE = 150;
+const DPAD_NATURAL_SIZE = 168;
 const ACTION_BTN_NATURAL_SIZE = 64;
 
 function clamp(value, min, max) {
