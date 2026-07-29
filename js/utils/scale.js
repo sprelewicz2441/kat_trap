@@ -58,6 +58,20 @@ const DESKTOP_FURNITURE_MULTIPLIER = 2;
 // still read as too small live.
 const DESKTOP_CHARACTER_SIZE_MULTIPLIER = 1.95;
 
+// Confirmed live on an actual phone: even with MOBILE_ASSET_MULTIPLIER
+// applied, characters read as too small relative to the board compared to
+// desktop — the two platforms' characters weren't actually the same size
+// *relative to their own canvas width*. Desktop's character-to-canvas-width
+// ratio is (1 * DESKTOP_CHARACTER_SIZE_MULTIPLIER) / REFERENCE_WIDTH;
+// mobile's (before this) was just MOBILE_ASSET_MULTIPLIER / REFERENCE_WIDTH,
+// i.e. missing an equivalent size-only boost. This constant is exactly
+// DESKTOP_CHARACTER_SIZE_MULTIPLIER / MOBILE_ASSET_MULTIPLIER (1.95 / 1.5),
+// so mobile characters end up at the *same* proportion of the board desktop
+// characters have — not bigger or smaller, just matched. Same split from
+// getScale() as DESKTOP_CHARACTER_SIZE_MULTIPLIER: speed isn't affected,
+// only on-screen/collision size.
+const MOBILE_CHARACTER_SIZE_MULTIPLIER = 1.3;
+
 // Exported so main.js's resizeCanvas() can reserve extra side-margin width
 // for the touch d-pad/action buttons — see resizeCanvas() for why.
 export function isTouch() {
@@ -85,7 +99,7 @@ export function getFurnitureScale(canvasWidth) {
 // tuned separately via MOBILE_ASSET_MULTIPLIER.
 export function getCharacterScale(canvasWidth) {
   const scale = getScale(canvasWidth);
-  return isTouch() ? scale : scale * DESKTOP_CHARACTER_SIZE_MULTIPLIER;
+  return isTouch() ? scale * MOBILE_CHARACTER_SIZE_MULTIPLIER : scale * DESKTOP_CHARACTER_SIZE_MULTIPLIER;
 }
 
 // UI/interactive chrome: buttons, win/lose messages, cutscene modal/text/button.

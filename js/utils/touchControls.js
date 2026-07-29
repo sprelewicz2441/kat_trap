@@ -61,7 +61,7 @@ function wireTapButton(id, key) {
 // they're the reference sizes the shrink-to-fit scale below is computed
 // against.
 const DPAD_NATURAL_SIZE = 116;
-const ACTION_BTN_NATURAL_SIZE = 52;
+const ACTION_BTN_NATURAL_SIZE = 64;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));

@@ -21,42 +21,16 @@
   margin-bottom: 1rem;
 }
 
-/* Retro handheld-console frame around the whole viewport — NOT the canvas
-   (an earlier pass framed the canvas itself; that was the wrong element,
-   per feedback). A fixed, non-interactive overlay (pointer-events: none)
-   drawn on top of everything except the orientation gate, rather than a
-   real layout border: resizeCanvas() (js/main.js) sizes the canvas off raw
-   window.innerWidth/innerHeight, so an actual border on html/body would
-   silently eat into that budget and risk overflow/scrollbars. This is
-   drawn on top instead, so it never touches that math.
-   Thinned down from an earlier, chunkier pass (16px) and given a directional
-   bevel instead of a uniform ring — a real molded-plastic edge catches light
-   unevenly (lighter along the top/left, shadowed along the bottom/right),
-   which a symmetric inset ring doesn't convey — for a more realistic
-   handheld-console-bezel look. The small power-LED dot in the top-left
-   corner doubles as a live mouse-escape-danger meter, not just a static
-   power light: GameScreen.updateEscapeDangerIndicator() sets
-   `document.body.dataset.mouseDanger` ('low'/'medium'/'high', based on the
-   mouse's distance to the nearest escape hole) every frame regardless of
-   device — harmless on desktop since the rules below (and the frame
-   itself) are gated behind the same `pointer: coarse` check already used
-   for the touch controls: a handheld-console bezel only makes sense
-   framing an actual touch device, not a mouse-and-keyboard desktop window,
-   so this whole frame is mobile-only. */
+/* Power-LED dot in the top-left corner doubles as a live mouse-escape-danger
+   meter, not just a static power light: GameScreen.updateEscapeDangerIndicator()
+   sets `document.body.dataset.mouseDanger` ('low'/'medium'/'high', based on
+   the mouse's distance to the nearest escape hole) every frame regardless of
+   device — harmless on desktop since these rules are gated behind the same
+   `pointer: coarse` check already used for the touch controls, so the LED
+   only ever shows on an actual touch device. (The handheld-console bezel
+   border that used to frame the viewport here was removed — read as an
+   unwanted grey border on-device rather than a bevel.) */
 @media (pointer: coarse) {
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 9990;
-    pointer-events: none;
-    box-sizing: border-box;
-    border: 8px solid #a8a1b8;
-    box-shadow:
-      inset 2px 2px 3px rgba(255, 255, 255, 0.55),
-      inset -2px -2px 4px rgba(0, 0, 0, 0.4);
-  }
-
   body::before {
     content: '';
     position: fixed;
@@ -139,6 +113,15 @@
     0 10px 22px rgba(0, 0, 0, 0.45),
     inset 0 2px 3px rgba(255, 255, 255, 0.8),
     inset 0 -4px 8px rgba(0, 0, 0, 0.35);
+  /* iOS's long-press text-selection/lookup callout ("Copy | Search with
+     Google") was popping up over the d-pad during holds — touch-action and
+     user-select on .dpad-btn below weren't enough to suppress it, since
+     that callout is a separate -webkit-only behavior. Set here on the
+     container too (not just the individual buttons/center dot) so a press
+     landing on the small gaps between them is covered as well. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 @media (pointer: coarse) {
@@ -158,6 +141,8 @@
   font-size: 1rem;
   line-height: 1;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   touch-action: none;
   user-select: none;
   box-shadow:
@@ -184,6 +169,9 @@
   box-shadow:
     0 2px 4px rgba(0, 0, 0, 0.4),
     inset 0 1px 1px rgba(255, 255, 255, 0.7);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .dpad-up { grid-column: 2; grid-row: 1; }
@@ -218,6 +206,9 @@
   display: none;
   flex-direction: column;
   gap: 10px;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 @media (pointer: coarse) {
@@ -227,8 +218,8 @@
 }
 
 .action-btn {
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -236,10 +227,12 @@
   background: radial-gradient(circle at 35% 30%, rgba(138, 43, 226, 0.45), rgba(15, 15, 25, 0.6) 72%);
   border: 1px solid rgba(255, 255, 255, 0.28);
   color: #fff;
-  font-size: 1.4rem;
+  font-size: 1.7rem;
   line-height: 1;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   touch-action: none;
   user-select: none;
   transition: background 0.12s ease, transform 0.12s ease;
