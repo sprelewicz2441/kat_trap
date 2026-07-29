@@ -1,4 +1,5 @@
 import CharacterSelectScreen from './CharacterSelectScreen.js';
+import { isTouch } from '../../utils/scale.js';
 
 export default class SetupScreen {
   constructor(screenManager, canvas) {
@@ -117,6 +118,18 @@ export default class SetupScreen {
             offsetY >= this.startButtonArea.y &&
             offsetY <= this.startButtonArea.y + this.startButtonArea.height
         ) {
+            // Request fullscreen here, inside the click handler, since browsers
+            // require a user gesture to grant it — it can't be requested on
+            // page load. Touch-only: on desktop the browser chrome isn't
+            // eating board real estate the way a mobile toolbar does, so
+            // there's no reason to take over the whole screen there. Silently
+            // no-ops wherever unsupported (notably iOS Safari before 16.4)
+            // rather than surfacing an error — this is a nice-to-have, not
+            // something the game depends on.
+            if (isTouch() && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+
             // Stop the animation loop and remove listeners before transitioning
             this.cleanup();
 
