@@ -60,7 +60,7 @@ function wireTapButton(id, key) {
 // height set in styles.css for #dpad and .action-btn respectively, since
 // they're the reference sizes the shrink-to-fit scale below is computed
 // against.
-const DPAD_NATURAL_SIZE = 116;
+const DPAD_NATURAL_SIZE = 150;
 const ACTION_BTN_NATURAL_SIZE = 64;
 
 function clamp(value, min, max) {
@@ -80,7 +80,7 @@ function clamp(value, min, max) {
 // Also shrinks each control to fit when the gutter is narrower than its
 // natural size — confirmed via a spread of real device viewports that on
 // tablets close to the canvas's own 4:3 aspect (a standard iPad landscape,
-// notably) the gutter can be as little as ~50px, well under the 116px
+// notably) the gutter can be as little as ~50px, well under the 150px
 // d-pad. Without this, the d-pad would spill over onto the canvas itself
 // on those devices — exactly the board-overlap the side-margin anchor was
 // chosen to avoid in the first place (see styles.css). Scaled via

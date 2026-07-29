@@ -1,3 +1,22 @@
+/* Tailwind's min-h-screen class (on <body> in index.html) compiles to
+   min-height: 100vh. On iOS Safari, 100vh is the "large viewport" value —
+   it assumes the address bar is hidden, so it's taller than the visible
+   area whenever the bar is actually showing. resizeCanvas() (js/main.js)
+   sizes the canvas off window.innerHeight instead, which always reflects
+   the real, currently-visible viewport — so on iOS, body ends up taller
+   than the canvas by exactly the address-bar's height, and centering that
+   extra space top/bottom left a black gap above the board (confirmed live
+   via a user screenshot). dvh (dynamic viewport height) tracks the same
+   real visible viewport window.innerHeight does, closing that gap;
+   `body.min-h-screen` (element+class) is needed for specificity to beat
+   Tailwind's own `.min-h-screen` rule — a bare `body {}` rule here would
+   lose to it regardless of source order. Browsers without dvh support
+   ignore the second declaration and keep the 100vh fallback. */
+body.min-h-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 /* Landscape-only gate — see js/utils/orientationGate.js. Shown/hidden via
    inline style.display from JS (checks the actual viewport aspect ratio),
    not a media query, so the base rule here just establishes the covering
@@ -73,15 +92,20 @@
    gameplay is actually running (GameScreen adds .in-game to <body> in
    init() and removes it in cleanup()) — this keeps desktop play
    uncluttered and keeps the control off the setup screen.
-   Styled as a single rounded disc rather than four separate square
-   buttons, with a decorative non-interactive center dot standing in for a
-   stick base. Sized down from an earlier, larger pass once it read as too
-   big alongside the (also re-added) action-button cluster on the right —
-   see #actionButtons below for why actions live on the right and not here.
+   Styled as a single rounded disc with four square buttons in a plus
+   arrangement (up/left/right/down around empty corners) — previously also
+   had a decorative, non-interactive center dot standing in for a stick
+   base; removed (along with its now-unused .dpad-center rule and markup)
+   since it didn't do anything but take up space, and the freed-up middle
+   let the control grow overall (116px → 150px) without the four buttons
+   getting relatively smaller. A pie/Trivial-Pursuit-wedge version of this
+   was tried and reverted — didn't read right — so this is deliberately
+   still the original square-button-on-a-grid layout, just bigger and
+   without the dot.
    Reskinned from an earlier dark-glass look to a brushed-metal/chrome
    controller finish (layered grey gradients for the "brushed" look, plus
-   inset highlight/shadow pairs on the disc, buttons, and center nub to read
-   as physically raised/beveled plastic-and-metal rather than a flat tint) —
+   inset highlight/shadow pairs on the disc and buttons to read as
+   physically raised/beveled plastic-and-metal rather than a flat tint) —
    asked for explicitly as "a real joystick you'd see on a control pad."
    Button glyphs switched from white to dark grey since they now sit on a
    light silver background. */
@@ -91,19 +115,19 @@
   top: 50%;
   /* --dpad-scale (set by touchControls.js) shrinks the whole control
      proportionally — padding/gaps/icon sizes included — when the gutter
-     beside the canvas is narrower than this control's natural 116px, e.g.
+     beside the canvas is narrower than this control's natural 150px, e.g.
      on a standard-aspect iPad landscape. Defaults to 1 (full size) before
      JS runs or on any device with a roomy-enough gutter. */
   transform: translate(-50%, -50%) scale(var(--dpad-scale, 1));
   z-index: 40;
-  width: 116px;
-  height: 116px;
-  padding: 8px;
+  width: 150px;
+  height: 150px;
+  padding: 10px;
   box-sizing: border-box;
   display: none;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
-  gap: 5px;
+  gap: 6px;
   border-radius: 50%;
   background:
     radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 30%),
@@ -117,8 +141,8 @@
      Google") was popping up over the d-pad during holds — touch-action and
      user-select on .dpad-btn below weren't enough to suppress it, since
      that callout is a separate -webkit-only behavior. Set here on the
-     container too (not just the individual buttons/center dot) so a press
-     landing on the small gaps between them is covered as well. */
+     container too (not just the individual buttons) so a press landing on
+     the small gaps between them is covered as well. */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -138,7 +162,7 @@
   border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 10px;
   color: #3a3a3e;
-  font-size: 1rem;
+  font-size: 1.2rem;
   line-height: 1;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
@@ -158,20 +182,6 @@
     inset 0 2px 4px rgba(0, 0, 0, 0.4),
     inset 0 -1px 0 rgba(255, 255, 255, 0.3);
   transform: scale(0.92) translateY(1px);
-}
-
-.dpad-center {
-  grid-column: 2;
-  grid-row: 2;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffffff, #d8d8dc 40%, #98989e 75%, #6a6a70 100%);
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.4),
-    inset 0 1px 1px rgba(255, 255, 255, 0.7);
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 .dpad-up { grid-column: 2; grid-row: 1; }
