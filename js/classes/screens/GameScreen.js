@@ -81,8 +81,19 @@ const FURNITURE_SPRITES = {
 // aligned to a shared baseline (the floor line) since their heights differ
 // too.
 const BASE_MODULE_SCALE = 0.15;
+// cabinet's cropY/height are trimmed further than a plain padding-removal
+// crop would need: the raw render has an identical wood ledge/trim band on
+// BOTH its top and bottom edges (confirmed by sampling the raw file's pixel
+// rows — marble content spans y=35-474 of 512, with a symmetric ~28px wood
+// band above and below it), which read as a "double-sided" shelf once
+// rendered in-game regardless of which side faced the wall. cropY=34 (vs the
+// padding-only 7 the other modules use) skips the top band entirely, keeping
+// only the bottom band — see makeModule()/LEFT_WALL_ROTATION/
+// RIGHT_WALL_ROTATION below for how rotation is chosen per wall so that
+// remaining (single) trim band always ends up facing the room, never the
+// wall, regardless of which of the four walls this module is placed on.
 const MODULE_SPECS = {
-  cabinet: { sprite: FURNITURE_SPRITES.CABINET, width: 832, height: 497, cropX: 7, cropY: 7 },
+  cabinet: { sprite: FURNITURE_SPRITES.CABINET, width: 832, height: 470, cropX: 7, cropY: 34 },
   sink: { sprite: FURNITURE_SPRITES.SINK, width: 980, height: 669, cropX: 9, cropY: 11 },
   stove: { sprite: FURNITURE_SPRITES.STOVE, width: 981, height: 703, cropX: 9, cropY: 8 },
 };
@@ -100,8 +111,19 @@ const BOTTOM_WALL_ORDER = ['cabinet', 'cabinet', 'cabinet', 'cabinet'];
 // the wall — same "cabinet doubles as filler" precedent as top/bottom.
 const LEFT_WALL_ORDER = ['cabinet', 'cabinet'];
 const RIGHT_WALL_ORDER = ['cabinet', 'cabinet'];
-const LEFT_WALL_ROTATION = 90;
-const RIGHT_WALL_ROTATION = 270;
+// These two, plus makeModule()'s isTop-dependent rotation just below, are
+// no longer an arbitrary cosmetic choice ("flip if it looks wrong") now that
+// cabinet only has a trim band on one edge (see MODULE_SPECS.cabinet above):
+// each rotation value is specifically the one that puts cabinet's *plain*
+// (cropped) edge against the wall and its trimmed edge facing the room, on
+// every one of the four walls. Worked out from ctx.rotate()'s direction
+// (positive = clockwise, since canvas y points down): unrotated (top wall)
+// already has the plain edge — which is now the sprite's top row — facing
+// up/into the wall band, so top wall needs no rotation; the other three
+// walls each face the opposite way from top, so each needs whichever
+// rotation sends the sprite's top row toward that wall instead of the room.
+const LEFT_WALL_ROTATION = 270;
+const RIGHT_WALL_ROTATION = 90;
 
 // Trimmed content size + crop offset, same reasoning as MODULE_SPECS above.
 const FRIDGE_SPEC = { width: 384, height: 696, cropX: 7, cropY: 7 };
@@ -1588,11 +1610,16 @@ export default class GameScreen {
     // the wall this way regardless of its native height, so there's never a
     // strip of bare floor visible between a shorter piece and the wall;
     // only the front (facing the room) varies by height instead.
+    // Bottom-wall modules are rotated 180° (top wall stays unrotated) so
+    // cabinet's single remaining trim band (see MODULE_SPECS.cabinet above)
+    // ends up facing the room on both walls instead of facing the wall on
+    // one of them — sink/stove never appear on the bottom wall today (see
+    // BOTTOM_WALL_ORDER), so this doesn't affect their orientation.
     const makeModule = (type, x, isTop) => {
       const spec = MODULE_SPECS[type];
       const height = spec.height * moduleScale;
       const y = isTop ? wallBandThickness : this.canvas.height - wallBandThickness - height;
-      return new Furniture(x, y, type, spec.sprite, 0, spec.width, spec.height, moduleScale, spec.cropX, spec.cropY);
+      return new Furniture(x, y, type, spec.sprite, isTop ? 0 : 180, spec.width, spec.height, moduleScale, spec.cropX, spec.cropY);
     };
 
     // Places `order` edge-to-edge using each piece's own scaled width
