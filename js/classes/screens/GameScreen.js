@@ -1723,11 +1723,18 @@ export default class GameScreen {
     // Places `order` edge-to-edge using each piece's own scaled width
     // (unlike the old fixed-cell-width layout, since these renders aren't a
     // uniform size), centered as a group. One slot is skipped if this wall
-    // was chosen for the mouse-hole gap this game.
-    const buildWall = (order, isTop) => {
+    // was chosen for the mouse-hole gap this game. `extraWidth` reserves
+    // additional room *within the centering calculation* without actually
+    // placing anything there — the top wall's fridge needs this: it's a
+    // separate object placed immediately after the run finishes (see below),
+    // so it has to be accounted for here or the run centers as if the fridge
+    // didn't exist, leaving it too little room and pushing it off-canvas
+    // (confirmed live: the fridge rendered 7-21px past the right edge, in
+    // every single game at every canvas size tested, before this existed).
+    const buildWall = (order, isTop, extraWidth = 0) => {
       const scaledWidths = order.map(type => MODULE_SPECS[type].width * moduleScale);
       const totalWidth = scaledWidths.reduce((a, b) => a + b, 0);
-      let cursorX = Math.max(0, (this.canvas.width - totalWidth) / 2);
+      let cursorX = Math.max(0, (this.canvas.width - totalWidth - extraWidth) / 2);
       const wallName = isTop ? 'top' : 'bottom';
       const gapIndex = gapWall === wallName ? Math.floor(Math.random() * order.length) : -1;
       const wallHeight = isTop ? topWallHeight : bottomWallHeight;
@@ -1782,9 +1789,18 @@ export default class GameScreen {
     // 1. Top wall: cabinet/stove/sink/cabinet, back flush against the wall
     // band. The fridge sits right after, back-aligned the same way as the
     // counters (its top edge flush with the wall band's front face) so it
-    // reads as standing against the same wall rather than floating or sunken.
-    const topEndX = buildWall(TOP_WALL_ORDER, true);
-    furniture.push(new Furniture(topEndX, wallBandThickness, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    // reads as standing against the same wall rather than floating or
+    // sunken. `fridgeWidth` is passed as `extraWidth` so the run centers
+    // itself leaving enough room for the fridge that always follows it.
+    // `Math.min` below is a belt-and-suspenders clamp in case that still
+    // doesn't leave quite enough room on some canvas size — pulling the
+    // fridge back this way could in principle mean it sits closer to (or,
+    // rarely, slightly overlapping) the last top-wall module, which is a
+    // much smaller visual cost than rendering off the board entirely.
+    const fridgeWidth = FRIDGE_SPEC.width * moduleScale;
+    const topEndX = buildWall(TOP_WALL_ORDER, true, fridgeWidth);
+    const fridgeX = Math.min(topEndX, this.canvas.width - fridgeWidth);
+    furniture.push(new Furniture(fridgeX, wallBandThickness, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
 
     // 2. Bottom wall: same treatment, flush against the bottom edge, with a
     // different order than the top wall for a bit of variety.
