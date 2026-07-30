@@ -116,18 +116,24 @@ body.min-h-screen {
   top: 50%;
   /* --dpad-scale (set by touchControls.js) shrinks the whole control
      proportionally when the gutter beside the canvas is narrower than
-     this control's natural 168px, e.g. on a standard-aspect iPad
-     landscape. Defaults to 1 (full size) before JS runs or on any device
-     with a roomy-enough gutter. */
+     this control's natural 210px, e.g. on a standard-aspect iPad
+     landscape — floored at 0.75 (157.5px) rather than shrinking further,
+     since resizeCanvas() (js/main.js) now reserves enough side margin to
+     guarantee that floor is achievable by giving up board width instead.
+     Defaults to 1 (full size) before JS runs or on any device with a
+     roomy-enough gutter. */
   transform: translate(-50%, -50%) scale(var(--dpad-scale, 1));
   z-index: 40;
-  width: 168px;
-  height: 168px;
+  width: 210px;
+  height: 210px;
   display: none;
   background-image: url('./assets/dpad_cross.png');
   background-size: 100% 100%;
   background-repeat: no-repeat;
-  border-radius: 22px;
+  /* Kept proportional to the box (22px was tuned against the old 168px
+     box; 22/168 * 210 ≈ 27px) rather than left fixed, so the rounding
+     reads the same relative amount at the new larger size. */
+  border-radius: 27px;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
   /* iOS's long-press text-selection/lookup callout ("Copy | Search with
      Google") was popping up over the d-pad during holds — touch-action and
@@ -226,7 +232,11 @@ body.min-h-screen {
   top: 50%;
   /* --action-scale (set by touchControls.js) — same shrink-to-fit
      reasoning as #dpad's --dpad-scale above, against this cluster's own
-     52px natural button size. */
+     76px natural button size. No floor of its own (unlike the d-pad's
+     0.75 minimum) — a single one-shot tap target doesn't need the same
+     protection a divided disc does, and in practice it now always lands
+     at full size anyway once the gutter is wide enough to satisfy the
+     d-pad's larger floor. */
   transform: translate(-50%, -50%) scale(var(--action-scale, 1));
   z-index: 40;
   display: none;
@@ -244,8 +254,8 @@ body.min-h-screen {
 }
 
 .action-btn {
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -253,7 +263,10 @@ body.min-h-screen {
   background: radial-gradient(circle at 35% 30%, rgba(138, 43, 226, 0.45), rgba(15, 15, 25, 0.6) 72%);
   border: 1px solid rgba(255, 255, 255, 0.28);
   color: #fff;
-  font-size: 1.7rem;
+  /* Scaled up with the button itself (1.7rem was tuned against the old
+     64px button; 1.7 * 76/64 ≈ 2rem) so the emoji glyph keeps the same
+     proportion of the button rather than looking smaller in a bigger circle. */
+  font-size: 2rem;
   line-height: 1;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
   -webkit-tap-highlight-color: transparent;

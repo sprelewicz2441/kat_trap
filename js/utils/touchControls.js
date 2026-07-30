@@ -59,12 +59,66 @@ function wireTapButton(id, key) {
 // Natural (unscaled) footprint of each control — must match the width/
 // height set in styles.css for #dpad and .action-btn respectively, since
 // they're the reference sizes the shrink-to-fit scale below is computed
-// against.
-const DPAD_NATURAL_SIZE = 168;
-const ACTION_BTN_NATURAL_SIZE = 64;
+// against. Design-director pass (see CLAUDE.md): bumped up from 168/64 —
+// bigger targets across the board, not just at the floor below.
+const DPAD_NATURAL_SIZE = 210;
+const ACTION_BTN_NATURAL_SIZE = 76;
+
+// The d-pad divides one disc into 4 direction zones — unlike a single
+// plain tap target, shrinking it further doesn't just make it "a bit
+// harder to hit," it makes hitting the *specific direction* you meant
+// unreliable. Confirmed live (and by hand-computing layoutTouchControls()'s
+// old formula across a spread of real device widths) that the old
+// no-floor policy let the d-pad shrink to ~70-125px on an iPhone SE,
+// a standard iPad landscape, and a touch laptop — genuinely too small.
+// This floor, combined with resizeCanvas() (js/main.js) now reserving
+// MIN_TOUCH_CONTROL_GUTTER of side margin on touch devices, guarantees the
+// d-pad never renders smaller than DPAD_NATURAL_SIZE * MIN_DPAD_SCALE
+// (157.5px) — the board gives up width before the control gives up
+// usability, per explicit product direction. Action buttons keep the old
+// no-floor policy: they're simple one-shot taps, not a divided disc, and
+// in practice they now always land at full size anyway once the gutter is
+// wide enough to satisfy the d-pad's own (larger) floor.
+const MIN_DPAD_SCALE = 0.75;
+// Small safety margin so a control at its max scale doesn't touch the
+// canvas edge or the viewport frame right at the gutter's boundary.
+const GUTTER_SAFETY_MARGIN = 12;
+// Exported so resizeCanvas() (js/main.js) can reserve enough canvas-side
+// margin, up front, to guarantee MIN_DPAD_SCALE is achievable — computed
+// from the same constants the floor itself uses so the two can never drift
+// out of sync with each other.
+export const MIN_TOUCH_CONTROL_GUTTER = DPAD_NATURAL_SIZE * MIN_DPAD_SCALE + GUTTER_SAFETY_MARGIN;
+
+// A control sitting dead-center in a gutter that's much wider than it
+// needs to be reads as floating in empty space, roughly as far from the
+// viewport's physical edge (where a thumb actually rests) as it is from
+// the board — confirmed live as the "too much blank space… hard to press
+// the right direction" complaint on wider gutters. EDGE_ANCHOR_MARGIN is
+// the fixed, comfortable distance from the viewport edge a control
+// prefers to sit at once the gutter has room to spare; below that, it
+// falls back to plain gutter-centering (see the Math.min in
+// positionControl() below), which is also what guarantees it can never
+// overlap the canvas.
+const EDGE_ANCHOR_MARGIN = 20;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+// Shared by #dpad (left gutter) and #actionButtons (right gutter): picks
+// the control's center-line distance from its nearest viewport edge.
+// Prefers a fixed, thumb-reach-friendly distance from that edge
+// (EDGE_ANCHOR_MARGIN + half the control's own on-screen size); only
+// falls back to splitting the gutter evenly (gutter / 2, the Math.min
+// below) when the gutter is too tight for that preferred distance to fit
+// without the control creeping toward — or past — the canvas edge. The
+// tight-gutter case is exactly the existing shrink-to-fit scenario, so
+// this never introduces a new way to overlap the board; it only changes
+// where a *roomy* gutter's leftover space ends up (beside the board, not
+// beside the viewport edge).
+function edgeAnchoredOffset(gutter, onScreenSize) {
+  const preferred = EDGE_ANCHOR_MARGIN + onScreenSize / 2;
+  return Math.min(preferred, gutter / 2);
 }
 
 // Positions #dpad/#actionButtons within the empty "gutter" beside the
@@ -80,17 +134,15 @@ function clamp(value, min, max) {
 // Also shrinks each control to fit when the gutter is narrower than its
 // natural size — confirmed via a spread of real device viewports that on
 // tablets close to the canvas's own 4:3 aspect (a standard iPad landscape,
-// notably) the gutter can be as little as ~50px, well under the 150px
-// d-pad. Without this, the d-pad would spill over onto the canvas itself
-// on those devices — exactly the board-overlap the side-margin anchor was
-// chosen to avoid in the first place (see styles.css). Scaled via
+// notably) the gutter can be as little as ~50px, well under the d-pad's
+// natural size. resizeCanvas() now keeps this from ever going below
+// MIN_DPAD_SCALE for the d-pad specifically (see above) by reserving
+// enough gutter up front; action buttons still have no floor, since they
+// end up with room to spare once that reservation is in place. Scaled via
 // `transform: scale()` (a CSS variable set here) rather than resizing
 // width/height directly, so the internal padding/gaps/icon sizes shrink
 // proportionally instead of a fixed-px interior cramming into a smaller
-// box. No minimum floor: the whole point is to guarantee the control never
-// overlaps the board, which a floor would undermine on a narrow enough
-// gutter — phones (with much roomier gutters) are never affected, this
-// only ever kicks in on tablet-class devices.
+// box.
 function layoutTouchControls() {
   const canvas = document.getElementById('gameCanvas');
   const dpad = document.getElementById('dpad');
@@ -98,20 +150,19 @@ function layoutTouchControls() {
   if (!canvas || !dpad || !actionButtons) return;
 
   const rect = canvas.getBoundingClientRect();
-  dpad.style.left = `${rect.left / 2}px`;
-  actionButtons.style.left = `${(rect.right + window.innerWidth) / 2}px`;
-
   const leftGutter = rect.left;
   const rightGutter = window.innerWidth - rect.right;
   const gutter = Math.min(leftGutter, rightGutter);
-  // Small safety margin so a control at its max scale doesn't touch the
-  // canvas edge or the viewport frame right at the gutter's boundary.
-  const usableGutter = Math.max(0, gutter - 12);
+  const usableGutter = Math.max(0, gutter - GUTTER_SAFETY_MARGIN);
 
-  const dpadScale = clamp(usableGutter / DPAD_NATURAL_SIZE, 0, 1);
+  const dpadScale = clamp(usableGutter / DPAD_NATURAL_SIZE, MIN_DPAD_SCALE, 1);
   const actionScale = clamp(usableGutter / ACTION_BTN_NATURAL_SIZE, 0, 1);
   document.documentElement.style.setProperty('--dpad-scale', dpadScale);
   document.documentElement.style.setProperty('--action-scale', actionScale);
+
+  dpad.style.left = `${edgeAnchoredOffset(leftGutter, DPAD_NATURAL_SIZE * dpadScale)}px`;
+  const actionOffset = edgeAnchoredOffset(rightGutter, ACTION_BTN_NATURAL_SIZE * actionScale);
+  actionButtons.style.left = `${window.innerWidth - actionOffset}px`;
 }
 
 export function setupTouchControls() {

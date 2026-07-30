@@ -44,6 +44,22 @@ const MOBILE_UI_MULTIPLIER = 2;
 // mobile sizing untouched.
 const DESKTOP_FURNITURE_MULTIPLIER = 2;
 
+// Design-director pass (see CLAUDE.md): furniture had no equivalent of
+// MOBILE_CHARACTER_SIZE_MULTIPLIER below — mobile furniture just used
+// getScale() as-is (base * MOBILE_ASSET_MULTIPLIER, i.e. an effective ×1.5),
+// while desktop furniture got its own ×2 on top of an unmultiplied base.
+// Ratio-wise that's 2 : 1.5 — desktop furniture was permanently occupying
+// 33% more of the board, width-for-width, than mobile furniture, which is
+// exactly the "assets don't scale consistently with board size" symptom
+// reported live (furniture-to-board proportion swinging depending on
+// device class, not smoothly varying with canvas size the way every BASE_*
+// constant elsewhere in GameScreen.js already does via computeLayout()).
+// Derived the same way MOBILE_CHARACTER_SIZE_MULTIPLIER is below
+// (DESKTOP_FURNITURE_MULTIPLIER / MOBILE_ASSET_MULTIPLIER) so mobile
+// furniture ends up at the *same* fraction of canvas width desktop
+// furniture already has, rather than picking a new number by eye.
+const MOBILE_FURNITURE_MULTIPLIER = DESKTOP_FURNITURE_MULTIPLIER / MOBILE_ASSET_MULTIPLIER;
+
 // Characters (cat/dog/mouse) read noticeably small on a laptop-size desktop
 // canvas — this boosts their on-screen/collision *size* only, desktop-only,
 // same shape as DESKTOP_FURNITURE_MULTIPLIER above. Deliberately NOT part
@@ -86,11 +102,14 @@ export function getScale(canvasWidth) {
   return isTouch() ? base * MOBILE_ASSET_MULTIPLIER : base;
 }
 
-// Furniture only — see DESKTOP_FURNITURE_MULTIPLIER above for why this
-// isn't just getScale().
+// Furniture only — see DESKTOP_FURNITURE_MULTIPLIER/MOBILE_FURNITURE_MULTIPLIER
+// above for why this isn't just getScale(). Both branches now carry an
+// explicit furniture-specific multiplier (previously only desktop did),
+// keeping furniture's board-width proportion identical on both device
+// classes.
 export function getFurnitureScale(canvasWidth) {
   const scale = getScale(canvasWidth);
-  return isTouch() ? scale : scale * DESKTOP_FURNITURE_MULTIPLIER;
+  return isTouch() ? scale * MOBILE_FURNITURE_MULTIPLIER : scale * DESKTOP_FURNITURE_MULTIPLIER;
 }
 
 // Character on-screen/collision size only (not speed) — see
