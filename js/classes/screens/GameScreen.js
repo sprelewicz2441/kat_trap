@@ -194,6 +194,26 @@ const BASE_PUNCH_DISTANCE = 40;
 const PUNCH_SHOCKWAVE_DURATION = 200; // ms
 const BASE_PUNCH_SHOCKWAVE_MAX_RADIUS = 60;
 
+// Toot's little wind/fart puff — purely cosmetic (unlike the shove
+// distance above, nothing here affects gameplay), triggered from
+// handleToot() alongside the actual dog-shove mechanic and gated behind
+// the same "not playing as the dog" check for consistency with how
+// handlePunch()'s shockwave already behaves. Longer-lived than the punch
+// shockwave (500ms vs 200ms) since a little puff of gas drifting and
+// fading reads better slower than the punch's snappy ring.
+const TOOT_EFFECT_DURATION = 500; // ms — a duration, not a size, doesn't scale
+const BASE_TOOT_EFFECT_MAX_DRIFT = 32; // how far the puff drifts from the cat over its lifetime
+const BASE_TOOT_EFFECT_MAX_RADIUS = 18; // each puff circle's radius at full growth — bumped up from an initial 12, which read as too subtle live
+// Which way the puff drifts is always opposite the cat's own facing
+// direction (Cat.facingDirection) — it comes out its *back*, not wherever
+// it happens to be pointed.
+const TOOT_EFFECT_DIRECTIONS = {
+  up: { x: 0, y: 1 },
+  down: { x: 0, y: -1 },
+  left: { x: 1, y: 0 },
+  right: { x: -1, y: 0 },
+};
+
 const BASE_CAT_OUTLINE_WIDTH = 3;
 // Still used by the transient (non-game-over) "Dummy caught Mia!" pause
 // message — plain text over the live board is fine there since gameplay is
@@ -299,6 +319,8 @@ function computeLayout(canvasWidth) {
     escapeWarningDistance: BASE_ESCAPE_WARNING_DISTANCE * scale,
     punchDistance: BASE_PUNCH_DISTANCE * scale,
     punchShockwaveMaxRadius: BASE_PUNCH_SHOCKWAVE_MAX_RADIUS * scale,
+    tootEffectMaxDrift: BASE_TOOT_EFFECT_MAX_DRIFT * scale,
+    tootEffectMaxRadius: BASE_TOOT_EFFECT_MAX_RADIUS * scale,
     catOutlineWidth: BASE_CAT_OUTLINE_WIDTH * scale,
     messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
@@ -414,6 +436,7 @@ export default class GameScreen {
     this.gameOver = false;
     this.message = '';
     this.shockwave = null;
+    this.tootEffect = null;
     // Whether the just-ended round was a win *for the player controlling
     // this.controlledEntity* — set by endGame(), read by
     // displayGameOverModal() to pick "You Win!"/"You Lose!" and the
@@ -818,6 +841,21 @@ export default class GameScreen {
     // sound still plays either way (see the tootHandler in init()) since
     // there's no harm in the button making noise.
     if (!this.dog || this.controlledEntity === 'dog') return;
+
+    // Little wind/fart puff — purely cosmetic, gated behind the same
+    // "not playing as the dog" check as the shove below (and as
+    // handlePunch()'s shockwave) for consistency, even though nothing
+    // about it actually depends on the dog existing. Drifts out the cat's
+    // *back* — opposite whichever way it's currently facing, via
+    // TOOT_EFFECT_DIRECTIONS — rather than a fixed screen direction.
+    const puffDirection = TOOT_EFFECT_DIRECTIONS[this.cat.facingDirection] || TOOT_EFFECT_DIRECTIONS.down;
+    this.tootEffect = {
+      x: this.cat.x + this.cat.displayWidth / 2,
+      y: this.cat.y + this.cat.displayHeight / 2,
+      dirX: puffDirection.x,
+      dirY: puffDirection.y,
+      startTime: performance.now(),
+    };
 
     // Move dog directly away from the cat
     if (this.dog.x < this.cat.x) this.dog.x -= MOVE_DISTANCE;
@@ -1315,6 +1353,11 @@ export default class GameScreen {
   drawGameObjects() {
     this.dog.draw(this.ctx);
 
+    // Drawn here (not in render()'s own top-level sequence) specifically so
+    // it lands behind the cat's own sprite — drawing it after the cat, like
+    // drawShockwave(), had it visibly painting over the cat's face.
+    this.drawTootEffect();
+
     if (this.catPaused) this.drawRedOutline();
     this.cat.draw(this.ctx);
   }
@@ -1339,6 +1382,61 @@ export default class GameScreen {
     this.ctx.beginPath();
     this.ctx.arc(this.shockwave.x, this.shockwave.y, radius, 0, Math.PI * 2);
     this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  // Little wind/fart puff from handleToot() — three soft pale-green circles
+  // drifting out the cat's back (opposite Cat.facingDirection, see
+  // TOOT_EFFECT_DIRECTIONS) and fading out. Staggered start times (each
+  // puff's own `delay`) so they don't move/fade in lockstep as one blob —
+  // reads as a little cloud instead.
+  drawTootEffect() {
+    if (!this.tootEffect) return;
+
+    const elapsed = performance.now() - this.tootEffect.startTime;
+    if (elapsed > TOOT_EFFECT_DURATION) {
+      this.tootEffect = null;
+      return;
+    }
+
+    const progress = elapsed / TOOT_EFFECT_DURATION;
+    const { x, y, dirX, dirY } = this.tootEffect;
+    // Perpendicular to the drift direction, so the three puffs scatter
+    // side-to-side instead of stacking directly on top of each other.
+    const perpX = -dirY;
+    const perpY = dirX;
+    const maxDrift = this.layout.tootEffectMaxDrift;
+    const maxRadius = this.layout.tootEffectMaxRadius;
+
+    this.ctx.save();
+    const puffs = [
+      { delay: 0, spread: -0.6, sizeMul: 0.8 },
+      { delay: 0.12, spread: 0, sizeMul: 1 },
+      { delay: 0.24, spread: 0.6, sizeMul: 0.7 },
+    ];
+    puffs.forEach((puff) => {
+      const puffProgress = Math.max(0, Math.min(1, (progress - puff.delay) / (1 - puff.delay)));
+      if (puffProgress <= 0) return;
+
+      const drift = puffProgress * maxDrift;
+      const px = x + dirX * drift + perpX * puff.spread * maxRadius;
+      const py = y + dirY * drift + perpY * puff.spread * maxRadius;
+      const radius = puff.sizeMul * maxRadius * (0.4 + 0.6 * puffProgress);
+      // Alpha eased rather than linear, and a higher ceiling (0.9, was
+      // 0.6) — the flat-linear fade read as too faint/washed-out live
+      // against the floor almost immediately. A darker stroke (not just a
+      // flat fill) is what actually gives each puff a defined edge instead
+      // of a soft blur that can disappear into a light-colored floor tile.
+      const alpha = Math.pow(1 - puffProgress, 0.6) * 0.9;
+
+      this.ctx.fillStyle = `rgba(196, 230, 165, ${alpha})`;
+      this.ctx.strokeStyle = `rgba(110, 160, 80, ${alpha})`;
+      this.ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
+      this.ctx.beginPath();
+      this.ctx.arc(px, py, radius, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.stroke();
+    });
     this.ctx.restore();
   }
 
