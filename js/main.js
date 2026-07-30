@@ -5,26 +5,7 @@ import { setupTouchControls } from './utils/touchControls.js';
 import { setupSettingsMenu } from './utils/settingsMenu.js';
 import { isTouch } from './utils/scale.js';
 
-const gameCanvas = document.getElementById('gameCanvas');
-const ctx = gameCanvas.getContext('2d');
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
-// Rotating a phone doesn't reliably fire a plain 'resize' the way resizing
-// a desktop window does — every other layout-critical module in this repo
-// (orientationGate.js, touchControls.js, settingsMenu.js) already listens
-// for 'orientationchange' too; resizeCanvas() was the one exception, which
-// could leave the canvas sized off its pre-rotation dimensions (leaving a
-// gap) until something else happened to trigger a 'resize'.
-window.addEventListener('orientationchange', resizeCanvas);
-setupOrientationGate();
-setupTouchControls();
-setupSettingsMenu();
-
-const screenManager = new ScreenManager(ctx);
-const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);
-
-// Start with the setup screen
-screenManager.setScreen(setupScreen);
+let gameCanvas, ctx, screenManager;
 
 // Canvas width is capped at a fraction of the viewport, leaving the rest as
 // side margin. On a touch device that margin is where the d-pad/action
@@ -69,4 +50,45 @@ function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
 }
 
-gameLoop();
+// main.js is loaded with `script async` (see index.html) specifically so it
+// doesn't wait on the render-blocking Tailwind CDN stylesheet before running
+// — on a slow mobile connection that stylesheet alone could take a second or
+// more, during which the canvas just sat there as a blank white box (its own
+// bg-white class, painted before any JS had run). Unlike a deferred/module
+// script (which always waits for the whole document to finish parsing
+// first), `async` can start executing as soon as its own import graph is
+// fetched — possibly before the parser has reached <body> and the canvas
+// element actually exists. init() is guarded on document.readyState so it
+// runs immediately if the DOM's already there, or waits for
+// DOMContentLoaded if it somehow isn't, rather than assuming one or the
+// other.
+function init() {
+  gameCanvas = document.getElementById('gameCanvas');
+  ctx = gameCanvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  // Rotating a phone doesn't reliably fire a plain 'resize' the way resizing
+  // a desktop window does — every other layout-critical module in this repo
+  // (orientationGate.js, touchControls.js, settingsMenu.js) already listens
+  // for 'orientationchange' too; resizeCanvas() was the one exception, which
+  // could leave the canvas sized off its pre-rotation dimensions (leaving a
+  // gap) until something else happened to trigger a 'resize'.
+  window.addEventListener('orientationchange', resizeCanvas);
+  setupOrientationGate();
+  setupTouchControls();
+  setupSettingsMenu();
+
+  screenManager = new ScreenManager(ctx);
+  const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);
+
+  // Start with the setup screen
+  screenManager.setScreen(setupScreen);
+
+  gameLoop();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}

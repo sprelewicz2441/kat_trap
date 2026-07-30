@@ -23,7 +23,22 @@
   <!-- Tailwind CSS -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css">
-  <script type="module" src="./js/main.js"></script>
+  <!-- `async` (not a bare module, which behaves like `defer`) is load-
+       bearing here: any non-async script — module or not — waits for every
+       preceding stylesheet in the document to finish loading before it's
+       allowed to execute, per spec, regardless of whether the stylesheet
+       actually affects anything the script touches. Tailwind's CDN build
+       above is ~2.9MB uncompressed (confirmed by fetching it directly) —
+       on a slow mobile connection that's enough to stall main.js for a
+       second or more, during which the canvas sat there as a plain white
+       box (see the bg-white removal below). Confirmed empirically with a
+       throwaway test page (an artificially slow stylesheet + inline module
+       script) that a plain module script really does block on it for the
+       stylesheet's full load time, and that `async` skips the wait
+       entirely. main.js's own init() is guarded against running before the
+       DOM is ready (see main.js) since async, unlike defer, doesn't wait
+       for the document to finish parsing either. -->
+  <script type="module" src="./js/main.js" async></script>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen">
   <!-- Game Canvas. justify-center (not justify-start) is load-bearing: on
@@ -38,7 +53,13 @@
        retro handheld-console frame lives around the whole viewport instead
        (see styles.css, body::before/::after) — not here. -->
   <main class="flex items-center justify-center">
-    <canvas id="gameCanvas" class="bg-white"></canvas>
+    <!-- No bg-white here (previously had one): the canvas is transparent
+         until the first frame paints, so it now just shows body's dark
+         bg-gray-900 through it in that gap instead of a stark white box —
+         the actual visible symptom of the white-flash bug, independent of
+         how long that gap ends up being (see the script tag's async note
+         above for the bigger fix to the gap's length itself). -->
+    <canvas id="gameCanvas"></canvas>
   </main>
 
   <!-- Landscape-only gate (mobile milestone — see CLAUDE.md Mobile responsiveness) -->
