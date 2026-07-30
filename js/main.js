@@ -31,32 +31,52 @@ let gameCanvas, ctx, screenManager;
 // width then follows from the 4:3 aspect ratio and is only ever bounded by
 // maxCanvasWidth on unusually short/wide windows.
 //
-// Design-director pass (see CLAUDE.md): on touch devices, width is now ALSO
-// capped so each side gutter can't fall below MIN_TOUCH_CONTROL_GUTTER
-// (touchControls.js) — hand-computing the old formula across a spread of
-// real device widths showed the d-pad shrinking to ~70-125px on an iPhone
-// SE, a standard iPad landscape, and a touch laptop, well past comfortable.
-// Explicit product direction: the control must always stay playable, even
-// if that costs some board width — so the board is what gives here, not
-// the control. This only ever binds tighter than the existing 80% fraction
-// on those same cramped-gutter cases; anywhere the fraction already left
-// enough room (most phones, which end up height- not width-constrained),
-// `Math.min` below is a no-op and board size is unchanged from before.
+// Design-director pass (see CLAUDE.md): on touch devices, the board also
+// gives up width when needed so each side gutter can't fall below
+// MIN_TOUCH_CONTROL_GUTTER (touchControls.js) — hand-computing the old
+// formula across a spread of real device widths showed the d-pad shrinking
+// to ~70-125px on an iPhone SE, a standard iPad landscape, and a touch
+// laptop, well past comfortable. Explicit product direction: the control
+// must always stay playable, even if that costs some board width.
+//
+// First attempt at this got the ordering wrong and caused a real
+// regression: it capped maxCanvasWidth by the gutter requirement *before*
+// checking whether the board was actually going to be width- or
+// height-constrained, so on ordinary phones that were always going to end
+// up height-constrained anyway (and already had plenty of natural gutter
+// as a side effect — see the comment above), the cap still shaved width
+// off, which shaved the *height* off too (canvasHeight is always derived
+// from canvasWidth to hold the 4:3 ratio) — leaving a real, visible gap
+// above/below a board that used to sit flush top-to-bottom. Fixed by
+// computing the natural (fraction-only, pre-existing) fit first, exactly
+// as before, and only reaching for the extra width cap if that natural
+// fit's own gutter actually falls short — which only happens on the
+// width-constrained aspect ratios (iPad-like, or the very narrowest
+// phones) this was meant to target in the first place. Verified by hand
+// across the same device spread: ordinary phones (iPhone 14 and larger)
+// now get zero height loss, and the narrowest devices get a much smaller,
+// bounded loss than the first attempt's.
 function resizeCanvas() {
   const touch = isTouch();
   const widthFraction = touch ? 0.8 : 0.9;
-  let maxCanvasWidth = window.innerWidth * widthFraction;
-  if (touch) {
-    const maxCanvasWidthForControls = window.innerWidth - 2 * MIN_TOUCH_CONTROL_GUTTER;
-    maxCanvasWidth = Math.min(maxCanvasWidth, maxCanvasWidthForControls);
-  }
+  const maxCanvasWidthFraction = window.innerWidth * widthFraction;
   const maxCanvasHeight = window.innerHeight;
-  let canvasWidth = maxCanvasWidth;
+
+  let canvasWidth = maxCanvasWidthFraction;
   let canvasHeight = canvasWidth * (3 / 4);
   if (canvasHeight > maxCanvasHeight) {
     canvasHeight = maxCanvasHeight;
     canvasWidth = canvasHeight * (4 / 3);
   }
+
+  if (touch) {
+    const naturalGutter = (window.innerWidth - canvasWidth) / 2;
+    if (naturalGutter < MIN_TOUCH_CONTROL_GUTTER) {
+      canvasWidth = window.innerWidth - 2 * MIN_TOUCH_CONTROL_GUTTER;
+      canvasHeight = canvasWidth * (3 / 4);
+    }
+  }
+
   gameCanvas.width = canvasWidth;
   gameCanvas.height = canvasHeight;
 }

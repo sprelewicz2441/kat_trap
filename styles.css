@@ -295,10 +295,23 @@ body.min-h-screen {
    layoutSettingsMenuDesktop() in js/utils/settingsMenu.js using the exact
    same formula #actionButtons uses below — same "vertical line" the
    action-icon column would sit on, tracked against the canvas's actual
-   position rather than a fixed viewport corner. Mobile overrides this
-   (see the pointer:coarse block below) back to a fixed top-right corner —
-   the action-button cluster is already crowded there, so this stays
-   separate rather than joining it. */
+   position rather than a fixed viewport corner.
+
+   Design-director pass: mobile no longer uses an independent fixed
+   top-right corner — that was computed with no awareness of where
+   #actionButtons actually ended up, so the two could (and did, live)
+   overlap once the action-button cluster got bigger. Mobile now shares the
+   exact same horizontal center as #actionButtons (both set via
+   layoutTouchControls() in js/utils/touchControls.js, so they can't drift
+   apart) and the exact same size/shrink behavior (`--action-scale`), with
+   only `top` differing: a fixed distance from the viewport's top edge
+   (`SETTINGS_TOP_MARGIN` in touchControls.js) rather than vertical
+   centering, so it visually reads as its own thing sitting above the
+   action-button column rather than a fourth member of it.
+   layoutTouchControls() also pushes #actionButtons down from true vertical
+   centering whenever centering would put it too close to the hamburger —
+   the deliberate gap that separates the two groups — so this can't
+   silently start overlapping again on some future viewport size. */
 #settingsMenu {
   position: fixed;
   left: 0;
@@ -314,10 +327,9 @@ body.in-game #settingsMenu {
 
 @media (pointer: coarse) {
   #settingsMenu {
-    left: auto;
-    top: 14px;
-    right: 16px;
-    transform: none;
+    top: 20px;
+    transform: translate(-50%, 0) scale(var(--action-scale, 1));
+    transform-origin: top center;
   }
 }
 
@@ -346,6 +358,18 @@ body.in-game #settingsMenu {
   transform: scale(0.9);
 }
 
+@media (pointer: coarse) {
+  /* Matches .action-btn's own size exactly (see above) — same size, same
+     shrink behavior (scaled at the #settingsMenu container level instead
+     of here, since this button has no sibling to keep in a flex column
+     with), same visual family. */
+  #settingsToggle {
+    width: 76px;
+    height: 76px;
+    font-size: 2rem;
+  }
+}
+
 /* Dropdown panel — absolutely positioned under the toggle button rather
    than a fixed offset, so it stays anchored to it regardless of where
    #settingsMenu ends up. `hidden` (a real HTML attribute, toggled in JS)
@@ -364,6 +388,14 @@ body.in-game #settingsMenu {
   background: rgba(20, 18, 30, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+@media (pointer: coarse) {
+  /* 76px button (vs. the 40px this offset was tuned against) needs a
+     proportionally lower drop, same +8px visual gap underneath it. */
+  #settingsPanel {
+    top: 84px;
+  }
 }
 
 #settingsPanel[hidden] {

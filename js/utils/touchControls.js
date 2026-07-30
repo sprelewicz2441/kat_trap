@@ -1,3 +1,5 @@
+import { isTouch } from './scale.js';
+
 // On-screen D-pad + action buttons for touch devices. InputHandler.js only
 // listens for real `keydown`/`keyup` window events — rather than teaching
 // it (and by extension GameScreen) anything about touch, each button here
@@ -71,15 +73,28 @@ const ACTION_BTN_NATURAL_SIZE = 76;
 // old formula across a spread of real device widths) that the old
 // no-floor policy let the d-pad shrink to ~70-125px on an iPhone SE,
 // a standard iPad landscape, and a touch laptop — genuinely too small.
-// This floor, combined with resizeCanvas() (js/main.js) now reserving
-// MIN_TOUCH_CONTROL_GUTTER of side margin on touch devices, guarantees the
-// d-pad never renders smaller than DPAD_NATURAL_SIZE * MIN_DPAD_SCALE
-// (157.5px) — the board gives up width before the control gives up
-// usability, per explicit product direction. Action buttons keep the old
-// no-floor policy: they're simple one-shot taps, not a divided disc, and
-// in practice they now always land at full size anyway once the gutter is
-// wide enough to satisfy the d-pad's own (larger) floor.
-const MIN_DPAD_SCALE = 0.75;
+// This floor, combined with resizeCanvas() (js/main.js) reserving
+// MIN_TOUCH_CONTROL_GUTTER of side margin *only when the board's natural
+// size wouldn't already provide it*, guarantees the d-pad never renders
+// smaller than DPAD_NATURAL_SIZE * MIN_DPAD_SCALE (130px) — the board
+// gives up some width before the control gives up usability, per explicit
+// product direction. Action buttons keep the old no-floor policy: they're
+// simple one-shot taps, not a divided disc, and in practice they now
+// always land at full size anyway once the gutter is wide enough to
+// satisfy the d-pad's own (larger) floor.
+//
+// 0.62, not a rounder-looking 0.75: the first pass used 0.75 (157.5px) and
+// caused a real regression — hand-computing resizeCanvas()'s formula
+// across the same device spread showed it forcing a visible board-height
+// shortfall even on an ordinary iPhone (whose *natural* gutter, with no
+// floor at all, already gave a very reasonable ~150px d-pad — this floor
+// was demanding more than that device actually needed, at real cost to
+// board size). 0.62 (130px) still turns the genuinely-bad old cases
+// (iPhone SE ~72px, a standard iPad ~96px) into a meaningfully bigger,
+// comfortably-usable control, while landing below what ordinary phones
+// already provide naturally — so it only ever costs board space on the
+// handful of devices that actually need the help.
+const MIN_DPAD_SCALE = 0.62;
 // Small safety margin so a control at its max scale doesn't touch the
 // canvas edge or the viewport frame right at the gutter's boundary.
 const GUTTER_SAFETY_MARGIN = 12;
@@ -100,6 +115,26 @@ export const MIN_TOUCH_CONTROL_GUTTER = DPAD_NATURAL_SIZE * MIN_DPAD_SCALE + GUT
 // positionControl() below), which is also what guarantees it can never
 // overlap the canvas.
 const EDGE_ANCHOR_MARGIN = 20;
+
+// Fixed distance from the viewport's top edge #settingsMenu (the hamburger)
+// sits at on touch — deliberately NOT vertically centered like
+// #actionButtons below it, so the two read as related-but-distinct groups
+// rather than a fourth button in the action column. Matches
+// styles.css's `#settingsMenu { top: 20px }` under pointer:coarse; kept
+// here too since layoutTouchControls() needs the exact value to compute
+// the action-button cluster's own minimum safe position (see
+// ICON_GROUP_GAP below) — this is the one thing CSS can't just default on
+// its own, since it depends on the hamburger's actual (possibly shrunk)
+// on-screen size.
+const SETTINGS_TOP_MARGIN = 20;
+// Deliberate visual gap between the hamburger and the action-button
+// cluster below it — enough that they read as two groups, not a running
+// list of four identical icons.
+const ICON_GROUP_GAP = 24;
+// Matches #actionButtons' own `gap: 10px` in styles.css — needed here to
+// compute the actual on-screen height of the 3-button column (which the
+// CSS `gap` alone doesn't expose to JS).
+const ACTION_BTN_GAP = 10;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -127,9 +162,12 @@ function edgeAnchoredOffset(gutter, onScreenSize) {
 // canvas's width isn't fixed (see resizeCanvas() in js/main.js), so the
 // gutter width changes with viewport size and has to be read from the
 // canvas's actual rendered position rather than assumed. Vertical
-// centering doesn't need this: the gutter runs the full viewport height
-// regardless of where the canvas sits vertically, so the CSS `top: 50%`
-// already set in styles.css covers that axis on its own.
+// centering mostly doesn't need this — the gutter runs the full viewport
+// height regardless of where the canvas sits vertically, so the CSS
+// `top: 50%` already set in styles.css covers that axis on its own — except
+// for #actionButtons specifically sharing its column with the settings
+// menu above it, where JS does need to nudge `top` on short viewports (see
+// below).
 //
 // Also shrinks each control to fit when the gutter is narrower than its
 // natural size — confirmed via a spread of real device viewports that on
@@ -162,7 +200,35 @@ function layoutTouchControls() {
 
   dpad.style.left = `${edgeAnchoredOffset(leftGutter, DPAD_NATURAL_SIZE * dpadScale)}px`;
   const actionOffset = edgeAnchoredOffset(rightGutter, ACTION_BTN_NATURAL_SIZE * actionScale);
-  actionButtons.style.left = `${window.innerWidth - actionOffset}px`;
+  const rightColumnLeft = window.innerWidth - actionOffset;
+  actionButtons.style.left = `${rightColumnLeft}px`;
+
+  // Settings (hamburger) menu: on touch, shares this exact column with
+  // #actionButtons — same horizontal center, same size/shrink scale — so
+  // the two can't drift apart the way the old independent fixed-corner
+  // position did (confirmed live: it overlapped the punch button once the
+  // action-button cluster grew). Desktop positioning is untouched — that's
+  // still layoutSettingsMenuDesktop() in settingsMenu.js, on its own
+  // vertically-centered line, so this only runs its effects on touch.
+  const settingsMenu = document.getElementById('settingsMenu');
+  if (settingsMenu && isTouch()) {
+    settingsMenu.style.left = `${rightColumnLeft}px`;
+
+    // #actionButtons defaults to true vertical centering (styles.css's
+    // `top: 50%`), which is fine on any viewport tall enough to leave a
+    // real gap below the hamburger — but on a short landscape viewport it
+    // can center high enough to actually overlap the hamburger sitting at
+    // a fixed SETTINGS_TOP_MARGIN from the top. Compute both edges in real
+    // pixels and only override `top` (pushing the cluster down, never up)
+    // when centering would violate ICON_GROUP_GAP — a no-op on anything
+    // but the shortest viewports, so this doesn't change the common case.
+    const settingsOnScreenSize = ACTION_BTN_NATURAL_SIZE * actionScale;
+    const settingsBottom = SETTINGS_TOP_MARGIN + settingsOnScreenSize;
+    const clusterHeight = actionScale * (3 * ACTION_BTN_NATURAL_SIZE + 2 * ACTION_BTN_GAP);
+    const minClusterCenterY = settingsBottom + ICON_GROUP_GAP + clusterHeight / 2;
+    const centeredY = window.innerHeight / 2;
+    actionButtons.style.top = `${Math.max(centeredY, minClusterCenterY)}px`;
+  }
 }
 
 export function setupTouchControls() {
