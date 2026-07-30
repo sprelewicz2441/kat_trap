@@ -65,6 +65,7 @@ const FURNITURE_SPRITES = {
   FRIDGE: './assets/kitchen_fridge.webp',
   TABLE: './assets/kitchen_table.webp',
   CHAIR: './assets/kitchen_chair.webp',
+  PLANT: './assets/kitchen_plant.webp',
 };
 
 // Each render has its own native size (not a shared grid) — dimensions
@@ -111,6 +112,18 @@ const BOTTOM_WALL_ORDER = ['cabinet', 'cabinet', 'cabinet', 'cabinet'];
 // the wall — same "cabinet doubles as filler" precedent as top/bottom.
 const LEFT_WALL_ORDER = ['cabinet', 'cabinet'];
 const RIGHT_WALL_ORDER = ['cabinet', 'cabinet'];
+// Used instead of the two-cabinet orders above on whichever vertical wall
+// ends up carrying the fridge (see generateKitchenFurniture()'s
+// `fridgeWall`) — two cabinets plus the fridge doesn't fit the vertical
+// band's height at any canvas size (the board's fixed ~4:3 aspect means
+// that band is always shorter, proportionally, than the horizontal walls'
+// available width, so this isn't a small-canvas-only problem — confirmed
+// live it fails identically even on a spacious desktop canvas). One cabinet
+// leaves enough room for the fridge to actually land on a side wall at all,
+// rather than the fridge-placement code silently never selecting left/right
+// as a candidate in practice despite "supporting" all 4 walls on paper.
+const LEFT_WALL_ORDER_WITH_FRIDGE = ['cabinet'];
+const RIGHT_WALL_ORDER_WITH_FRIDGE = ['cabinet'];
 // These two, plus makeModule()'s isTop-dependent rotation just below, are
 // no longer an arbitrary cosmetic choice ("flip if it looks wrong") now that
 // cabinet only has a trim band on one edge (see MODULE_SPECS.cabinet above):
@@ -127,6 +140,20 @@ const RIGHT_WALL_ROTATION = 90;
 
 // Trimmed content size + crop offset, same reasoning as MODULE_SPECS above.
 const FRIDGE_SPEC = { width: 384, height: 696, cropX: 7, cropY: 7 };
+// Rotation the fridge uses per wall — offset 180° from what the exact same
+// wall uses for cabinet/sink/stove (rotation 0/180 for top/bottom,
+// LEFT_WALL_ROTATION/RIGHT_WALL_ROTATION for left/right — see those
+// constants above), because the fridge render's own back/front edges are
+// the opposite way round from the other modules'. Confirmed live: with the
+// same-as-cabinet rotations, the fridge's door/front face ended up glued to
+// the wall and its plain back faced the room — backwards, and (per the
+// project owner) exactly what made it look boxed-in with no room for a
+// door to open once it started landing at various corners instead of
+// always the same top-right spot. A dedicated map, not a shared
+// `(rotation + 180) % 360` computed inline at each call site, so the actual
+// value used is visible at the call site instead of requiring the reader
+// to do the arithmetic themselves.
+const FRIDGE_ROTATIONS = { top: 180, bottom: 0, left: 90, right: 270 };
 // Dining set: table and one chair placed side by side (not front/back
 // chairs around the table like the PtPt round) — this chair render only
 // exists from one angle, and stacking chair+table+chair vertically (as
@@ -136,6 +163,33 @@ const FRIDGE_SPEC = { width: 384, height: 696, cropX: 7, cropY: 7 };
 // Trimmed content size + crop offset, same reasoning as MODULE_SPECS above.
 const TABLE_SPEC = { width: 958, height: 651, cropX: 8, cropY: 7 };
 const CHAIR_SPEC = { width: 565, height: 615, cropX: 9, cropY: 7 };
+// The chair render's own native width (565) is already 59% of the table's
+// (958) — reasonable as raw asset dimensions, but rendered at the same
+// `diningScale` as the table it reads as noticeably too big next to it,
+// nowhere near a real dining chair's proportion to a real dining table.
+// Confirmed live and flagged by the project owner ("as wide as the table
+// and shouldn't be, like in the real world"). This scales the chair down
+// independently of the table — same split-scale pattern as
+// getCharacterScale()/getFurnitureScale() elsewhere in this project (one
+// object needs its own multiplier without dragging every other user of the
+// shared scale down with it) — landing the chair at roughly 38% of the
+// table's on-screen width, closer to a real chair-to-table ratio.
+const CHAIR_SCALE_MULTIPLIER = 0.65;
+
+// Small freestanding corner/wall decor — passable, not a collision obstacle
+// (see NON_BLOCKING_FURNITURE_TYPES below). Content bbox measured the same
+// way as every other kitchen_*.webp (alpha-channel scan, not assumed
+// full-bleed) from a 1254×1254 native file.
+const PLANT_SPEC = { width: 1008, height: 1176, cropX: 125, cropY: 19 };
+// Native resolution is much higher than the other freestanding pieces
+// (1008 vs. the chair's 565), so reusing diningScale directly would render
+// it comically large next to the chair/table — same category of mistake
+// CHAIR_SCALE_MULTIPLIER above already fixes for the chair, just needing an
+// even smaller multiplier here given the size gap. Tuned by eye against the
+// chair's on-screen size (a plant should read as a modest floor accent, not
+// furniture-sized) — like every other multiplier in this file, expect to
+// retune if it reads wrong once actually checked live.
+const PLANT_SCALE_MULTIPLIER = 0.28;
 
 const BASE_SPAWN_CLEARANCE = 60;
 // How close the cat/dog can get to the board edge — independent of the
@@ -170,6 +224,16 @@ const CAT_WANDER_DIRECTION_INTERVAL = 1200; // ms between random direction chang
 // freestanding furniture (table/chair) never blocks it. See
 // catHasLineOfSightToMouse().
 const WALL_FURNITURE_TYPES = ['cabinet', 'sink', 'stove', 'fridge'];
+// Furniture types that don't block cat/dog movement — see tryMoveCat()/
+// tryMoveDog() below. The plant is decorative floor accent, not an
+// obstacle: the project owner explicitly wants it passable (cat/dog walk
+// through or behind it), unlike every other piece of kitchen furniture,
+// which is why this needs its own opt-out list rather than reusing
+// WALL_FURNITURE_TYPES (that one's about line-of-sight occlusion, a
+// separate concern — a freestanding table/chair already doesn't block
+// sight, but does still block movement, the opposite of what the plant
+// needs).
+const NON_BLOCKING_FURNITURE_TYPES = ['plant'];
 // Multiplier on top of the cat's normal speed while wandering blind (no
 // line of sight to the mouse) — not a BASE_* pixel value since it's a ratio
 // applied to the already-scaled this.cat.speed, so it stays proportionate
@@ -287,22 +351,32 @@ function computeLayout(canvasWidth) {
   const characterScale = getCharacterScale(canvasWidth);
   const wallBandThickness = BASE_WALL_BAND_THICKNESS * scale;
 
+  // FRIDGE_SPEC.height is folded into all four of these, not just the top
+  // wall's — the fridge used to always land on the top wall, but it can now
+  // land on any of the 4 walls (see generateKitchenFurniture()'s
+  // `fridgeWall`), and this layout is computed before that per-reset random
+  // pick happens. Every wall zone has to be deep enough to hold the fridge
+  // in case it's the one that gets picked, same "not hardcoded off any one
+  // piece" reasoning already applied here for the modules themselves.
   const topWallHeight = wallBandThickness + Math.ceil(Math.max(
     ...TOP_WALL_ORDER.map(type => MODULE_SPECS[type].height),
     FRIDGE_SPEC.height
   ) * moduleScale);
-  const bottomWallHeight = wallBandThickness + Math.ceil(
-    Math.max(...BOTTOM_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
-  );
+  const bottomWallHeight = wallBandThickness + Math.ceil(Math.max(
+    ...BOTTOM_WALL_ORDER.map(type => MODULE_SPECS[type].height),
+    FRIDGE_SPEC.height
+  ) * moduleScale);
   // Left/right wall "width" is the wall band plus the rotated depth into
   // the room — rotation swaps the axes, so a rotated module's depth is its
   // native *height* times scale (see Furniture.js), not its native width.
-  const leftWallWidth = wallBandThickness + Math.ceil(
-    Math.max(...LEFT_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
-  );
-  const rightWallWidth = wallBandThickness + Math.ceil(
-    Math.max(...RIGHT_WALL_ORDER.map(type => MODULE_SPECS[type].height)) * moduleScale
-  );
+  const leftWallWidth = wallBandThickness + Math.ceil(Math.max(
+    ...LEFT_WALL_ORDER.map(type => MODULE_SPECS[type].height),
+    FRIDGE_SPEC.height
+  ) * moduleScale);
+  const rightWallWidth = wallBandThickness + Math.ceil(Math.max(
+    ...RIGHT_WALL_ORDER.map(type => MODULE_SPECS[type].height),
+    FRIDGE_SPEC.height
+  ) * moduleScale);
 
   return {
     scale,
@@ -930,7 +1004,7 @@ export default class GameScreen {
     // Add size property for collision check
     const proposedEntity = { x: proposedPosition.x, y: proposedPosition.y, size: this.cat.size };
 
-    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity));
+    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => !NON_BLOCKING_FURNITURE_TYPES.includes(furniture.type) && furniture.isColliding(proposedEntity));
     if (canMove) {
         this.cat.move(direction, speed);
     } else {
@@ -1172,7 +1246,7 @@ export default class GameScreen {
     );
 
     const proposedEntity = { x: proposedX, y: proposedY, size: this.dog.size };
-    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => furniture.isColliding(proposedEntity));
+    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => !NON_BLOCKING_FURNITURE_TYPES.includes(furniture.type) && furniture.isColliding(proposedEntity));
     if (canMove) {
       this.dog.x = proposedX;
       this.dog.y = proposedY;
@@ -1761,12 +1835,17 @@ export default class GameScreen {
     // for left, canvas.width-wallBandThickness-depth for right — the same
     // back-to-wall alignment as the horizontal walls, rather than flush to
     // the raw canvas edge.
-    const buildWallVertical = (order, isLeft) => {
+    // `extraLength` mirrors buildWall()'s `extraWidth` — reserves room
+    // within the vertical centering for a fridge that might land at the end
+    // of this wall's run (see the fridge placement below), without actually
+    // placing anything there itself. Returns the end cursorY so the caller
+    // can append the fridge flush after the run, same pattern as buildWall.
+    const buildWallVertical = (order, isLeft, extraLength = 0) => {
       const scaledLengths = order.map(type => MODULE_SPECS[type].width * moduleScale);
       const totalLength = scaledLengths.reduce((a, b) => a + b, 0);
       const bandTop = topWallHeight;
       const bandHeight = this.canvas.height - bottomWallHeight - topWallHeight;
-      let cursorY = bandTop + Math.max(0, (bandHeight - totalLength) / 2);
+      let cursorY = bandTop + Math.max(0, (bandHeight - totalLength - extraLength) / 2);
       const rotation = isLeft ? LEFT_WALL_ROTATION : RIGHT_WALL_ROTATION;
 
       order.forEach((type, i) => {
@@ -1776,6 +1855,8 @@ export default class GameScreen {
         furniture.push(new Furniture(x, cursorY, type, spec.sprite, rotation, spec.width, spec.height, moduleScale, spec.cropX, spec.cropY));
         cursorY += scaledLengths[i];
       });
+
+      return cursorY;
     };
 
     // Pick exactly one wall to leave one module out of, each game — that gap
@@ -1786,31 +1867,114 @@ export default class GameScreen {
     const gapWall = Math.random() < 0.5 ? 'top' : 'bottom';
     this.wallGap = null;
 
-    // 1. Top wall: cabinet/stove/sink/cabinet, back flush against the wall
-    // band. The fridge sits right after, back-aligned the same way as the
-    // counters (its top edge flush with the wall band's front face) so it
-    // reads as standing against the same wall rather than floating or
-    // sunken. `fridgeWidth` is passed as `extraWidth` so the run centers
-    // itself leaving enough room for the fridge that always follows it.
-    // `Math.min` below is a belt-and-suspenders clamp in case that still
-    // doesn't leave quite enough room on some canvas size — pulling the
-    // fridge back this way could in principle mean it sits closer to (or,
-    // rarely, slightly overlapping) the last top-wall module, which is a
-    // much smaller visual cost than rendering off the board entirely.
+    // Fridge: used to always trail the top wall's run (always "top-right"),
+    // flagged live as wanting placement variety. It's still wall-mounted
+    // (a real fridge sits against a wall, unlike the freestanding dining
+    // set below) but which of the 4 walls it lands on is now randomized
+    // each game, appended flush after whatever run already occupies that
+    // wall — the same "flush after the existing run" placement the top
+    // wall always used, just generalized to whichever wall gets picked.
+    // Independent of `gapWall` above (the mouse-hole gap) — the two can
+    // land on the same wall or different ones, no interaction between them.
     const fridgeWidth = FRIDGE_SPEC.width * moduleScale;
-    const topEndX = buildWall(TOP_WALL_ORDER, true, fridgeWidth);
-    const fridgeX = Math.min(topEndX, this.canvas.width - fridgeWidth);
-    furniture.push(new Furniture(fridgeX, wallBandThickness, 'fridge', FURNITURE_SPRITES.FRIDGE, 0, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    const fridgeHeight = FRIDGE_SPEC.height * moduleScale;
+    // On a vertical wall the fridge is rotated 90°/270° like every other
+    // vertical-wall module, which swaps its axes (see Furniture.js): the
+    // dimension that runs *along* the wall is its native width scaled
+    // (matching buildWallVertical's own scaledLengths), and the dimension
+    // that reaches *into the room* is its native height scaled — the
+    // opposite of the horizontal-wall case just above.
+    const fridgeAlongWall = FRIDGE_SPEC.width * moduleScale;
+    const fridgeIntoRoom = FRIDGE_SPEC.height * moduleScale;
+
+    // Only randomize among walls the fridge actually fits on alongside that
+    // wall's own modules — confirmed live that picking blindly among all 4
+    // isn't safe: LEFT_WALL_ORDER/RIGHT_WALL_ORDER (2 cabinets) plus the
+    // fridge doesn't fit the vertical band's height at any canvas size
+    // (the horizontal walls' 4-module runs plus the fridge do fit, with
+    // margin, at every size tested — it's specifically the vertical walls'
+    // runs colliding with a shorter available band that breaks, and since
+    // the board's aspect ratio is fixed, that's true at every scale, not
+    // just small mobile canvases). Picking blind and leaning on the
+    // placement clamp below to paper over it reproduced the exact same
+    // "cabinet/fridge overlap" failure mode the horizontal-only version of
+    // this feature had before its own fit-reservation fix — so this checks
+    // fit *before* picking, rather than clamping *after* picking and hoping.
+    // Left/right use their reduced *_WITH_FRIDGE orders (one cabinet, not
+    // two) for this check, since that's the order actually built below when
+    // the fridge lands there — checking the normal two-cabinet order would
+    // simply never pass, permanently locking the fridge out of side walls.
+    const topOrderWidth = TOP_WALL_ORDER.reduce((sum, type) => sum + MODULE_SPECS[type].width * moduleScale, 0);
+    const bottomOrderWidth = BOTTOM_WALL_ORDER.reduce((sum, type) => sum + MODULE_SPECS[type].width * moduleScale, 0);
+    const leftOrderWithFridgeLength = LEFT_WALL_ORDER_WITH_FRIDGE.reduce((sum, type) => sum + MODULE_SPECS[type].width * moduleScale, 0);
+    const rightOrderWithFridgeLength = RIGHT_WALL_ORDER_WITH_FRIDGE.reduce((sum, type) => sum + MODULE_SPECS[type].width * moduleScale, 0);
+    const verticalBandHeight = this.canvas.height - topWallHeight - bottomWallHeight;
+    const fridgeFitsWall = {
+      top: topOrderWidth + fridgeWidth <= this.canvas.width,
+      bottom: bottomOrderWidth + fridgeWidth <= this.canvas.width,
+      left: leftOrderWithFridgeLength + fridgeAlongWall <= verticalBandHeight,
+      right: rightOrderWithFridgeLength + fridgeAlongWall <= verticalBandHeight,
+    };
+    const candidateWalls = ['top', 'bottom', 'left', 'right'].filter(wall => fridgeFitsWall[wall]);
+    // Independent of `gapWall` above (the mouse-hole gap) — the two can
+    // land on the same wall or different ones, no interaction between them.
+    // Top is the fallback on the (untested-in-practice) chance nothing
+    // fits — it's the one wall confirmed to always have room to spare.
+    const fridgeWall = candidateWalls.length > 0
+      ? candidateWalls[Math.floor(Math.random() * candidateWalls.length)]
+      : 'top';
+
+    // 1. Top wall: cabinet/stove/sink/cabinet, back flush against the wall
+    // band. `fridgeWidth` is passed as `extraWidth` only when the fridge
+    // actually landed here, so the run centers itself leaving enough room
+    // for the fridge that follows — centering as if the fridge didn't exist
+    // is exactly what pushed it off-canvas before this reservation existed.
+    const topEndX = buildWall(TOP_WALL_ORDER, true, fridgeWall === 'top' ? fridgeWidth : 0);
 
     // 2. Bottom wall: same treatment, flush against the bottom edge, with a
     // different order than the top wall for a bit of variety.
-    buildWall(BOTTOM_WALL_ORDER, false);
+    const bottomEndX = buildWall(BOTTOM_WALL_ORDER, false, fridgeWall === 'bottom' ? fridgeWidth : 0);
 
-    // 3. Left and right walls (new): cabinet runs rotated to stand against
-    // the vertical walls, confined to the band between the top and bottom
-    // walls so nothing corners-overlaps.
-    buildWallVertical(LEFT_WALL_ORDER, true);
-    buildWallVertical(RIGHT_WALL_ORDER, false);
+    // 3. Left and right walls: cabinet runs rotated to stand against the
+    // vertical walls, confined to the band between the top and bottom walls
+    // so nothing corners-overlaps. Whichever side carries the fridge this
+    // game builds its reduced *_WITH_FRIDGE order instead of the normal
+    // two-cabinet one (see that constant's comment for why).
+    const leftEndY = buildWallVertical(fridgeWall === 'left' ? LEFT_WALL_ORDER_WITH_FRIDGE : LEFT_WALL_ORDER, true, fridgeWall === 'left' ? fridgeAlongWall : 0);
+    const rightEndY = buildWallVertical(fridgeWall === 'right' ? RIGHT_WALL_ORDER_WITH_FRIDGE : RIGHT_WALL_ORDER, false, fridgeWall === 'right' ? fridgeAlongWall : 0);
+
+    // Place the fridge flush after whichever wall's run it landed on.
+    // `Math.min`/clamp on each branch is a belt-and-suspenders backstop in
+    // case the reservation above still doesn't leave quite enough room on
+    // some canvas size — pulling the fridge back this way could in
+    // principle mean it sits closer to (or, rarely, slightly overlapping)
+    // the last module on that wall, which is a much smaller visual cost
+    // than rendering off the board entirely.
+    //
+    // FRIDGE_ROTATIONS, not LEFT_WALL_ROTATION/RIGHT_WALL_ROTATION/0/180
+    // directly: the fridge render's own back/front edges are flipped
+    // relative to cabinet's (confirmed live — "the fridge asset is
+    // backwards, the part facing the wall should face front"), so every
+    // rotation used for it is offset 180° from what the exact same wall
+    // uses for cabinet/sink/stove. Kept as its own named map, not a shared
+    // constant with an inline `+180`, so the actual rotation value used is
+    // visible at the call site rather than requiring the reader to do the
+    // arithmetic themselves.
+    if (fridgeWall === 'top') {
+      const fridgeX = Math.min(topEndX, this.canvas.width - fridgeWidth);
+      furniture.push(new Furniture(fridgeX, wallBandThickness, 'fridge', FURNITURE_SPRITES.FRIDGE, FRIDGE_ROTATIONS.top, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    } else if (fridgeWall === 'bottom') {
+      const fridgeX = Math.min(bottomEndX, this.canvas.width - fridgeWidth);
+      const fridgeY = this.canvas.height - wallBandThickness - fridgeHeight;
+      furniture.push(new Furniture(fridgeX, fridgeY, 'fridge', FURNITURE_SPRITES.FRIDGE, FRIDGE_ROTATIONS.bottom, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    } else if (fridgeWall === 'left') {
+      const fridgeY = Math.min(leftEndY, this.canvas.height - bottomWallHeight - fridgeAlongWall);
+      furniture.push(new Furniture(wallBandThickness, fridgeY, 'fridge', FURNITURE_SPRITES.FRIDGE, FRIDGE_ROTATIONS.left, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    } else {
+      const fridgeY = Math.min(rightEndY, this.canvas.height - bottomWallHeight - fridgeAlongWall);
+      const fridgeX = this.canvas.width - wallBandThickness - fridgeIntoRoom;
+      furniture.push(new Furniture(fridgeX, fridgeY, 'fridge', FURNITURE_SPRITES.FRIDGE, FRIDGE_ROTATIONS.right, FRIDGE_SPEC.width, FRIDGE_SPEC.height, moduleScale, FRIDGE_SPEC.cropX, FRIDGE_SPEC.cropY));
+    }
 
     // Helper to check overlap, used for the freestanding dining set.
     const overlaps = (x, y, width, height) => {
@@ -1869,10 +2033,12 @@ export default class GameScreen {
     // interior band at this scale (confirmed live). Side-by-side only needs
     // as much vertical room as the taller piece.
     const DINING_GAP = 10 * scale;
+    const chairScale = diningScale * CHAIR_SCALE_MULTIPLIER;
+    const plantScale = diningScale * PLANT_SCALE_MULTIPLIER;
     const tableWidth = TABLE_SPEC.width * diningScale;
     const tableHeight = TABLE_SPEC.height * diningScale;
-    const chairWidth = CHAIR_SPEC.width * diningScale;
-    const chairHeight = CHAIR_SPEC.height * diningScale;
+    const chairWidth = CHAIR_SPEC.width * chairScale;
+    const chairHeight = CHAIR_SPEC.height * chairScale;
     const setWidth = tableWidth + DINING_GAP + chairWidth;
     const setHeight = Math.max(tableHeight, chairHeight);
 
@@ -1883,11 +2049,75 @@ export default class GameScreen {
 
       if (!overlaps(x, y, setWidth, setHeight) && !blocksSpawn(x, y, setWidth, setHeight)) {
         furniture.push(new Furniture(x, y + (setHeight - tableHeight) / 2, 'table', FURNITURE_SPRITES.TABLE, 0, TABLE_SPEC.width, TABLE_SPEC.height, diningScale, TABLE_SPEC.cropX, TABLE_SPEC.cropY));
-        furniture.push(new Furniture(x + tableWidth + DINING_GAP, y + (setHeight - chairHeight) / 2, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, diningScale, CHAIR_SPEC.cropX, CHAIR_SPEC.cropY));
+        furniture.push(new Furniture(x + tableWidth + DINING_GAP, y + (setHeight - chairHeight) / 2, 'chair', FURNITURE_SPRITES.CHAIR, 0, CHAIR_SPEC.width, CHAIR_SPEC.height, chairScale, CHAIR_SPEC.cropX, CHAIR_SPEC.cropY));
         break;
       }
       diningAttempts++;
     }
+
+    // 5. Plant: small freestanding decor, passable rather than a collision
+    // obstacle (see NON_BLOCKING_FURNITURE_TYPES above) — the project owner
+    // wants the cat/dog able to walk through or behind it, with a knocked-
+    // over/animated reaction on contact planned as a separate follow-up
+    // (not implemented yet; there's nothing to react to until this placement
+    // itself was confirmed working). Prefers a room corner — same
+    // "opportunistic, not guaranteed" spirit as the v2 furniture pack's
+    // corner-counter attempt, minus that attempt's actual problem (a
+    // built-in counter needing to seam-match its neighbors at a precise
+    // joint) — this is freestanding, so any corner with open space works
+    // with no seam/style-matching risk at all. Falls back to any open spot
+    // along a wall (not open floor generally — a potted plant reads as wall/
+    // corner dressing, not a mid-room obstacle like the dining set) if
+    // every corner happens to be occupied this game.
+    const plantWidth = PLANT_SPEC.width * plantScale;
+    const plantHeight = PLANT_SPEC.height * plantScale;
+    const PLANT_WALL_MARGIN = 6 * scale;
+    const plantCornerCandidates = [
+      { x: wallBandThickness + PLANT_WALL_MARGIN, y: wallBandThickness + PLANT_WALL_MARGIN },
+      { x: this.canvas.width - wallBandThickness - PLANT_WALL_MARGIN - plantWidth, y: wallBandThickness + PLANT_WALL_MARGIN },
+      { x: wallBandThickness + PLANT_WALL_MARGIN, y: this.canvas.height - wallBandThickness - PLANT_WALL_MARGIN - plantHeight },
+      { x: this.canvas.width - wallBandThickness - PLANT_WALL_MARGIN - plantWidth, y: this.canvas.height - wallBandThickness - PLANT_WALL_MARGIN - plantHeight },
+    ];
+    // Shuffle so it isn't always the same corner (e.g. top-left) that wins
+    // whenever more than one happens to be free.
+    for (let i = plantCornerCandidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [plantCornerCandidates[i], plantCornerCandidates[j]] = [plantCornerCandidates[j], plantCornerCandidates[i]];
+    }
+
+    let plantPlaced = false;
+    for (const candidate of plantCornerCandidates) {
+      if (!overlaps(candidate.x, candidate.y, plantWidth, plantHeight) && !blocksSpawn(candidate.x, candidate.y, plantWidth, plantHeight)) {
+        furniture.push(new Furniture(candidate.x, candidate.y, 'plant', FURNITURE_SPRITES.PLANT, 0, PLANT_SPEC.width, PLANT_SPEC.height, plantScale, PLANT_SPEC.cropX, PLANT_SPEC.cropY));
+        plantPlaced = true;
+        break;
+      }
+    }
+
+    if (!plantPlaced) {
+      let plantAttempts = 0;
+      while (!plantPlaced && plantAttempts < 100) {
+        const wall = Math.floor(Math.random() * 4);
+        const alongTop = wallBandThickness + PLANT_WALL_MARGIN + Math.random() * Math.max(0, this.canvas.width - 2 * (wallBandThickness + PLANT_WALL_MARGIN) - plantWidth);
+        const alongSide = wallBandThickness + PLANT_WALL_MARGIN + Math.random() * Math.max(0, this.canvas.height - 2 * (wallBandThickness + PLANT_WALL_MARGIN) - plantHeight);
+        const x = wall === 2 ? wallBandThickness + PLANT_WALL_MARGIN
+          : wall === 3 ? this.canvas.width - wallBandThickness - PLANT_WALL_MARGIN - plantWidth
+          : alongTop;
+        const y = wall === 0 ? wallBandThickness + PLANT_WALL_MARGIN
+          : wall === 1 ? this.canvas.height - wallBandThickness - PLANT_WALL_MARGIN - plantHeight
+          : alongSide;
+
+        if (!overlaps(x, y, plantWidth, plantHeight) && !blocksSpawn(x, y, plantWidth, plantHeight)) {
+          furniture.push(new Furniture(x, y, 'plant', FURNITURE_SPRITES.PLANT, 0, PLANT_SPEC.width, PLANT_SPEC.height, plantScale, PLANT_SPEC.cropX, PLANT_SPEC.cropY));
+          plantPlaced = true;
+        }
+        plantAttempts++;
+      }
+    }
+    // No placement at all (every corner and every wall-adjacent spot
+    // occupied) is left as a no-op, same "an empty spot is a normal kitchen,
+    // not a bug" philosophy already applied to the dining set and the
+    // (since-removed) corner counter.
 
     return furniture;
   }

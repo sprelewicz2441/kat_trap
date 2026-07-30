@@ -208,8 +208,8 @@ function layoutTouchControls() {
   // the two can't drift apart the way the old independent fixed-corner
   // position did (confirmed live: it overlapped the punch button once the
   // action-button cluster grew). Desktop positioning is untouched — that's
-  // still layoutSettingsMenuDesktop() in settingsMenu.js, on its own
-  // vertically-centered line, so this only runs its effects on touch.
+  // a plain fixed `top/right` in styles.css with no JS involved at all, so
+  // this only runs its effects on touch.
   const settingsMenu = document.getElementById('settingsMenu');
   if (settingsMenu && isTouch()) {
     settingsMenu.style.left = `${rightColumnLeft}px`;

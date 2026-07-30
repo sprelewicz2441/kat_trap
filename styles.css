@@ -290,12 +290,38 @@ body.min-h-screen {
    panel holds the two independent mute toggles (music, sounds — see
    js/utils/audio.js).
 
-   Desktop default: vertically centered (top: 50%) and horizontally anchored
-   to the right gutter's center via `left`, set inline by
-   layoutSettingsMenuDesktop() in js/utils/settingsMenu.js using the exact
-   same formula #actionButtons uses below — same "vertical line" the
-   action-icon column would sit on, tracked against the canvas's actual
-   position rather than a fixed viewport corner.
+   Desktop default: `position: absolute`, anchored to `<main>`'s own edges
+   (`top: 20px; right: -60px`) rather than the viewport's. `<main>` (see
+   index.html) is `relative inline-flex` specifically so it shrink-wraps
+   tightly around the canvas instead of spanning the full viewport width
+   like a normal block element would — its own box edges end up exactly
+   matching the canvas's, so #settingsMenu (a DOM child of main, right
+   after the canvas) tracks wherever the board actually ends up purely
+   through the browser's layout engine. `right: -60px` = -(the button's own
+   40px width + a 20px margin) places its left edge 20px past the canvas's
+   right edge and its right edge 60px past — i.e. sitting just outside the
+   board in the gutter, not inside `main`'s own box.
+
+   This is the third attempt at this positioning, after two JS-measured
+   approaches were each flagged live as still overlapping the board in some
+   environment this project couldn't fully reproduce or diagnose: first,
+   vertically-and-horizontally centered *within the gutter* the 90%-width
+   canvas happened to leave (centering a 40px button in a gutter under 40px
+   wide necessarily puts part of it over the canvas); then, computed as a
+   fixed distance past `canvas.getBoundingClientRect().right` on
+   'resize'/'orientationchange' (a leading theory for why *that* one still
+   broke: index.html's Tailwind CDN stylesheet loads async — see
+   index.html's script-tag comment — so on some page loads the canvas's
+   flex-centered position could still shift *after* that one-time
+   measurement ran, with no 'resize' event ever firing to trigger a
+   recompute, since only the internal page layout changed, not the
+   viewport). This version has no JS measurement to go stale — the
+   position is resolved by the same synchronous layout pass that places
+   the canvas itself, whenever that settles. `resizeCanvas()` (js/main.js)
+   still reserves MIN_DESKTOP_SETTINGS_GUTTER of clearance on every side
+   (same "reserve the room instead of hoping it's there" fix already used
+   for the touch d-pad) so the negative offset always lands somewhere
+   visible rather than off the edge of a very narrow window.
 
    Design-director pass: mobile no longer uses an independent fixed
    top-right corner — that was computed with no awareness of where
@@ -313,10 +339,9 @@ body.min-h-screen {
    the deliberate gap that separates the two groups — so this can't
    silently start overlapping again on some future viewport size. */
 #settingsMenu {
-  position: fixed;
-  left: 0;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  position: absolute;
+  top: 20px;
+  right: -60px;
   z-index: 45;
   display: none;
 }
@@ -326,8 +351,21 @@ body.in-game #settingsMenu {
 }
 
 @media (pointer: coarse) {
+  /* Touch positioning is entirely different and viewport-relative, not
+     tied to `main`/the canvas at all: `position: fixed` (switched back
+     from the desktop `absolute` above — being a DOM descendant of `main`
+     doesn't force fixed-position behavior, `main` has no transform/filter
+     to establish a new containing block) with horizontal center coming
+     from `left` (set inline by layoutTouchControls() in touchControls.js,
+     to share the action-button column's exact center) plus this
+     transform. `right: auto` cancels the desktop rule's `right: -60px` —
+     an element can't be positioned by both `left` and `right` at once
+     without an explicit width (it stretches to satisfy both instead of
+     sizing to content), which isn't what either device wants here. */
   #settingsMenu {
+    position: fixed;
     top: 20px;
+    right: auto;
     transform: translate(-50%, 0) scale(var(--action-scale, 1));
     transform-origin: top center;
   }
@@ -418,4 +456,158 @@ body.in-game #settingsMenu {
 #settingsPanel button:hover,
 #settingsPanel button:active {
   background: rgba(255, 255, 255, 0.18);
+}
+
+/* Credits modal (see js/utils/settingsMenu.js) — launched from a button
+   inside #settingsPanel above, but deliberately NOT styled like that
+   panel's plain dark dropdown. The settings panel is utility chrome
+   (toggle switches); credits is a small "who made this" moment, so it
+   borrows the cream-card-plus-purple-accent-plus-cat-ears language this
+   game already uses for its actual cute moments (Cutscene.js's intro cards,
+   CharacterSelectScreen's character cards) rather than inventing a fourth
+   visual style. Sits above #settingsMenu (z-index 45) but below the
+   landscape gate (9999), which must always win if both were ever visible. */
+#creditsModal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 20, 0.6);
+  padding: 24px;
+}
+
+#creditsModal[hidden] {
+  display: none;
+}
+
+#creditsCard {
+  position: relative;
+  width: min(360px, 100%);
+  padding: 44px 28px 28px;
+  border-radius: 28px;
+  background: linear-gradient(180deg, #fff8ee, #ffe9c7);
+  border: 3px solid rgba(138, 43, 226, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  text-align: center;
+  animation: credits-pop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #creditsCard {
+    animation: none;
+  }
+}
+
+@keyframes credits-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Two ears poking up from the card's top edge — the same silhouette move
+   canvasShapes.js's drawCatEarCard makes for the character-select cards
+   (an inset, curved pair of "ears" rather than a plain rounded rect), just
+   built with CSS shapes instead of a canvas path since this modal is DOM.
+   Inset/width are the same 16%/22%-of-card percentages drawCatEarCard uses
+   (see earGeometry() there) so the proportions match at any card width —
+   and, not incidentally, so the ears stay clear of #creditsCloseBtn's
+   fixed 32px corner regardless of viewport size, rather than needing a
+   separately-tuned pixel offset that could drift into it. Tilted a few
+   degrees outward the way a real kitten's ears sit rather than standing
+   perfectly upright. */
+.credits-ear {
+  position: absolute;
+  top: -26px;
+  width: 22%;
+  height: 46px;
+  background: inherit;
+  border: 3px solid rgba(138, 43, 226, 0.55);
+  border-radius: 60% 60% 8% 8%;
+}
+
+.credits-ear::after {
+  content: '';
+  position: absolute;
+  inset: 9px 9px 16px;
+  background: #ffc4d6;
+  border-radius: 60% 60% 8% 8%;
+}
+
+.credits-ear-left {
+  left: 16%;
+  transform: rotate(-18deg);
+  border-bottom: none;
+}
+
+.credits-ear-right {
+  right: 16%;
+  transform: rotate(18deg);
+  border-bottom: none;
+}
+
+#creditsCloseBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(138, 43, 226, 0.15);
+  color: #6a1fc2;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+#creditsCloseBtn:hover,
+#creditsCloseBtn:active {
+  background: rgba(138, 43, 226, 0.3);
+  transform: scale(0.92);
+}
+
+.credits-eyebrow {
+  margin: 0 0 6px;
+  font: 700 1.15rem/1.3 Arial, sans-serif;
+  letter-spacing: 0.02em;
+  color: #7a5a9c;
+}
+
+.credits-name {
+  margin: 0 0 14px;
+  font: 800 2.1rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.credits-subline {
+  margin: 0;
+  font: 700 0.8rem/1.4 Arial, sans-serif;
+  color: #2b1d3d;
+}
+
+.credits-dad-name {
+  font-weight: 400;
+  color: #5c4a72;
+}
+
+.credits-paws {
+  margin-top: 18px;
+  font-size: 1.1rem;
+  letter-spacing: 0.3em;
+  opacity: 0.6;
 }

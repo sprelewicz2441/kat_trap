@@ -52,7 +52,7 @@
        the canvas's own middle once the canvas itself is centered). The
        retro handheld-console frame lives around the whole viewport instead
        (see styles.css, body::before/::after) — not here. -->
-  <main class="flex items-center justify-center">
+  <main class="relative inline-flex items-center justify-center">
     <!-- No bg-white here (previously had one): the canvas is transparent
          until the first frame paints, so it now just shows body's dark
          bg-gray-900 through it in that gap instead of a stark white box —
@@ -60,6 +60,36 @@
          how long that gap ends up being (see the script tag's async note
          above for the bigger fix to the gap's length itself). -->
     <canvas id="gameCanvas"></canvas>
+
+    <!-- Settings (hamburger) menu — visible on ALL devices during gameplay
+         (unlike the touch-only controls below, sound isn't touch-specific).
+         Lives here, as a DOM child of the same shrink-wrapped `<main>` the
+         canvas sits in (`relative inline-flex` above — sized to exactly
+         match the canvas, not the full viewport width), specifically so its
+         desktop position (`position: absolute` in styles.css, anchored to
+         `main`'s own edges) tracks wherever the board actually ends up
+         through the browser's own layout engine — no JS measurement of the
+         canvas's position involved at all. Two earlier JS-measured
+         approaches (gutter-centering, then a resize-listener computing
+         `canvas.getBoundingClientRect()`) were each flagged live as still
+         overlapping the board in some environment this project couldn't
+         fully reproduce or diagnose — this sidesteps needing to. Being a
+         DOM descendant of `main` doesn't change anything for the *touch*
+         case (`position: fixed` in the `pointer: coarse` media query),
+         since `position: fixed` is viewport-relative regardless of
+         ancestor nesting unless an ancestor establishes a new containing
+         block (a transform/filter/perspective, none of which `main` has)
+         — touch positioning (`js/utils/touchControls.js`) is unaffected.
+         See js/utils/audio.js for the two independent mute flags: music
+         starts muted, sounds (SFX) start unmuted. -->
+    <div id="settingsMenu">
+      <button id="settingsToggle" aria-label="Settings" aria-expanded="false">&#9776;</button>
+      <div id="settingsPanel" hidden>
+        <button id="musicToggleBtn" aria-pressed="false"></button>
+        <button id="sfxToggleBtn" aria-pressed="true"></button>
+        <button id="creditsBtn">&#128156; Credits</button>
+      </div>
+    </div>
   </main>
 
   <!-- Landscape-only gate (mobile milestone — see CLAUDE.md Mobile responsiveness) -->
@@ -68,17 +98,20 @@
     <p class="text-xl font-bold">Please rotate your device to landscape to play!</p>
   </div>
 
-  <!-- Settings (hamburger) menu — visible on ALL devices during gameplay
-       (unlike the touch-only controls below, sound isn't touch-specific).
-       Lives in the top-right corner, the spot already earmarked below as
-       the natural home for menu-style icons. See js/utils/settingsMenu.js
-       and js/utils/audio.js for the two independent mute flags: music
-       starts muted, sounds (SFX) start unmuted. -->
-  <div id="settingsMenu">
-    <button id="settingsToggle" aria-label="Settings" aria-expanded="false">&#9776;</button>
-    <div id="settingsPanel" hidden>
-      <button id="musicToggleBtn" aria-pressed="false"></button>
-      <button id="sfxToggleBtn" aria-pressed="true"></button>
+  <!-- Credits modal — a small "who made this" card, separate from the
+       settingsPanel dropdown above (that one's utilitarian; this one gets
+       the same cute cream-card treatment as the cutscene/game-over modals
+       drawn on canvas elsewhere, just in DOM form since it's launched from
+       DOM chrome). See js/utils/settingsMenu.js for open/close wiring. -->
+  <div id="creditsModal" hidden>
+    <div id="creditsCard" role="dialog" aria-modal="true" aria-labelledby="creditsHeading">
+      <div class="credits-ear credits-ear-left"></div>
+      <div class="credits-ear credits-ear-right"></div>
+      <button id="creditsCloseBtn" aria-label="Close credits">&times;</button>
+      <p class="credits-eyebrow">Created by, Imagineered by &amp; Produced by</p>
+      <h2 id="creditsHeading" class="credits-name">Kathryn Hodges</h2>
+      <p class="credits-subline">Engineered by Daddy <span class="credits-dad-name">(Scott Prelewicz)</span></p>
+      <div class="credits-paws">&#128062;&#128062;&#128062;</div>
     </div>
   </div>
 

@@ -2,7 +2,7 @@ import ScreenManager from './classes/screens/ScreenManager.js';
 import SetupScreen from './classes/screens/SetupScreen.js';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchControls.js';
-import { setupSettingsMenu } from './utils/settingsMenu.js';
+import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';
 import { isTouch } from './utils/scale.js';
 
 let gameCanvas, ctx, screenManager;
@@ -73,6 +73,19 @@ function resizeCanvas() {
     const naturalGutter = (window.innerWidth - canvasWidth) / 2;
     if (naturalGutter < MIN_TOUCH_CONTROL_GUTTER) {
       canvasWidth = window.innerWidth - 2 * MIN_TOUCH_CONTROL_GUTTER;
+      canvasHeight = canvasWidth * (3 / 4);
+    }
+  } else {
+    // Same reservation, same reasoning, for the desktop hamburger menu
+    // instead of the touch d-pad — see MIN_DESKTOP_SETTINGS_GUTTER's own
+    // comment in settingsMenu.js. #settingsMenu sits at a plain fixed
+    // `top: 20px; right: 20px` on desktop (styles.css) — this reservation
+    // is what makes that static position safe; without it, the hamburger
+    // could have nowhere to go on a narrower desktop window, the exact
+    // "overlaps the gameboard" bug this fixes.
+    const naturalGutter = (window.innerWidth - canvasWidth) / 2;
+    if (naturalGutter < MIN_DESKTOP_SETTINGS_GUTTER) {
+      canvasWidth = window.innerWidth - 2 * MIN_DESKTOP_SETTINGS_GUTTER;
       canvasHeight = canvasWidth * (3 / 4);
     }
   }

@@ -1,5 +1,6 @@
 import { getUIScale } from '../../utils/scale.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
+import { playModalPopSound } from '../../utils/audio.js';
 
 const POP_IN_DURATION = 250; // ms — same ease-out-cubic pop as GameScreen's game-over modal
 
@@ -34,6 +35,11 @@ export default class Cutscene {
   init(nextCallback) {
     this.nextCallback = nextCallback;
     this.startTime = performance.now();
+
+    // The generic pop-in "pfff" (see audio.js) — separate from
+    // soundCallback below, which plays a per-character themed sound
+    // (e.g. a meow), not a UI pop. Both fire; they're not alternatives.
+    playModalPopSound();
 
     if (this.soundCallback) {
       this.soundCallback();
