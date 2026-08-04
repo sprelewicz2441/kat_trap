@@ -1001,10 +1001,20 @@ export default class GameScreen {
         proposedPosition.y <= this.canvas.height - WALL_OFFSET
     );
 
-    // Add size property for collision check
-    const proposedEntity = { x: proposedPosition.x, y: proposedPosition.y, size: this.cat.size };
+    // Furniture collision uses the cat's legs/body hitbox, not the full
+    // head+ears sprite (see Cat.getHitboxAt()) — a plain square built from
+    // this.cat.size (like the wall-clamp above still uses) would be wider
+    // than even the full sprite, let alone just its solid part. Not routed
+    // through Furniture.isColliding() (which assumes a square `entity.size`)
+    // since this box isn't square — aabbOverlap directly, same as
+    // collision.js's own comment recommends for a caller with different
+    // width/height needs than the shared-entity convention provides.
+    const catHitbox = this.cat.getHitboxAt(proposedPosition.x, proposedPosition.y);
 
-    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture => !NON_BLOCKING_FURNITURE_TYPES.includes(furniture.type) && furniture.isColliding(proposedEntity));
+    const canMove = (insideWalls || isOnEscape) && !this.furniture.some(furniture =>
+      !NON_BLOCKING_FURNITURE_TYPES.includes(furniture.type) &&
+      aabbOverlap(catHitbox.x, catHitbox.y, catHitbox.width, catHitbox.height, furniture.x, furniture.y, furniture.width, furniture.height)
+    );
     if (canMove) {
         this.cat.move(direction, speed);
     } else {

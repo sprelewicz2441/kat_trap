@@ -11,6 +11,15 @@
 const TILT_ANGLE = 0.14; // radians, ~8 degrees
 const STRETCH_AMOUNT = 0.08; // 8% taller/shorter
 
+// cat.png's frame is a big round head (with ears/whiskers sticking out to
+// both sides) over a much narrower body/legs section — see getHitboxAt()
+// below for where this is actually used. Ratios measured directly off the
+// asset's alpha channel (the legs/body region specifically, not the
+// whisker-affected head): the legs are about 35% of the frame's width and
+// the bottom ~30% of its height.
+const HITBOX_WIDTH_RATIO = 0.35;
+const HITBOX_HEIGHT_RATIO = 0.3;
+
 export default class Cat {
   // `scale` (see js/utils/scale.js) shrinks speed on a small canvas.
   // `sizeScale` (getCharacterScale() — defaults to `scale` if not given)
@@ -68,6 +77,48 @@ export default class Cat {
 
   get displayHeight() {
     return (this.frameHeight / 4) * this.sizeScale;
+  }
+
+  get hitboxWidth() {
+    return this.displayWidth * HITBOX_WIDTH_RATIO;
+  }
+
+  get hitboxHeight() {
+    return this.displayHeight * HITBOX_HEIGHT_RATIO;
+  }
+
+  // The furniture-collision box (see GameScreen.tryMoveCat()) — sized to
+  // just the legs/body, not the full head+ears+whiskers sprite, so the cat
+  // can walk right up next to (and visually appear to pass close beside)
+  // furniture instead of stopping short with an obvious gap while its wide
+  // head/ears are still clear of it. Confirmed live: the previous
+  // full-sprite-sized hitbox (this.size, a square bigger than even the
+  // full display box) made the cat stop well before it looked like it
+  // should, next to a corner counter.
+  //
+  // Takes an explicit (x, y) rather than always using this.x/this.y
+  // because GameScreen.tryMoveCat() needs the hitbox for a *proposed*
+  // position it hasn't committed to yet, not just the cat's current one —
+  // same reasoning as move()'s own `speed` parameter (see its comment).
+  // Horizontally centered under the full sprite, vertically anchored to
+  // its bottom edge (where the legs actually are), rather than sharing the
+  // sprite's own top-left origin directly.
+  //
+  // Deliberately NOT used for anything else `this.size` still drives
+  // (wall-edge clamping, the cat-catches-mouse win check, the AI's
+  // line-of-sight lane width) — those are different concerns (board-edge
+  // margin, core win-condition feel, AI perception width) that didn't have
+  // the same "invisible box bigger than the visible sprite" complaint, and
+  // shrinking them too was never asked for.
+  getHitboxAt(x, y) {
+    const width = this.hitboxWidth;
+    const height = this.hitboxHeight;
+    return {
+      x: x + (this.displayWidth - width) / 2,
+      y: y + this.displayHeight - height,
+      width,
+      height,
+    };
   }
 
   // `speed` defaults to the cat's own speed, but GameScreen's tryMoveCat()
