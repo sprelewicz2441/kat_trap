@@ -3,6 +3,7 @@ import SetupScreen from './classes/screens/SetupScreen.js';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchControls.js';
 import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';
+import { setupHomeScreenHint } from './utils/homeScreenHint.js';
 import { isTouch } from './utils/scale.js';
 
 let gameCanvas, ctx, screenManager;
@@ -127,6 +128,7 @@ function init() {
   setupOrientationGate();
   setupTouchControls();
   setupSettingsMenu();
+  setupHomeScreenHint();
 
   screenManager = new ScreenManager(ctx);
   const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);

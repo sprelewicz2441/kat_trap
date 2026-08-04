@@ -98,6 +98,26 @@
     <p class="text-xl font-bold">Please rotate your device to landscape to play!</p>
   </div>
 
+  <!-- iOS "Add to Home Screen" hint — see js/utils/homeScreenHint.js. Only
+       shown for iOS Safari specifically (not iPad, not already standalone,
+       not Chrome/Firefox/etc. on iOS), since that's the one platform/
+       browser combination where adding to the home screen actually
+       unlocks a real fullscreen-ish experience (see CLAUDE.md's
+       Fullscreen support entry). Hidden automatically once gameplay
+       starts (body.in-game, see styles.css) so it never covers the board;
+       shown pre-game (setup/character-select) instead. -->
+  <div id="homeScreenHint" hidden>
+    <span id="homeScreenHintIcon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/>
+        <path d="M7 8l5-5 5 5"/>
+        <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>
+      </svg>
+    </span>
+    <p>Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong> for the best full-screen play!</p>
+    <button id="homeScreenHintClose" aria-label="Dismiss">&times;</button>
+  </div>
+
   <!-- Credits modal — a small "who made this" card, separate from the
        settingsPanel dropdown above (that one's utilitarian; this one gets
        the same cute cream-card treatment as the cutscene/game-over modals

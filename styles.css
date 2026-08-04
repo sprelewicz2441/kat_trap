@@ -611,3 +611,74 @@ body.in-game #settingsMenu {
   letter-spacing: 0.3em;
   opacity: 0.6;
 }
+
+/* iOS "Add to Home Screen" hint (see js/utils/homeScreenHint.js) — a slim
+   banner pinned to the top of the viewport. Shown pre-game only: nothing
+   else occupies the top of the screen before gameplay starts (the
+   settings menu and touch controls are both gated to body.in-game too —
+   see their own rules), so there's no conflict to resolve, and hiding it
+   once gameplay starts means it never has to compete with the board.
+   Styled as this game's own chrome (dark, rounded, purple accent — the
+   same purple used for the settings menu/action buttons/punch shockwave)
+   rather than reading like a generic browser alert. */
+#homeScreenHint {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 480px);
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(20, 18, 30, 0.94);
+  border: 1px solid rgba(138, 43, 226, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+#homeScreenHint[hidden] {
+  display: none;
+}
+
+body.in-game #homeScreenHint {
+  display: none;
+}
+
+#homeScreenHintIcon {
+  flex-shrink: 0;
+  display: flex;
+  color: #c9a4f5;
+}
+
+#homeScreenHint p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.35;
+}
+
+#homeScreenHintClose {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
+}
+
+#homeScreenHintClose:hover,
+#homeScreenHintClose:active {
+  background: rgba(255, 255, 255, 0.2);
+}
