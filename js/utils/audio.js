@@ -105,3 +105,98 @@ export function playModalPopSound() {
   noise.start(now);
   noise.stop(now + duration);
 }
+
+// Plays a single synthesized note: fast attack, ramps toward `endFreq` (or
+// stays flat if omitted) over the note's length, exponential decay to
+// silence. Shared by playWinSound()/playLoseSound() below so their per-note
+// envelope logic can't drift apart between the two.
+function playNote(ctx, { freq, endFreq = freq, start, duration, type = 'triangle', peakGain = 0.3, filterFreq = null }) {
+  const osc = ctx.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, start);
+  if (endFreq !== freq) {
+    osc.frequency.exponentialRampToValueAtTime(endFreq, start + duration * 0.9);
+  }
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(peakGain, start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+
+  let lastNode = osc;
+  if (filterFreq) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = filterFreq;
+    osc.connect(filter);
+    lastNode = filter;
+  }
+  lastNode.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(start);
+  osc.stop(start + duration + 0.05);
+}
+
+// Win fanfare: a quick ascending "ta-da" arpeggio into a held, slightly
+// shimmering final note. Every other sound tied to the game-over modal
+// (see GameScreen.endGame()) was, until now, just the neutral event sound
+// (a meow, a mouse squeak) — identical whether that event was a win or a
+// loss for whoever's playing, since the same event means different things
+// depending on controlledEntity (see Character selection & playable modes
+// in CLAUDE.md). This plays *in addition* to that event sound, keyed off
+// endGame()'s own `isWin` flag, so the modal finally has a distinct "you
+// won" cue rather than relying on the player to read the headline.
+// Synthesized like playModalPopSound() above (a musical one this time —
+// oscillators and note envelopes instead of filtered noise) since nothing
+// in sounds/ fit this either and a short fanfare like this doesn't need a
+// supplied audio file.
+export function playWinSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6 — bright major arpeggio
+  const stepDuration = 0.12;
+
+  notes.forEach((freq, i) => {
+    const start = now + i * stepDuration;
+    const isLast = i === notes.length - 1;
+    playNote(ctx, { freq, start, duration: isLast ? 0.6 : stepDuration, type: 'triangle', peakGain: 0.35 });
+  });
+
+  // A soft high shimmer layered under the held final note, so the ending
+  // has a bit of sparkle rather than one flat tone carrying it alone.
+  const shimmerStart = now + (notes.length - 1) * stepDuration;
+  playNote(ctx, { freq: notes[notes.length - 1] * 2, start: shimmerStart, duration: 0.6, type: 'sine', peakGain: 0.12 });
+}
+
+// Loss stinger: three descending, pitch-bent notes — the classic cartoon
+// "womp womp womp" trombone, not a somber dirge. Matches the game-over
+// modal's own deliberately-still-playful teal/blue loss palette (see
+// COLORS.MODAL — "deliberately playful either way... not somber on a
+// loss") rather than reaching for a sad tone just because it's a loss.
+// Sawtooth (brighter/buzzier than the win fanfare's triangle, appropriately
+// more "honking") through a lowpass filter for warmth, rather than a bare
+// sawtooth's harsher edge.
+export function playLoseSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+  const notes = [392.0, 349.23, 293.66]; // G4, F4, D4 — descending
+  const noteDuration = 0.26;
+
+  notes.forEach((freq, i) => {
+    const start = now + i * noteDuration;
+    playNote(ctx, {
+      freq,
+      endFreq: freq * 0.85,
+      start,
+      duration: noteDuration,
+      type: 'sawtooth',
+      peakGain: 0.28,
+      filterFreq: 1200,
+    });
+  });
+}

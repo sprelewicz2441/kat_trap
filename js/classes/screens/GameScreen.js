@@ -12,7 +12,7 @@ import Furniture from '../Furniture.js';
 import { aabbOverlap } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted } from '../../utils/audio.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // ==============================
@@ -1320,6 +1320,18 @@ export default class GameScreen {
     this.gameOverIsWin = isWin;
     this.gameOverStartTime = performance.now();
     this.playSound(soundKey);
+    // A distinct win/loss cue on top of the event sound above — soundKey is
+    // the same neutral event sound (a meow, a mouse squeak) regardless of
+    // whether that event is good or bad news for whoever's playing (see
+    // Win/lose semantics in CLAUDE.md), so it alone was never a "you won!"
+    // cue. Not the same playModalPopSound() every other modal in this game
+    // uses — this moment is bigger than a transitional pop (see that
+    // function's own comment for why it was deliberately excluded here).
+    if (isWin) {
+      playWinSound();
+    } else {
+      playLoseSound();
+    }
 
     // Cleanup autonomous behaviors
     if (this.dog) this.dog.cleanup();
