@@ -200,3 +200,64 @@ export function playLoseSound() {
     });
   });
 }
+
+// Plant knock-over "thump": a low pitch-dropping thud (the pot hitting the
+// floor) plus a short burst of high-passed noise (loose dirt/leaves
+// scattering), layered together rather than sequenced — a real toppling
+// object's impact and scatter happen at the same instant, not one after
+// the other. Same synthesis toolkit as the rest of this file (playNote()'s
+// oscillator envelope for the thud, playModalPopSound()'s noise-buffer
+// approach for the scatter) since, as with every other one-shot in this
+// game, nothing in sounds/ is a plant-pot thud and a sound this short is
+// easier to synthesize than to source. Triggered directly from
+// GameScreen.updatePlantBump() the instant Furniture.startKnockOver() is
+// called, not routed through GameScreen.playSound() (which only knows
+// about the file-backed SOUND_KEYS map) — mirrors how playModalPopSound()
+// is already called directly by its own trigger sites.
+export function playPlantKnockOverSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+
+  // The thud: a short, punchy low-end drop rather than a held tone — a pot
+  // hitting the floor is a single impact, not a note.
+  playNote(ctx, {
+    freq: 150,
+    endFreq: 55,
+    start: now,
+    duration: 0.18,
+    type: 'sine',
+    peakGain: 0.45,
+  });
+
+  // The scatter: brief high-passed noise for loose dirt/leaves, quieter and
+  // shorter than the thud so it reads as texture riding on top of the
+  // impact rather than a competing second sound.
+  const scatterDuration = 0.22;
+  const bufferSize = Math.floor(ctx.sampleRate * scatterDuration);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 2500;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + scatterDuration);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+
+  noise.start(now);
+  noise.stop(now + scatterDuration);
+}

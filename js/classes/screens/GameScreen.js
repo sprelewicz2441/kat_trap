@@ -12,7 +12,7 @@ import Furniture from '../Furniture.js';
 import { aabbOverlap } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // ==============================
@@ -205,9 +205,20 @@ const BASE_WALL_OFFSET = 40;
 // next to it and ending the round before a player could react.
 const BASE_MIN_SPAWN_SEPARATION = 280;
 // Mouse-controlled mode: fixed per-tick step speed for direct player input,
-// analogous to Cat's own BASE speed — independent of the autonomous mouse's
-// speedX/speedY wander velocity (see Mouse.js), which stays untouched.
-const BASE_MOUSE_PLAYER_SPEED = 8;
+// independent of the autonomous mouse's speedX/speedY wander velocity (see
+// Mouse.js), which stays untouched. Matches Cat's own hardcoded 10*scale
+// (Cat.js) and BASE_DOG_PLAYER_SPEED below rather than its own previously-
+// separate value (8) — confirmed live that piloting each character should
+// feel the same regardless of which one you're controlling; only the
+// *autonomous* versions of each character are meant to feel different from
+// one another.
+const BASE_MOUSE_PLAYER_SPEED = 10;
+// Dog-controlled mode's own per-tick step speed — see Dog.js's own
+// this.speed comment for why the dog needed a player-control speed
+// completely separate from its autonomous-wander speed. Matches
+// BASE_MOUSE_PLAYER_SPEED/Cat.js's speed exactly, not just "close," so
+// piloting any of the three characters feels identical.
+const BASE_DOG_PLAYER_SPEED = 10;
 
 const DOG_PAUSE_DURATION = 2000; // ms — a duration, not a size, so this doesn't scale with canvas size
 const DOG_COLLISION_COOLDOWN = 1000; // ms
@@ -387,6 +398,7 @@ function computeLayout(canvasWidth) {
     escapeSize: BASE_ESCAPE_SIZE * scale,
     wallOffset: BASE_WALL_OFFSET * scale,
     mousePlayerSpeed: BASE_MOUSE_PLAYER_SPEED * scale,
+    dogPlayerSpeed: BASE_DOG_PLAYER_SPEED * scale,
     spawnClearance: BASE_SPAWN_CLEARANCE * scale,
     minSpawnSeparation: BASE_MIN_SPAWN_SEPARATION * scale,
     escapeDangerDistance: BASE_ESCAPE_DANGER_DISTANCE * scale,
@@ -526,6 +538,12 @@ export default class GameScreen {
     // regardless of controlledEntity — the mouse escaping ends the round the
     // same way whether it was player- or AI-driven.
     this.mouseEscaped = false;
+    // Edge-detection state for updatePlantBump() below — true whenever the
+    // cat/dog was overlapping the plant as of last tick, so a bump only
+    // (re)starts the knock-over on the tick contact begins, not every tick
+    // of a continuous touch (which would restart the animation/sound every
+    // single frame and read as a rapid buzz rather than one clean bump).
+    this.plantWasHit = false;
     // this.running's value at the moment the settings menu opened — restored
     // when it closes (see the settingsmenutoggle handler in init()), so
     // closing the menu can never resume something that was already stopped
@@ -575,13 +593,28 @@ export default class GameScreen {
     // Pauses gameplay while the settings menu (js/utils/settingsMenu.js) is
     // open, resuming to whatever this.running actually was beforehand
     // rather than unconditionally to true — see wasRunningBeforeMenu above.
+    // Also pauses/resumes the dog's own bark schedule (see Dog.js's
+    // pauseBarking()/resumeBarking()) — this.running gates the game loop's
+    // own update() (see update()'s own early return), but the dog's barks
+    // are scheduled via a plain setTimeout chain that runs on real
+    // wall-clock time regardless of this.running, so without this a bark
+    // could keep firing audibly while the menu sat open over a paused
+    // board. stopDogBarkSound() also cuts off a bark that's already
+    // mid-playback at the moment the menu opens, the same way endGame()
+    // does at round end.
     this.settingsMenuToggleHandler = (e) => {
       if (e.detail.open) {
         this.wasRunningBeforeMenu = this.running;
         this.running = false;
+        if (this.dog) this.dog.pauseBarking();
+        this.stopDogBarkSound();
       } else if (this.wasRunningBeforeMenu !== null) {
         this.running = this.wasRunningBeforeMenu;
         this.wasRunningBeforeMenu = null;
+        // Only resume barking if play is actually resuming — if the menu
+        // was opened after the round had already ended, this.running
+        // restores to false (game over) and the dog should stay silent.
+        if (this.running && this.dog) this.dog.resumeBarking();
       }
     };
     document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
@@ -620,6 +653,22 @@ export default class GameScreen {
     this.escapes = this.generateEscapes(NUM_OF_ESCAPES);
 
     if (this.inputHandler) this.inputHandler.cleanup();
+    // resetGameObjects() unconditionally reassigns this.dog below — called
+    // a second time by startGame() (once cutscenes finish) on top of the
+    // constructor's own initial call, which used to silently orphan the
+    // *first* Dog instance: nothing ever pointed at it again, so its
+    // pauseBarking()/cleanup() were never reachable, but its setNextBark()
+    // setTimeout chain kept firing forever regardless — completely
+    // invisible to this.running, the settings-menu pause, or endGame(),
+    // since all of those act on whatever this.dog *currently* is, not
+    // whichever earlier instance actually still owned the live timer. This
+    // was the actual cause of barks persisting through a pause or past
+    // game-over: the visible/current dog's bark loop really was being
+    // paused/stopped correctly, it just wasn't the one still barking.
+    // Cleaning up the outgoing dog here, the same way inputHandler already
+    // is on this line, closes that off at the source rather than relying
+    // on every caller of resetGameObjects() to remember to do it first.
+    if (this.dog) this.dog.cleanup();
 
     const { scale, characterScale, topWallHeight, bottomWallHeight, spawnClearance, minSpawnSeparation, catSizeApprox, mouseSizeApprox, dogSizeApprox } = this.layout;
 
@@ -876,16 +925,26 @@ export default class GameScreen {
   // visually any part of the character brushing the plant should read as
   // a bump, not just its feet. Mouse never triggers this — it already
   // ignores all furniture (see Mouse.js).
+  //
+  // Edge-triggered on plantWasHit (see its own comment) rather than firing
+  // on every tick of overlap — Furniture.startKnockOver() is replayable by
+  // design now (each bump wobbles/re-tips the plant, not just the first
+  // ever touch), so without edge-detection here, sitting on top of the
+  // plant for even a few frames would restart the animation/sound every
+  // tick and read as a stutter instead of one bump per approach.
   updatePlantBump(timestamp) {
     const plant = this.furniture.find(f => f.type === 'plant');
-    if (!plant || plant.knockedOver) return;
+    if (!plant) return;
 
     const catHits = aabbOverlap(this.cat.x, this.cat.y, this.cat.displayWidth, this.cat.displayHeight, plant.x, plant.y, plant.width, plant.height);
     const dogHits = aabbOverlap(this.dog.x, this.dog.y, this.dog.displayWidth, this.dog.displayHeight, plant.x, plant.y, plant.width, plant.height);
+    const isHitting = catHits || dogHits;
 
-    if (catHits || dogHits) {
+    if (isHitting && !this.plantWasHit) {
       plant.startKnockOver(timestamp);
+      playPlantKnockOverSound();
     }
+    this.plantWasHit = isHitting;
   }
 
   // Dog-controlled mode: player-driven, same per-tick movement granularity
@@ -1259,8 +1318,13 @@ export default class GameScreen {
   // solid obstacle for itself the same way the cat is — no reason for the
   // player-driven dog to suddenly ignore furniture just because the
   // autonomous dog also happens to avoid it via a different check).
+  // Uses layout.dogPlayerSpeed, not this.dog.speed — that field now drives
+  // only the autonomous wander (see Dog.js), tuned purely for how the dog
+  // should feel as a hazard when you're not the one piloting it; player
+  // control needs its own fairness-matched value instead (see
+  // BASE_DOG_PLAYER_SPEED's own comment).
   tryMoveDog(direction) {
-    const speed = this.dog.speed;
+    const speed = this.layout.dogPlayerSpeed;
     let proposedX = this.dog.x;
     let proposedY = this.dog.y;
 
@@ -1271,12 +1335,30 @@ export default class GameScreen {
 
     const isOnEscape = this.escapes.some(escape => escape.isMouseInside(this.dog));
 
+    // Uses the dog's actual rendered box (frameWidth/frameHeight — the same
+    // dimensions Dog.draw()/Dog.isColliding() already use), not
+    // this.dog.size (50*sizeScale, smaller than the sprite's real
+    // 60*sizeScale width), and requires the box to stay fully inside
+    // [WALL_OFFSET, canvas - WALL_OFFSET] on both axes — a strict
+    // containment check, not the cat/mouse clamps' "position can dip below
+    // WALL_OFFSET by up to size" convention. That permissive convention
+    // quietly relies on size being *larger* than the entity's true on-
+    // screen footprint (true for the cat — see Cat.js) so the allowance
+    // never actually pushes the visible sprite past the canvas edge; for
+    // the dog, frameWidth/frameHeight (60/38 * sizeScale) is *larger* than
+    // WALL_OFFSET (40 * scale) at any scale, so the same style of "allow
+    // position - size" formula still lets the sprite's edge go negative —
+    // i.e. off the left/top of the canvas — even after subtracting the
+    // correct dimension instead of the wrong one (confirmed live: the dog
+    // could still vanish off the left/top edge with only that first fix in
+    // place). Strict containment is the only version of this check that's
+    // safe regardless of how frameWidth/WALL_OFFSET compare.
     const WALL_OFFSET = this.layout.wallOffset;
     const insideWalls = (
-        proposedX >= WALL_OFFSET - this.dog.size &&
-        proposedX <= this.canvas.width - WALL_OFFSET &&
-        proposedY >= WALL_OFFSET - this.dog.size &&
-        proposedY <= this.canvas.height - WALL_OFFSET
+        proposedX >= WALL_OFFSET &&
+        proposedX <= this.canvas.width - WALL_OFFSET - this.dog.frameWidth &&
+        proposedY >= WALL_OFFSET &&
+        proposedY <= this.canvas.height - WALL_OFFSET - this.dog.frameHeight
     );
 
     const proposedEntity = { x: proposedX, y: proposedY, size: this.dog.size };
@@ -1357,8 +1439,29 @@ export default class GameScreen {
       playLoseSound();
     }
 
-    // Cleanup autonomous behaviors
+    // Cleanup autonomous behaviors — dog.cleanup() stops the bark schedule
+    // for good (as opposed to settingsMenuToggleHandler's pauseBarking(),
+    // which expects a resume later), but that alone only cancels *future*
+    // scheduled barks; it doesn't touch a bark clip that's already
+    // mid-playback (e.g. from a dog/cat collision moments before the round
+    // ended), which — since playSound() just calls HTMLAudioElement.play()
+    // and nothing ever paused it — used to keep audibly barking on top of
+    // the win/lose modal. stopDogBarkSound() below handles that half.
     if (this.dog) this.dog.cleanup();
+    this.stopDogBarkSound();
+  }
+
+  // Immediately silences a dog bark that's already mid-playback — shared by
+  // endGame() (round over) and the settingsMenuToggleHandler (menu opened
+  // mid-round) since both need to cut off a currently-playing clip, not
+  // just stop future ones from being scheduled (that part is Dog.js's own
+  // job, via cleanup()/pauseBarking()).
+  stopDogBarkSound() {
+    const dogBarkSound = this.sounds[SOUND_KEYS.DOG_BARK];
+    if (dogBarkSound) {
+      dogBarkSound.pause();
+      dogBarkSound.currentTime = 0;
+    }
   }
 
   checkCollision(cat, mouse) {

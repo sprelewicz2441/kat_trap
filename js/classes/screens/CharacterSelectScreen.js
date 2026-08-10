@@ -1,7 +1,22 @@
 import GameScreen from './GameScreen.js';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js';
-import { drawCatEarCard, drawCatEarInner } from '../../utils/canvasShapes.js';
+import {
+  drawCatEarCard, drawCatEarInner,
+  drawMouseEarCard, drawMouseEarInner,
+  drawDogEarCard, drawDogEarInner,
+} from '../../utils/canvasShapes.js';
+
+// Per-entity ear shape, keyed the same way THEMES/PORTRAITS below are —
+// cat keeps its original pointed ears (the shape this screen was built
+// around), mouse gets big round Mickey-style ears, dog gets floppy
+// outward-leaning ones, so each card reads as its own animal at a glance
+// instead of all three wearing a cat's ears.
+const EAR_SHAPES = {
+  cat: { card: drawCatEarCard, inner: drawCatEarInner },
+  mouse: { card: drawMouseEarCard, inner: drawMouseEarInner },
+  dog: { card: drawDogEarCard, inner: drawDogEarInner },
+};
 
 // Sized like the rest of the game's UI chrome (play-again button, cutscene
 // modal) — see getUIScale() in js/utils/scale.js — so this screen scales the
@@ -184,13 +199,14 @@ export default class CharacterSelectScreen {
       cardGradient.addColorStop(0, theme.start);
       cardGradient.addColorStop(1, theme.end);
 
-      // Cat-ear card (see drawCatEarCard() in canvasShapes.js), not a
+      // Animal-ear card (see EAR_SHAPES above / canvasShapes.js), not a
       // generic rounded rect — the one deliberate visual risk on this
-      // screen, and a callback to the game's own name rather than to a
-      // specific mechanic. Portrait/name/subtitle positions below are
+      // screen, and a callback to each character's own animal rather than
+      // to a specific mechanic. Portrait/name/subtitle positions below are
       // unchanged from before this shape existed — the ears sit above the
-      // card's normal top edge, not inside it.
-      drawCatEarCard(ctx, area.x, drawY, cardWidth, cardHeight, BASE_CARD_RADIUS * effectiveScale);
+      // card's normal top edge, not inside it, regardless of which shape.
+      const earShapes = EAR_SHAPES[option.entity];
+      earShapes.card(ctx, area.x, drawY, cardWidth, cardHeight, BASE_CARD_RADIUS * effectiveScale);
       ctx.fillStyle = cardGradient;
       ctx.shadowColor = isHovered ? theme.glow : 'rgba(0, 0, 0, 0.35)';
       ctx.shadowBlur = (isHovered ? 22 : 12) * effectiveScale;
@@ -203,14 +219,14 @@ export default class CharacterSelectScreen {
       ctx.strokeStyle = option.enabled ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.15)';
       ctx.stroke();
 
-      // Two-tone inner ears (drawCatEarInner) — a shared pale pink across
-      // all three cards (the classic cartoon-cat "pink inner ear," same
-      // idea regardless of the outer ear's own color), filled after the
-      // card body so it sits on top. This is the concrete "more cat-like"
-      // detail: real cat ears are two-toned, and a flat single-color ear
-      // read as more of a generic pointed tab than an actual ear
-      // (confirmed live).
-      drawCatEarInner(ctx, area.x, drawY, cardWidth, cardHeight);
+      // Two-tone inner ears — a shared pale pink across all three cards'
+      // own ear shapes (the classic cartoon "pink inner ear," same idea
+      // regardless of the outer ear's shape or color), filled after the
+      // card body so it sits on top. This is the concrete "more animal-
+      // like" detail: real ears are two-toned, and a flat single-color ear
+      // reads as more of a generic tab than an actual ear (confirmed live
+      // for the cat's own ears, before mouse/dog had their own shapes).
+      earShapes.inner(ctx, area.x, drawY, cardWidth, cardHeight);
       ctx.fillStyle = option.enabled ? '#ffd7d0' : 'rgba(0, 0, 0, 0.1)';
       ctx.fill();
 

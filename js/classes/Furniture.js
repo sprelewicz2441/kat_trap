@@ -51,21 +51,22 @@ export default class Furniture {
     this.isWallItem = ['fridge', 'stove', 'sink', 'counter'].includes(type);
 
     // Knock-over reaction (currently only ever triggered for 'plant' — see
-    // GameScreen's updatePlantBump()) — a one-shot animated fall, not a
-    // toggle: once knocked over it stays that way for the rest of the
-    // round (furniture is regenerated fresh next game via
-    // generateKitchenFurniture(), so "upright again next reset" happens
-    // for free without needing its own timer/reset logic here). Kept as
-    // plain instance state on Furniture itself (not a separate tracking
-    // object) since `draw()` is what actually needs to read it every frame.
+    // GameScreen's updatePlantBump()) — replayable, not a one-shot: every
+    // fresh bump (see updatePlantBump()'s own edge-detection, which is what
+    // stops a single continuous touch from restarting this every frame)
+    // restarts the fall from upright, so the plant visibly wobbles/re-tips
+    // each time the cat or dog runs into it rather than only reacting once
+    // per round. Kept as plain instance state on Furniture itself (not a
+    // separate tracking object) since `draw()` is what actually needs to
+    // read it every frame.
     this.knockedOver = false;
     this.knockStartTime = null;
   }
 
-  // No-op if already falling/fallen — a second bump mid-animation
-  // shouldn't restart it from upright.
+  // Always (re)starts the fall from upright, even if one is already in
+  // progress or already settled — see the comment above on why this is
+  // deliberately replayable rather than a one-shot.
   startKnockOver(timestamp) {
-    if (this.knockedOver) return;
     this.knockedOver = true;
     this.knockStartTime = timestamp;
   }
