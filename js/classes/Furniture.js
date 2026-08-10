@@ -1,5 +1,13 @@
 import { aabbOverlap } from '../utils/collision.js';
 
+// Knock-over fall animation (see startKnockOver()/draw() below) — an
+// ease-out rotation to a resting tipped-over angle, not a full 90°
+// (a plant landing perfectly flat reads as a broken transform snapping to
+// an exact right angle; landing a bit short of that reads more like it
+// actually toppled and settled against the floor/its own pot).
+const KNOCK_OVER_DURATION = 350; // ms
+const KNOCK_OVER_ANGLE = (75 * Math.PI) / 180; // radians
+
 export default class Furniture {
   // Defaults match the Reakain "Kitchen Assets" appliance/counter sprites
   // (32x64 native). Table/chair sprites come from a different pack with
@@ -41,6 +49,25 @@ export default class Furniture {
     
     // Placement type
     this.isWallItem = ['fridge', 'stove', 'sink', 'counter'].includes(type);
+
+    // Knock-over reaction (currently only ever triggered for 'plant' — see
+    // GameScreen's updatePlantBump()) — a one-shot animated fall, not a
+    // toggle: once knocked over it stays that way for the rest of the
+    // round (furniture is regenerated fresh next game via
+    // generateKitchenFurniture(), so "upright again next reset" happens
+    // for free without needing its own timer/reset logic here). Kept as
+    // plain instance state on Furniture itself (not a separate tracking
+    // object) since `draw()` is what actually needs to read it every frame.
+    this.knockedOver = false;
+    this.knockStartTime = null;
+  }
+
+  // No-op if already falling/fallen — a second bump mid-animation
+  // shouldn't restart it from upright.
+  startKnockOver(timestamp) {
+    if (this.knockedOver) return;
+    this.knockedOver = true;
+    this.knockStartTime = timestamp;
   }
 
   draw(ctx) {
@@ -49,10 +76,22 @@ export default class Furniture {
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
 
+    // Knock-over fall — an ease-out rotation added on top of this piece's
+    // own base `rotation` (which stays 0 for a freestanding piece like the
+    // plant; this is purely additive so it doesn't interfere with a
+    // wall-module's own rotation if this were ever used on one of those).
+    let knockOverRotation = 0;
+    if (this.knockedOver) {
+      const elapsed = performance.now() - this.knockStartTime;
+      const t = Math.min(1, elapsed / KNOCK_OVER_DURATION);
+      const eased = 1 - Math.pow(1 - t, 3);
+      knockOverRotation = eased * KNOCK_OVER_ANGLE;
+    }
+
     // Apply rotation
-    if (this.rotation !== 0) {
+    if (this.rotation !== 0 || knockOverRotation !== 0) {
       ctx.translate(centerX, centerY);
-      ctx.rotate((this.rotation * Math.PI) / 180);
+      ctx.rotate((this.rotation * Math.PI) / 180 + knockOverRotation);
       ctx.translate(-centerX, -centerY);
     }
 

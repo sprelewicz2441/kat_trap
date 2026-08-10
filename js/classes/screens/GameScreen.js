@@ -862,6 +862,30 @@ export default class GameScreen {
 
     this.updateMouse();
     this.updateDog(timestamp);
+    this.updatePlantBump(timestamp);
+  }
+
+  // Plant is passable (see NON_BLOCKING_FURNITURE_TYPES) — this is a
+  // separate, read-only overlap check specifically for the "bump" reaction,
+  // not tied to tryMoveCat()/tryMoveDog()'s movement-blocking collision at
+  // all (closer to isHiddenByFurniture()'s read-only style). Checked every
+  // tick regardless of controlledEntity — whichever of cat/dog isn't
+  // player-controlled is still AI/autonomously moving and can just as
+  // easily wander into the plant. Uses each entity's full display box
+  // (not the cat's smaller legs-only furniture hitbox — see Cat.js) since
+  // visually any part of the character brushing the plant should read as
+  // a bump, not just its feet. Mouse never triggers this — it already
+  // ignores all furniture (see Mouse.js).
+  updatePlantBump(timestamp) {
+    const plant = this.furniture.find(f => f.type === 'plant');
+    if (!plant || plant.knockedOver) return;
+
+    const catHits = aabbOverlap(this.cat.x, this.cat.y, this.cat.displayWidth, this.cat.displayHeight, plant.x, plant.y, plant.width, plant.height);
+    const dogHits = aabbOverlap(this.dog.x, this.dog.y, this.dog.displayWidth, this.dog.displayHeight, plant.x, plant.y, plant.width, plant.height);
+
+    if (catHits || dogHits) {
+      plant.startKnockOver(timestamp);
+    }
   }
 
   // Dog-controlled mode: player-driven, same per-tick movement granularity
