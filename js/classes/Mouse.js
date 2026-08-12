@@ -35,10 +35,20 @@ export default class Mouse {
       west: [9, 10, 11],
     };
     this.wallHitCallback = null;
+    // Separate from wallHitCallback (sound only) — this fires only from
+    // this.update()'s own autonomous bounce below, not from GameScreen's
+    // player-controlled path, per GameScreen.movePlayerMouse()'s own
+    // comment for why the two need to trigger the escape check
+    // differently.
+    this.escapeCheckCallback = null;
   }
 
   setWallHitCallback(callback) {
     this.wallHitCallback = callback; // Allow GameScreen to set the callback
+  }
+
+  setEscapeCheckCallback(callback) {
+    this.escapeCheckCallback = callback;
   }
 
   // this.size is already the scaled on-screen size (see constructor) — this
@@ -69,11 +79,13 @@ export default class Mouse {
       this.speedX *= -1;
       this.x = Math.max(0, Math.min(this.x, this.canvasWidth - this.size));
       if (this.wallHitCallback) this.wallHitCallback();
+      if (this.escapeCheckCallback) this.escapeCheckCallback();
     }
     if (this.y <= 0 || this.y + this.size >= this.canvasHeight) {
       this.speedY *= -1;
       this.y = Math.max(0, Math.min(this.y, this.canvasHeight - this.size));
       if (this.wallHitCallback) this.wallHitCallback();
+      if (this.escapeCheckCallback) this.escapeCheckCallback();
     }
 
     // Face whichever way it's actually heading (post-bounce, so a wall hit

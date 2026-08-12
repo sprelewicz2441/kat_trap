@@ -75,10 +75,16 @@ const PORTRAITS = {
 };
 
 export default class CharacterSelectScreen {
-  constructor(screenManager, canvas) {
+  // `isReplay` is true when this screen was reached via GameScreen's "Play
+  // Again" (see restartGame()) rather than SetupScreen's "Start Game" —
+  // forwarded to the next GameScreen as `skipCutscenes` (see its own
+  // constructor) so a replay doesn't re-watch the intro cutscenes every
+  // round.
+  constructor(screenManager, canvas, isReplay = false) {
     this.screenManager = screenManager;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.isReplay = isReplay;
     this.buttonAreas = [];
     this.hoveredIndex = -1;
     this.pressedIndex = -1;
@@ -297,7 +303,7 @@ export default class CharacterSelectScreen {
 
       this.cleanup();
       this.canvas.style.cursor = 'default';
-      this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, false, hit.option.entity));
+      this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, hit.option.entity, this.isReplay));
     };
     this.canvas.addEventListener('click', this.clickHandler);
 

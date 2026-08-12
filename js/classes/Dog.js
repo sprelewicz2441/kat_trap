@@ -146,10 +146,11 @@ export default class Dog {
     const isOnEscape = this.escapes.some(escape => escape.isMouseInside(this));
 
     // Strict containment — see GameScreen.tryMoveDog()'s own copy of this
-    // check for the full explanation of why the cat/mouse clamps' "position
-    // can dip below WALL_OFFSET by up to size" convention isn't safe for
-    // the dog specifically (frameWidth/frameHeight are larger than
-    // WALL_OFFSET at any scale, unlike the cat's own oversized `size`).
+    // check for the full explanation of why the cat/mouse clamps' old
+    // "position can dip below WALL_OFFSET by up to size" convention wasn't
+    // safe for the dog specifically (frameWidth/frameHeight are larger than
+    // WALL_OFFSET at any scale — the cat's own wall clamp has since been
+    // switched to this same strict style, for the same reason).
     const WALL_OFFSET = this.wallOffset;
     const insideWalls = (
         proposedX >= WALL_OFFSET &&
@@ -158,8 +159,18 @@ export default class Dog {
         proposedY <= this.canvasHeight - WALL_OFFSET - this.frameHeight
     );
 
+    // Furniture collision uses the dog's actual rendered box (frameWidth/
+    // frameHeight — the same dimensions the wall clamp above and isColliding()
+    // below already use), not this.size (50*sizeScale, a plain square that
+    // doesn't match frameWidth/frameHeight's real 60/38 aspect ratio at all
+    // — confirmed by direct measurement that it let the dog visually clip
+    // ~15px into furniture approached horizontally while stopping ~20px
+    // short of furniture approached vertically). Not routed through
+    // Furniture.isColliding() (which assumes a square `entity.size`) for the
+    // same reason Cat.js's own furniture check bypasses it — aabbOverlap
+    // directly, with the dog's real (non-square) box.
     const canMove = (insideWalls || isOnEscape) &&
-        !this.boundaries.some(boundary => boundary.isColliding({ x: proposedX, y: proposedY, size: this.size }));
+        !this.boundaries.some(boundary => aabbOverlap(proposedX, proposedY, this.frameWidth, this.frameHeight, boundary.x, boundary.y, boundary.width, boundary.height));
     if (canMove) {
       this.x = proposedX;
       this.y = proposedY;
@@ -221,11 +232,16 @@ export default class Dog {
     return this.frameHeight;
   }
 
+  // Only ever called with the cat (see GameScreen's dog-pauses-cat check
+  // and this.update() below) — uses entity.displayWidth/displayHeight
+  // (the cat's actual visible sprite box) rather than entity.size (the
+  // cat's oversized logical box), matching GameScreen.checkCollision()'s
+  // own fix for the same "catches from too far away" complaint.
   isColliding(entity) {
     if (!entity) return false; // Prevents crash if entity is undefined
     return aabbOverlap(
       this.x, this.y, this.frameWidth, this.frameHeight,
-      entity.x, entity.y, entity.size, entity.size
+      entity.x, entity.y, entity.displayWidth, entity.displayHeight
     );
   }
 
