@@ -13,7 +13,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound } from '../../utils/audio.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // ==============================
@@ -977,17 +977,13 @@ export default class GameScreen {
 
     this.resetGameObjects();
 
-    // Each GameScreen owns its own fresh Audio object here — restartGame()
-    // pauses the previous instance's track before swapping screens, so
-    // it's safe to always start this one unconditionally rather than
-    // special-casing a replay (an old version of this game did special-case
-    // a "this is a replay" flag, which left background music permanently
-    // silent after the first replay, back when this track was still
-    // disabled — see loadSounds()).
-    if (!isMusicMuted()) {
-      this.sounds[SOUND_KEYS.BACKGROUND].play();
-    }
-
+    // Starting the background track itself no longer happens here — see
+    // startGame()/the skipCutscenes branch below for where actual gameplay
+    // begins, per explicit direction ("Dont start it until in game
+    // though"). This block just wires up the mute-toggle listener so it's
+    // ready the instant the track *does* start (or immediately, if the
+    // player opens settings during the cutscenes themselves).
+    //
     // Lets the settings menu's Music toggle affect a track that's already
     // looping, not just future playSound() calls — see js/utils/audio.js.
     // SFX doesn't need an equivalent listener: playSound() (below) checks
@@ -1053,6 +1049,7 @@ export default class GameScreen {
     };
     document.addEventListener('meow', this.meowHandler);
 
+    window.__gameScreen = this;
     if (this.skipCutscenes) {
       // resetGameObjects() already ran once above — startCutscenes()'s own
       // startGame() callback would normally call it a second time (a fresh
@@ -1060,6 +1057,11 @@ export default class GameScreen {
       // entirely means there's no callback to do that second call, so it's
       // just skipped rather than reproduced here for no reason.
       this.running = true;
+      // This branch bypasses startGame() entirely (see the comment just
+      // above), so it needs its own copy of the "actual gameplay begins
+      // now" background-music start — the other path's copy lives inside
+      // startGame() itself.
+      startBackgroundMusic();
     } else {
       this.running = false;
       this.startCutscenes();
@@ -1207,16 +1209,23 @@ export default class GameScreen {
     return {
       // Was disabled pending a mute button (looping music with no way to
       // turn it off is worse than no music at all) — now gated by
-      // isMusicMuted() (see init()/restartGame() below), which starts muted
-      // by default (js/utils/audio.js — the settings menu's Music toggle),
-      // so nothing changes for a player until they explicitly unmute.
+      // isMusicMuted(), which starts muted by default (js/utils/audio.js —
+      // the settings menu's Music toggle), so nothing changes for a player
+      // until they explicitly unmute.
       // Swapped from christmas_tree_farm.mp3 to this track on request — that
       // file stays in sounds/, unreferenced, same deprecate-don't-delete
       // precedent used for swapped visual assets elsewhere in this project.
       // Volume (0.1) was originally tuned by ear against the old track's own
       // mastering/loudness, not this one's — may need a fresh pass if this
       // new track reads too loud/quiet once actually heard in-game.
-      [SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/you_can.mp3', true, 0.1),
+      //
+      // Unlike every other entry here, this isn't `this.loadSound(...)` —
+      // it aliases the single page-lifetime Audio element from
+      // js/utils/audio.js (see getBackgroundMusicElement()'s own comment)
+      // rather than constructing a fresh one per GameScreen instance, which
+      // is what makes the track able to keep playing seamlessly across
+      // "Play Again" rounds instead of restarting each time.
+      [SOUND_KEYS.BACKGROUND]: getBackgroundMusicElement(),
       [SOUND_KEYS.WALL_HIT]: this.loadSound('../../../sounds/bounce.flac'),
       [SOUND_KEYS.CAT_CATCH]: this.loadSound('../../../sounds/mouse.wav'),
       [SOUND_KEYS.MOUSE_ESCAPE]: this.loadSound('../../../sounds/meow.ogg'),
@@ -1275,6 +1284,13 @@ export default class GameScreen {
     if (this.cutsceneDog) this.cutsceneDog.cleanup();
     this.resetGameObjects();
     this.running = true;
+    // Actual gameplay begins now — this is the point background music is
+    // meant to start from (see startBackgroundMusic()'s own comment in
+    // js/utils/audio.js), not screen construction or the cutscenes that
+    // may have just played. Safe to call every round without checking
+    // "is this a replay" first: the shared track just keeps playing if
+    // it's already going.
+    startBackgroundMusic();
   }
 
   handleClick(event) {
@@ -1307,12 +1323,14 @@ export default class GameScreen {
   // character select instead (a bigger change, explicitly deferred).
   restartGame() {
     this.gameOver = false;
-    // The next screen's GameScreen starts its own fresh background track
-    // in init() (see the comment there) — stop this instance's first so
-    // the old one doesn't keep looping in the background, orphaned, once
-    // this instance is replaced.
-    this.sounds[SOUND_KEYS.BACKGROUND].pause();
-
+    // Deliberately does *not* touch background music — it's a shared,
+    // page-lifetime singleton now (see js/utils/audio.js), not something
+    // this instance owns, so there's nothing to pause/orphan here. Letting
+    // it keep playing straight through this transition (rather than
+    // pausing it, only to have the next GameScreen's startGame() resume
+    // it) is the actual point of this round's change: "It should run
+    // through even after a game over. The only thing that should start it
+    // over is a refresh."
     this.cleanup();
     this.screenManager.setScreen(new CharacterSelectScreen(this.screenManager, this.canvas, true));
   }
@@ -2813,18 +2831,23 @@ export default class GameScreen {
     const actualLeftOrder = pickWallDensity(LEFT_WALL_ORDER);
     const actualRightOrder = pickWallDensity(RIGHT_WALL_ORDER);
 
-    // Opportunistically swap some plain 'cabinet' slots on the top/bottom
-    // walls (left/right stay untouched — their fridge-fit math is already
-    // exact, using the fixed *_WITH_FRIDGE orders below, since decorated
-    // substitution never happens there) for a decorated variant, per
-    // COUNTER_ONE_OFF_TYPES/COUNTER_FLOWERS_MAX_APPEARANCES' own rules
-    // above. Mutates actualTopOrder/actualBottomOrder's entries *in place*
-    // — the substituted type then flows through the exact same
-    // width/centering/rotation/gap logic a plain cabinet would have, no
-    // special-casing needed anywhere else in buildWall() itself. All
-    // cabinet slots across both walls are pooled into one shuffled list
-    // first (not decided per-wall independently) so a one-off type can
-    // never land on both walls in the same game.
+    // Fill plain 'cabinet' slots on the top/bottom walls with decorated
+    // variants first, falling back to blank cabinet only for whatever's
+    // left over — per explicit direction: "favor counter pieces that are
+    // not blank, with the blanks as extras to fill any space on the wall if
+    // needed." This replaced an earlier version where blank cabinet was the
+    // default and each decorated variant only had a 50% chance to take an
+    // offered slot even when one was available — the opposite priority from
+    // what's wanted now. (Left/right walls stay untouched — their fridge-fit
+    // math is already exact, using the fixed *_WITH_FRIDGE orders below,
+    // since decorated substitution never happens there.) Mutates
+    // actualTopOrder/actualBottomOrder's entries *in place* — the
+    // substituted type then flows through the exact same width/centering/
+    // rotation/gap logic a plain cabinet would have, no special-casing
+    // needed anywhere else in buildWall() itself. All cabinet slots across
+    // both walls are pooled into one shuffled list first (not decided
+    // per-wall independently) so a one-off type can never land on both
+    // walls in the same game.
     const cabinetSlots = [];
     [actualTopOrder, actualBottomOrder].forEach(order => {
       order.forEach((type, i) => {
@@ -2840,6 +2863,10 @@ export default class GameScreen {
     // (so it can win at most one slot), 'counterFlowers' appears
     // COUNTER_FLOWERS_MAX_APPEARANCES times (so it can win up to that many,
     // never more, since the pool itself only has that many tickets for it).
+    // Shuffled so *which* slots get decorated (when there are fewer slots
+    // than pool entries) and *which* pool entries get left out (when
+    // there are more pool entries than slots) both stay randomized, not
+    // fixed by array order.
     const counterOfferPool = [
       ...COUNTER_ONE_OFF_TYPES,
       ...Array(COUNTER_FLOWERS_MAX_APPEARANCES).fill('counterFlowers'),
@@ -2848,20 +2875,25 @@ export default class GameScreen {
       const j = Math.floor(Math.random() * (i + 1));
       [counterOfferPool[i], counterOfferPool[j]] = [counterOfferPool[j], counterOfferPool[i]];
     }
-    // Each pool entry gets at most one shot at one pooled cabinet slot, and
-    // only sometimes actually takes it — these are meant to be occasional
-    // finds, not guaranteed every game ("they do not all need to be placed
-    // in the same gameboard" — explicit direction). A slot that's offered
-    // and declined just stays plain cabinet, same as a slot that was never
-    // offered one at all, or ran out of pool entries before reaching it.
-    const COUNTER_APPEARANCE_CHANCE = 0.5;
+    // Every pool entry takes the next available pooled slot outright — no
+    // random decline. The pool has 6 tickets (4 one-off types + 2 flower
+    // tickets) against at most 6 cabinet-type slots across both walls
+    // combined (TOP_WALL_ORDER's 2 + BOTTOM_WALL_ORDER's 4) — cabinetSlots
+    // can never exceed 6 (density-trimming only ever removes slots, never
+    // adds beyond the static arrays' own totals), so the pool's 6 tickets
+    // are always enough to cover every cabinet slot that exists this game.
+    // In practice this means blank cabinet no longer appears on the top/
+    // bottom walls at all under current numbers — the "fallback for
+    // whatever's left over" case is real (this loop still stops cleanly if
+    // it ever isn't true) but doesn't currently trigger, since there's
+    // never more space than the pool can cover. If that's more decoration
+    // than wanted, the lever to pull is the pool size (fewer one-off types,
+    // or dropping COUNTER_FLOWERS_MAX_APPEARANCES), not this loop.
     let counterSlotIndex = 0;
     for (const type of counterOfferPool) {
       if (counterSlotIndex >= cabinetSlots.length) break;
-      if (Math.random() < COUNTER_APPEARANCE_CHANCE) {
-        const slot = cabinetSlots[counterSlotIndex];
-        slot.order[slot.i] = type;
-      }
+      const slot = cabinetSlots[counterSlotIndex];
+      slot.order[slot.i] = type;
       counterSlotIndex++;
     }
 

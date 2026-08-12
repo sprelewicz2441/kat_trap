@@ -41,6 +41,46 @@ export function toggleSfxMuted() {
   return sfxMuted;
 }
 
+// Background music is a page-lifetime singleton, not per-GameScreen — a
+// single shared Audio element, lazily created on first actual need,
+// reused (never replaced or reset) by every GameScreen instance for the
+// rest of the page's life. This is what lets "Play Again" (a fresh
+// GameScreen each round — see GameScreen.js's own comments) leave the
+// track playing right through the transition rather than restarting it:
+// per explicit direction, "It should run through even after a game over.
+// The only thing that should start it over is a refresh." Same module-
+// level-state pattern the mute flags above already use for the same
+// "survive a fresh GameScreen instance" reason.
+let backgroundMusic = null;
+function getBackgroundMusic() {
+  if (!backgroundMusic) {
+    backgroundMusic = new Audio('../../sounds/you_can.mp3');
+    backgroundMusic.loop = true;
+    backgroundMusic.volume = 0.1;
+  }
+  return backgroundMusic;
+}
+
+// Called from GameScreen.startGame() (and the skipCutscenes branch that
+// bypasses it) — i.e. the moment actual gameplay begins, not screen
+// construction — per explicit direction: "Dont start it until in game
+// though." Safe to call every round: if the shared track is already
+// playing, `.play()` on an already-playing element is a harmless no-op
+// (doesn't restart `currentTime`), so a second/third/etc. round's call
+// just continues wherever the track already was.
+export function startBackgroundMusic() {
+  const music = getBackgroundMusic();
+  if (!isMusicMuted() && music.paused) {
+    music.play();
+  }
+}
+
+// Exposes the shared element itself for the settings-menu mute toggle
+// (GameScreen's musicMuteChangeHandler) to play()/pause() directly.
+export function getBackgroundMusicElement() {
+  return getBackgroundMusic();
+}
+
 // Lazily created — browsers require a user gesture before an AudioContext
 // can actually produce sound, and every caller of playModalPopSound()
 // below is already reacting to a click (Cutscene's "Next", the credits
