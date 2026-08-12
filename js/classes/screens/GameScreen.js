@@ -1049,7 +1049,6 @@ export default class GameScreen {
     };
     document.addEventListener('meow', this.meowHandler);
 
-    window.__gameScreen = this;
     if (this.skipCutscenes) {
       // resetGameObjects() already ran once above — startCutscenes()'s own
       // startGame() callback would normally call it a second time (a fresh
