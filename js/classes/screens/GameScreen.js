@@ -1053,7 +1053,6 @@ export default class GameScreen {
     };
     document.addEventListener('meow', this.meowHandler);
 
-    window.__gameScreen = this;
     if (this.skipCutscenes) {
       // resetGameObjects() already ran once above — startCutscenes()'s own
       // startGame() callback would normally call it a second time (a fresh
@@ -1211,7 +1210,13 @@ export default class GameScreen {
       // isMusicMuted() (see init()/restartGame() below), which starts muted
       // by default (js/utils/audio.js — the settings menu's Music toggle),
       // so nothing changes for a player until they explicitly unmute.
-      [SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/christmas_tree_farm.mp3', true, 0.1),
+      // Swapped from christmas_tree_farm.mp3 to this track on request — that
+      // file stays in sounds/, unreferenced, same deprecate-don't-delete
+      // precedent used for swapped visual assets elsewhere in this project.
+      // Volume (0.1) was originally tuned by ear against the old track's own
+      // mastering/loudness, not this one's — may need a fresh pass if this
+      // new track reads too loud/quiet once actually heard in-game.
+      [SOUND_KEYS.BACKGROUND]: this.loadSound('../../../sounds/you_can.mp3', true, 0.1),
       [SOUND_KEYS.WALL_HIT]: this.loadSound('../../../sounds/bounce.flac'),
       [SOUND_KEYS.CAT_CATCH]: this.loadSound('../../../sounds/mouse.wav'),
       [SOUND_KEYS.MOUSE_ESCAPE]: this.loadSound('../../../sounds/meow.ogg'),
