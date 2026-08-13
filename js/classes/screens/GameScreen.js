@@ -1018,13 +1018,21 @@ export default class GameScreen {
     // single frame and read as a rapid buzz rather than one clean bump).
     this.plantWasHit = false;
     // Edge-detection state for updateShelfBump() below — same reasoning as
-    // plantWasHit above (a fire-and-forget one-shot per bump, not the
-    // continuously-driven play/pause/currentTime model updateCartBump()
-    // uses), just for the shelf's own hit zone.
+    // plantWasHit above (both the shake and the fire-and-forget sound are
+    // one-shot per bump, not the continuously-driven play/pause/
+    // currentTime model updateCartBump() uses for its own sound), just
+    // for the shelf's own hit zone.
     this.shelfWasHit = false;
     // Edge-detection state for updateTableBump() below — same reasoning
     // as shelfWasHit above, just for the table's own hit zone.
     this.tableWasHit = false;
+    // Edge-detection state for updateCartBump() below, but *only* for its
+    // shake reaction — the cart's own bump sound already has its own
+    // continuously-driven play/pause/currentTime model (see that method's
+    // comment) that doesn't need edge-detection, but the shake should
+    // still be a single fresh wobble per approach, not restart every tick
+    // of continuous contact, so it needs this same pattern independently.
+    this.cartWasHit = false;
     // True whenever tryMoveCat() actually moved the cat on the current
     // tick (reset to false at the top of update(), set from within
     // tryMoveCat() itself) — read by updateCartBump() below to decide
@@ -1492,8 +1500,8 @@ export default class GameScreen {
     this.updateMouse();
     this.updateDog(timestamp);
     this.updatePlantBump(timestamp);
-    this.updateCartBump();
-    this.updateShelfBump();
+    this.updateCartBump(timestamp);
+    this.updateShelfBump(timestamp);
     this.updateTableBump(timestamp);
   }
 
@@ -1556,7 +1564,14 @@ export default class GameScreen {
   // - Out of the zone entirely → paused *and* reset to the start, so the
   //   next time the cat enters, the sound begins fresh rather than
   //   resuming mid-clip from a previous, unrelated approach.
-  updateCartBump() {
+  //
+  // Also triggers Furniture.startShake() (see updateTableBump()'s own
+  // comment for why a shake, not a knock-over) — but edge-triggered on
+  // cartWasHit, independently of the sound's own continuous model above,
+  // since the shake should be one fresh wobble per approach, not
+  // restarted or held every tick the cat happens to still be moving
+  // inside the zone.
+  updateCartBump(timestamp) {
     const cart = this.furniture.find(f => f.type === 'cart');
     const sound = this.sounds[SOUND_KEYS.CART_BUMP];
     if (!cart || !sound) return;
@@ -1569,6 +1584,11 @@ export default class GameScreen {
       if (!sound.paused) sound.pause();
       if (!isHitting) sound.currentTime = 0;
     }
+
+    if (isHitting && !this.cartWasHit) {
+      cart.startShake(timestamp);
+    }
+    this.cartWasHit = isHitting;
   }
 
   // Shelf counterpart to updatePlantBump() above, not updateCartBump() —
@@ -1583,14 +1603,18 @@ export default class GameScreen {
   // updatePlantBump()'s plantWasHit, so standing on the shelf for several
   // ticks plays the clip once per approach rather than restarting it (or,
   // since this uses playSound()'s own currentTime=0 reset, re-triggering
-  // it) every single tick of continuous overlap.
-  updateShelfBump() {
+  // it) every single tick of continuous overlap. Also triggers
+  // Furniture.startShake() (see updateTableBump()'s own comment for why a
+  // shake, not a knock-over) — same edge-trigger as the sound, so both
+  // fire together exactly once per approach.
+  updateShelfBump(timestamp) {
     const shelf = this.furniture.find(f => f.type === 'shelf');
     if (!shelf) return;
 
     const isHitting = aabbOverlap(this.cat.x, this.cat.y, this.cat.displayWidth, this.cat.displayHeight, shelf.x, shelf.y, shelf.width, shelf.height);
 
     if (isHitting && !this.shelfWasHit) {
+      shelf.startShake(timestamp);
       this.playSound(SOUND_KEYS.SHELF_BUMP);
     }
     this.shelfWasHit = isHitting;
@@ -1599,13 +1623,11 @@ export default class GameScreen {
   // Table counterpart to updateShelfBump() above — cat-only (same
   // reasoning as cart/shelf: the table still blocks the dog outright, see
   // DOG_NON_BLOCKING_FURNITURE_TYPES, so there's nothing for the dog side
-  // to react to), same edge-triggered fire-and-forget one-shot shape. The
-  // one difference from the shelf: this triggers Furniture.startShake()
-  // (a small decaying wobble, see Furniture.js) rather than a sound-only
-  // reaction, since a dining table brushed past should visibly rattle,
-  // not just make noise — a plain bump sound with no visual response
-  // would feel disconnected from something this size sitting in the
-  // middle of the room.
+  // to react to), same edge-triggered fire-and-forget shape, including the
+  // Furniture.startShake() wobble (see Furniture.js) that shelf/cart also
+  // trigger now — a plain bump sound with no visual response would feel
+  // disconnected from something this size sitting in the middle of the
+  // room.
   updateTableBump(timestamp) {
     const table = this.furniture.find(f => f.type === 'table');
     if (!table) return;

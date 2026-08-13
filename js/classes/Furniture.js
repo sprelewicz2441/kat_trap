@@ -10,8 +10,10 @@ const KNOCK_OVER_ANGLE = (75 * Math.PI) / 180; // radians
 
 // Shake reaction (see startShake()/draw() below) — a small decaying
 // oscillation rather than a fall, for furniture that's passable but
-// should still visibly react to being brushed past (currently only the
-// table — see GameScreen's updateTableBump()). SHAKE_MAX_ANGLE is
+// should still visibly react to being brushed past. Originally added for
+// the table (GameScreen.updateTableBump()), then extended to the cart
+// and shelf too (updateCartBump()/updateShelfBump()) on request — same
+// shared mechanism, no per-type differences needed. SHAKE_MAX_ANGLE is
 // deliberately small (a real tip-over already exists for the plant, this
 // is a rattle, not a topple) and the sine wave decays to 0 by
 // SHAKE_DURATION so it always settles back to resting rather than ending
@@ -74,13 +76,14 @@ export default class Furniture {
     this.knockedOver = false;
     this.knockStartTime = null;
 
-    // Shake reaction (currently only ever triggered for 'table' — see
-    // GameScreen's updateTableBump()) — same "replayable, not a one-shot"
-    // precedent as knockedOver above: every fresh bump restarts the
-    // wobble from the beginning. Unlike knockedOver (a permanent tipped-
-    // over pose), the shake itself always decays back to 0 by the end of
-    // SHAKE_DURATION (see draw()), so replaying it just means a fresh
-    // wobble-and-settle, not an accumulating tilt.
+    // Shake reaction (triggered for 'table'/'cart'/'shelf' — see
+    // GameScreen's updateTableBump()/updateCartBump()/updateShelfBump())
+    // — same "replayable, not a one-shot" precedent as knockedOver above:
+    // every fresh bump restarts the wobble from the beginning. Unlike
+    // knockedOver (a permanent tipped-over pose), the shake itself always
+    // decays back to 0 by the end of SHAKE_DURATION (see draw()), so
+    // replaying it just means a fresh wobble-and-settle, not an
+    // accumulating tilt.
     this.shaking = false;
     this.shakeStartTime = null;
   }
