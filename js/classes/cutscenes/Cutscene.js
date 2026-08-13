@@ -4,6 +4,20 @@ import { playModalPopSound } from '../../utils/audio.js';
 
 const POP_IN_DURATION = 250; // ms — same ease-out-cubic pop as GameScreen's game-over modal
 
+// How much of the modal's own available vertical space (the band between
+// the card's top edge and where the text starts, see render()) the
+// character sprite should fill. Deliberately not a fraction of
+// GameScreen's in-game characterScale — that scale is tuned so a cat
+// looks right sitting next to furniture on the board, not filling this
+// card, and reusing it here left the sprite under 10% of the modal's
+// height on both desktop and mobile (flagged live as "should be much
+// bigger... scaled for the cutscene modal['s] size... not the in-game
+// size"). This ratio is applied against modalHeight instead, which
+// already varies correctly by device via getUIScale() (this.scale) the
+// same way every other size in this file does, so desktop/mobile don't
+// need their own separate multiplier the way getCharacterScale() has.
+const CUTSCENE_CHARACTER_FILL_RATIO = 0.9;
+
 export default class Cutscene {
   constructor(ctx, characterAnimation, text, soundCallback) {
     this.ctx = ctx;
@@ -45,12 +59,9 @@ export default class Cutscene {
       this.soundCallback();
     }
 
-    // Centered horizontally, shifted up from dead-center vertically to
-    // leave room for the text/button below it within the card (see
-    // render()) without overlapping.
-    this.characterAnimation.x = this.ctx.canvas.width / 2 - this.frameWidth / 2;
-    this.characterAnimation.y = this.ctx.canvas.height / 2 - this.frameHeight / 2 - 40 * this.scale;
-
+    // Position/size is recomputed every frame in render() instead (it
+    // depends on modal geometry, not just a one-time canvas size), so
+    // there's nothing to set here beyond the listener.
     this.addEventListeners();
   }
 
@@ -82,6 +93,29 @@ export default class Cutscene {
 
   cleanup() {
     this.ctx.canvas.removeEventListener('click', this.canvasClickHandler);
+  }
+
+  // Cutscene characters are static portraits — only the walk-cycle frame
+  // should ever advance here, never real movement/AI. Cat.update() and
+  // Dog.update() are already safe to call with no arguments (Cat's is
+  // animation-only by definition; Dog's bails to animation-only when its
+  // timestamp param is undefined), but Mouse.update() has no such guard —
+  // it unconditionally moves this.x/this.y and bounces off *canvas* edges
+  // every call. That went unnoticed while this.x/this.y were only set
+  // once (in the old init()), but render() now overwrites them every
+  // frame to a small, pre-scale-transform local origin (see below) that's
+  // wildly outside Mouse's real canvasWidth/canvasHeight bounds — Mouse.
+  // update() read that as "past the wall" and bounced every single frame,
+  // flipping direction/frame constantly (reported live as the mouse
+  // "bugging out"). Calling each class's own frame-advance method
+  // directly — duck-typed since Cat/Mouse name it updateAnimations() and
+  // Dog names it updateAnimation() — sidesteps this for good, for all
+  // three, rather than relying on each class's update() happening to be
+  // safe when called with no timestamp/movement context.
+  advanceAnimationOnly() {
+    const anim = this.characterAnimation;
+    if (typeof anim.updateAnimations === 'function') anim.updateAnimations();
+    else if (typeof anim.updateAnimation === 'function') anim.updateAnimation();
   }
 
   render() {
@@ -153,10 +187,54 @@ export default class Cutscene {
     ctx.strokeStyle = 'rgba(138, 43, 226, 0.55)';
     ctx.stroke();
 
-    // Draw the character animation
+    // Draw the character animation — sized to fill the modal's own
+    // available vertical space (see CUTSCENE_CHARACTER_FILL_RATIO above),
+    // not GameScreen's in-game characterScale.
     if (this.characterAnimation) {
-      this.characterAnimation.update(); // Update animation frame
+      this.advanceAnimationOnly();
+
+      const topPadding = 20 * this.scale;
+      // Text starts at centerY + 55*scale (see below) — this leaves a
+      // small gap above it rather than the character's feet touching the
+      // first line.
+      const bottomBoundary = centerY - 5 * this.scale;
+      const availableTop = modalY + topPadding;
+      const availableHeight = Math.max(0, bottomBoundary - availableTop);
+
+      const nativeWidth = this.frameWidth;
+      const nativeHeight = this.frameHeight;
+      let targetHeight = availableHeight * CUTSCENE_CHARACTER_FILL_RATIO;
+      let targetWidth = targetHeight * (nativeWidth / nativeHeight);
+
+      // Clamp to the card's own width too — modalWidth is normally
+      // generous enough (this card is landscape) that height is the only
+      // binding constraint, but this guards against an unusually wide
+      // sprite or a narrow modal without needing a per-character special
+      // case.
+      const maxWidth = modalWidth - 80 * this.scale;
+      if (targetWidth > maxWidth) {
+        targetWidth = maxWidth;
+        targetHeight = targetWidth * (nativeHeight / nativeWidth);
+      }
+
+      const spriteScale = targetHeight / nativeHeight;
+      const characterCenterY = availableTop + availableHeight / 2;
+
+      // Cat/Dog/Mouse's own draw() methods all paint a (this.x, this.y)-
+      // anchored rect sized to their own displayWidth/displayHeight
+      // equivalent (Cat centers internally via its own translate, Dog/
+      // Mouse use plain top-left — same rect either way, see
+      // this.frameWidth/frameHeight's own comment in the constructor).
+      // Translating+scaling the canvas first, then drawing at a local,
+      // pre-scale origin, gets the target on-screen size/position for
+      // free without needing any per-class special-casing here.
+      ctx.save();
+      ctx.translate(centerX, characterCenterY);
+      ctx.scale(spriteScale, spriteScale);
+      this.characterAnimation.x = -nativeWidth / 2;
+      this.characterAnimation.y = -nativeHeight / 2;
       this.characterAnimation.draw(this.ctx);
+      ctx.restore();
     }
 
     // Draw the text — clamped to a minimum so it stays legible even at a
