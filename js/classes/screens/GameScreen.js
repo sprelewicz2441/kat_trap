@@ -8,9 +8,9 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=3';
+import Cat from '../Cat.js?v=4';
 import Mouse from '../Mouse.js';
-import Dog from '../Dog.js?v=3';
+import Dog from '../Dog.js?v=4';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';

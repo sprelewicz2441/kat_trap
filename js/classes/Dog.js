@@ -62,29 +62,36 @@ export default class Dog {
     // dog_medium.png art — same husky identity (white/gray fur, black
     // saddle patch, black-tipped ears, black nose, bushy tail), now in a
     // purple ballerina tutu, generated as a direct 6-frame walk-cycle
-    // sprite-sheet request (see CLAUDE.md for the full generation history —
-    // getting genuine per-frame pose variation, not six near-identical
-    // poses, took a few rounds of prompt iteration). Unlike dog_medium.png
-    // (a 6x6 grid of which only column index 1 was ever actually used —
-    // see the removed `this.column` comment below), dog_v2.png is a single
-    // column of 6 frames, matching what the game actually reads. Frame
-    // geometry (60x38 per frame) is unchanged from v1 on purpose — cropped/
-    // resized specifically to match, so nothing else in this file needed to
-    // change size-wise for the swap. `assets/dog_medium.png` (v1) stays on
-    // disk, unreferenced, same deprecate-don't-delete precedent as every
-    // other asset swap this project has done.
+    // sprite-sheet request (see CLAUDE.md for the full generation history).
+    // Unlike dog_medium.png (a 6x6 grid of which only column index 1 was
+    // ever actually used), dog_v2.png is a single column of 6 frames.
     this.spriteSheet = new Image();
-    // ?v=2 cache-busts the browser's cached copy of this file — the
-    // in-game "legs cut off at bottom + bleed at top" report matched
-    // *exactly* the very first (zero-bottom-margin) build of this asset,
-    // not the corrected 4px-margin version already on disk, strongly
-    // suggesting a stale cached fetch rather than a real rendering bug.
-    this.spriteSheet.src = './assets/dog_v2.png?v=3';
+    // ?v cache-busts the browser's cached copy of this file whenever it's
+    // rebuilt — bump on every asset change, not just the first time (a real
+    // gap hit mid-session: the file was rebuilt without bumping this,
+    // silently reintroducing a stale-cache risk).
+    this.spriteSheet.src = './assets/dog_v2.png?v=4';
 
-    this.nativeFrameWidth = 60; // Native frame width — for source-rect slicing only
-    this.nativeFrameHeight = 38; // Native frame height — for source-rect slicing only
-    this.frameWidth = this.nativeFrameWidth * sizeScale; // On-screen width — draw + collision
-    this.frameHeight = this.nativeFrameHeight * sizeScale; // On-screen height — draw + collision
+    // BASE_FRAME_WIDTH/HEIGHT are the *logical* on-screen size this sprite
+    // is drawn at — originally matched dog_medium.png's own 60x38 frame
+    // exactly, now 20% bigger per explicit request ("make the dog about
+    // 20% bigger"), chosen once the resolution redo (see CLAUDE.md) gave
+    // enough native pixel headroom (473x296) that a 20% bigger on-screen
+    // draw is still a comfortable downscale, not an upscale — no quality
+    // loss, confirmed live. This is what frameWidth/frameHeight (on-screen
+    // draw size AND collision box) are computed from, deliberately kept
+    // independent of whatever pixel resolution the actual source art
+    // happens to be at. nativeFrameWidth/nativeFrameHeight are the sprite
+    // sheet's *real* pixel dimensions, used only for the source-rect
+    // slicing args in draw()'s drawImage() call — reusing those directly
+    // for on-screen size (the old v1-era approach) would render the dog
+    // several times too big on screen, so the two are tracked separately.
+    const BASE_FRAME_WIDTH = 72; // 60 * 1.2
+    const BASE_FRAME_HEIGHT = 45.6; // 38 * 1.2 — same aspect ratio, no stretch
+    this.nativeFrameWidth = 473; // Actual dog_v2.png per-frame pixel width — source-rect slicing only
+    this.nativeFrameHeight = 296; // Actual dog_v2.png per-frame pixel height — source-rect slicing only
+    this.frameWidth = BASE_FRAME_WIDTH * sizeScale; // On-screen width — draw + collision
+    this.frameHeight = BASE_FRAME_HEIGHT * sizeScale; // On-screen height — draw + collision
     this.rows = 6; // Total rows
     this.currentFrame = 0;
     this.frameSpeed = 20; // Speed of animation
@@ -283,21 +290,15 @@ export default class Dog {
     const sx = this.column * this.nativeFrameWidth; // Use column 2 (index 1)
     const sy = this.currentFrame * this.nativeFrameHeight; // Move vertically through rows
 
-    // dog_v2.png's 6 frames are packed with no blank separator rows in the
-    // source (see CLAUDE.md) — at large display scale (Cutscene.js's
-    // portrait in particular, much bigger than in-game), the browser's
-    // default bilinear smoothing can sample a sliver of the *adjacent*
-    // frame's row when scaling this tiny source rect up, showing up as a
-    // faint smudge of the neighboring pose above/below the sprite —
-    // confirmed live via a zoomed screenshot even with a 4px transparent
-    // margin already added around each frame's content. Nearest-neighbor
-    // sampling (imageSmoothingEnabled = false) can never blend across a
-    // texel boundary the way bilinear does, so it's the actual fix here,
-    // not just a bigger margin. Scoped to just this drawImage call (saved/
-    // restored) rather than set globally, so it doesn't affect anything
-    // else's rendering quality.
+    // No longer disables imageSmoothingEnabled here — that was a workaround
+    // for cross-frame bleed in the old low-resolution sheet (see CLAUDE.md
+    // for the full history: the real cause turned out to be stray pixels
+    // baked into the asset itself, not a smoothing/GPU artifact, and is now
+    // fixed at the source). dog_v2.png's much higher native resolution (see
+    // the constructor comment) means this draw is a downscale, so leaving
+    // smoothing on gives a clean downsample instead of an aliased/pixelated
+    // one — same lesson as Furniture.js's own smoothing fix.
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
 
     // The source art only faces left (see facingLeft above) — mirror the
     // draw itself when moving right rather than needing a second set of

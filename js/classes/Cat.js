@@ -45,17 +45,31 @@ export default class Cat {
     // character (same white fur, coral inner ears, purple hair tufts and
     // whiskers, big grin), now in a pink ballerina outfit, generated as a
     // direct 6-frame sprite-sheet replacement — see CLAUDE.md for the full
-    // generation/verification history. Frame geometry (118×150, 6 frames)
-    // is unchanged from v1 on purpose: the new sheet was cropped/resized
-    // specifically to match v1's exact per-frame dimensions, so nothing
-    // else in this file (frameWidth/frameHeight/HITBOX ratios/size) needed
-    // to change for the swap. `assets/cat.png` (v1) stays on disk,
-    // unreferenced, same deprecate-don't-delete precedent as every other
-    // asset swap this project has done.
+    // generation/verification history.
     this.spriteSheet = new Image();
-    this.spriteSheet.src = './assets/cat_v2.png';
-    this.frameWidth = 118; // Native frame width — for source-rect slicing only
-    this.frameHeight = 150; // Native frame height — for source-rect slicing only
+    // ?v cache-busts the browser's cached copy of this file whenever it's
+    // rebuilt — bump on every asset change, not just the first time.
+    this.spriteSheet.src = './assets/cat_v2.png?v=2';
+    // BASE_FRAME_WIDTH/HEIGHT are the *logical* size this sprite has always
+    // used for on-screen display (matches the original v1 cat.png's own
+    // 118x150 frame) — displayWidth/displayHeight below are computed from
+    // these, deliberately independent of the actual source art's pixel
+    // resolution. this.frameWidth/frameHeight are the sprite sheet's *real*
+    // pixel dimensions, used only for source-rect slicing in draw()'s
+    // drawImage() call. v1 happened to be built at exactly the logical
+    // size, so one pair of numbers served both roles — but v2's rebuild
+    // (see CLAUDE.md) intentionally kept far more native resolution
+    // (256x296) specifically so the browser downsamples this on display
+    // instead of upscaling a tiny source, fixing the softness/pixelation
+    // the earlier low-res build had. Reusing the native size directly for
+    // on-screen display (the old approach) would render the cat far too
+    // big, so the two now have to be tracked separately.
+    const BASE_FRAME_WIDTH = 118;
+    const BASE_FRAME_HEIGHT = 150;
+    this.baseFrameWidth = BASE_FRAME_WIDTH;
+    this.baseFrameHeight = BASE_FRAME_HEIGHT;
+    this.frameWidth = 256; // Actual cat_v2.png per-frame pixel width — source-rect slicing only
+    this.frameHeight = 296; // Actual cat_v2.png per-frame pixel height — source-rect slicing only
     this.totalFrames = 6;
     this.currentFrame = 0;
     this.frameSpeed = 10;
@@ -81,13 +95,17 @@ export default class Cat {
   }
 
   // The actual on-screen size (see draw()) — GameScreen uses this instead
-  // of re-deriving frameWidth/4*sizeScale itself.
+  // of re-deriving baseFrameWidth/4*sizeScale itself. Computed from
+  // baseFrameWidth/baseFrameHeight (the logical size), not this.frameWidth/
+  // frameHeight (the sprite sheet's real, much larger, pixel dimensions —
+  // see the constructor comment) — using the native size here would render
+  // the cat far too big on screen.
   get displayWidth() {
-    return (this.frameWidth / 4) * this.sizeScale;
+    return (this.baseFrameWidth / 4) * this.sizeScale;
   }
 
   get displayHeight() {
-    return (this.frameHeight / 4) * this.sizeScale;
+    return (this.baseFrameHeight / 4) * this.sizeScale;
   }
 
   get hitboxWidth() {
@@ -209,14 +227,14 @@ export default class Cat {
     ctx.save();
     ctx.translate(this.x + width / 2, this.y + height / 2);
     this.applyDirectionalTransform(ctx);
-    // Same fix as Dog.js's draw() — cat_v2.png's 6 frames are packed with
-    // no blank separator rows either, so bilinear smoothing can bleed a
-    // sliver of the adjacent frame in at large display scale (reported as
-    // the cat's feet looking like they have a faint "bow" — the same bleed
-    // as the dog's, just subtler thanks to this sheet's slightly bigger
-    // original margin). Nearest-neighbor sampling can't cross a texel
-    // boundary the way bilinear does.
-    ctx.imageSmoothingEnabled = false;
+    // No longer disables imageSmoothingEnabled here — that was a workaround
+    // for cross-frame bleed in the old low-resolution sheet (see CLAUDE.md),
+    // which is now fixed at the asset level (stray pixels stripped from the
+    // source, not papered over with nearest-neighbor). cat_v2.png's much
+    // higher native resolution (see the constructor comment) means this
+    // draw is a downscale, and leaving smoothing on gives a clean
+    // downsample instead of an aliased/pixelated one — same lesson as
+    // Furniture.js's own smoothing fix.
 
     ctx.drawImage(
       this.spriteSheet,
