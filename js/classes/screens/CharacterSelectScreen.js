@@ -69,9 +69,9 @@ const DISABLED_THEME = { start: '#6b7280', end: '#3f4653', glow: 'rgba(0, 0, 0, 
 // Native (unscaled) source-rect coordinates; see Cat.js/Mouse.js/Dog.js for
 // how these same sheets get sliced during actual gameplay.
 const PORTRAITS = {
-  cat: { src: './assets/cat.png', sx: 0, sy: 0, sw: 118, sh: 150 },
+  cat: { src: './assets/cat_v2.png', sx: 0, sy: 0, sw: 118, sh: 150 }, // v2 sprite — same 118×150 frame geometry as v1, see Cat.js
   mouse: { src: './assets/mouse.png', sx: 32, sy: 64, sw: 32, sh: 32 }, // south, frame 1
-  dog: { src: './assets/dog_medium.png', sx: 60, sy: 0, sw: 60, sh: 38 }, // column 1, row 0 — faces left natively
+  dog: { src: './assets/dog_v2.png?v=3', sx: 0, sy: 0, sw: 60, sh: 38 }, // v2 sprite — single-column sheet, frame 0, faces left natively; ?v cache-busts asset updates, see Dog.js
 };
 
 export default class CharacterSelectScreen {

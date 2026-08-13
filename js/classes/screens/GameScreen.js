@@ -1,9 +1,16 @@
 // ==============================
 //  IMPORTS
 // ==============================
-import Cat from '../Cat.js';
+// ?v=2 cache-busts the module itself, not just the image it loads — a
+// stale cached Cat.js/Dog.js (pre-dating the imageSmoothingEnabled fix and
+// the asset margin fix) would reproduce the exact sprite-sheet bleed these
+// were meant to fix regardless of how the *image* URL is cache-busted,
+// since ES modules are only re-fetched on a real page reload and browsers
+// can heuristically cache them across plain refreshes even with no
+// explicit cache headers from a bare static file server.
+import Cat from '../Cat.js?v=3';
 import Mouse from '../Mouse.js';
-import Dog from '../Dog.js';
+import Dog from '../Dog.js?v=3';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';

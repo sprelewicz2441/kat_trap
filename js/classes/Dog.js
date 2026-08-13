@@ -58,8 +58,28 @@ export default class Dog {
     this.escapes = escapes;
     this.boundaries = boundaries;
 
+    // v2: a redrawn, "Disneyfied" walk-cycle sheet, replacing the original
+    // dog_medium.png art — same husky identity (white/gray fur, black
+    // saddle patch, black-tipped ears, black nose, bushy tail), now in a
+    // purple ballerina tutu, generated as a direct 6-frame walk-cycle
+    // sprite-sheet request (see CLAUDE.md for the full generation history —
+    // getting genuine per-frame pose variation, not six near-identical
+    // poses, took a few rounds of prompt iteration). Unlike dog_medium.png
+    // (a 6x6 grid of which only column index 1 was ever actually used —
+    // see the removed `this.column` comment below), dog_v2.png is a single
+    // column of 6 frames, matching what the game actually reads. Frame
+    // geometry (60x38 per frame) is unchanged from v1 on purpose — cropped/
+    // resized specifically to match, so nothing else in this file needed to
+    // change size-wise for the swap. `assets/dog_medium.png` (v1) stays on
+    // disk, unreferenced, same deprecate-don't-delete precedent as every
+    // other asset swap this project has done.
     this.spriteSheet = new Image();
-    this.spriteSheet.src = './assets/dog_medium.png';
+    // ?v=2 cache-busts the browser's cached copy of this file — the
+    // in-game "legs cut off at bottom + bleed at top" report matched
+    // *exactly* the very first (zero-bottom-margin) build of this asset,
+    // not the corrected 4px-margin version already on disk, strongly
+    // suggesting a stale cached fetch rather than a real rendering bug.
+    this.spriteSheet.src = './assets/dog_v2.png?v=3';
 
     this.nativeFrameWidth = 60; // Native frame width — for source-rect slicing only
     this.nativeFrameHeight = 38; // Native frame height — for source-rect slicing only
@@ -70,14 +90,12 @@ export default class Dog {
     this.frameSpeed = 20; // Speed of animation
     this.frameCounter = 0;
 
-    this.column = 1; // Fixed column for the animation
+    this.column = 0; // dog_v2.png is a single column (see comment above) — was 1 for the old 6x6 dog_medium.png
 
-    // dog_medium.png only has leftward-facing frames (confirmed by slicing
-    // the sheet into its 6x6 grid and inspecting individual cells — the
-    // head/nose is on the left, tail trailing right, in every populated
-    // cell; each column is a different gait/pose, not a different facing
-    // direction), so there's no "right-facing" source art to switch to.
-    // Flipping the leftward frame horizontally (see draw()) when moving
+    // dog_v2.png (like v1's dog_medium.png before it — see the src comment
+    // above) only has leftward-facing frames, so there's no "right-facing"
+    // source art to switch to. Flipping the leftward frame horizontally
+    // (see draw()) when moving
     // right is the actual fix for the dog visibly moving right while its
     // sprite still faced left. Starts true (native orientation, no flip)
     // and is only updated on an actual left/right move (see update()) —
@@ -189,7 +207,23 @@ export default class Dog {
     return directions[Math.floor(Math.random() * directions.length)];
   }
 
+  // Cutscene.js calls `characterAnimation.update()` with no arguments at
+  // all (it just wants the walk-cycle frame to advance for the preview
+  // portrait) — with `timestamp` undefined, the wander logic below used to
+  // still run (`!this.wanderDirection` is true on the very first call,
+  // picking a real direction and then actually moving this.x/this.y via
+  // tryMove() every single tick), so the dog visibly drifted across the
+  // cutscene card instead of standing still. Bail out to animation-only
+  // when there's no real timestamp, matching Cat.update()'s own
+  // animation-only behavior (Cat has no movement logic in update() at
+  // all) rather than letting a missing argument silently fall through into
+  // full autonomous-wander behavior.
   update(timestamp, cat, onCatCollision) {
+    if (timestamp === undefined) {
+      this.updateAnimation();
+      return;
+    }
+
     const directionExpired = !this.wanderDirection ||
         (timestamp - this.lastWanderDirectionChange >= this.wanderDirectionChangeInterval);
     if (directionExpired) {
@@ -249,12 +283,27 @@ export default class Dog {
     const sx = this.column * this.nativeFrameWidth; // Use column 2 (index 1)
     const sy = this.currentFrame * this.nativeFrameHeight; // Move vertically through rows
 
+    // dog_v2.png's 6 frames are packed with no blank separator rows in the
+    // source (see CLAUDE.md) — at large display scale (Cutscene.js's
+    // portrait in particular, much bigger than in-game), the browser's
+    // default bilinear smoothing can sample a sliver of the *adjacent*
+    // frame's row when scaling this tiny source rect up, showing up as a
+    // faint smudge of the neighboring pose above/below the sprite —
+    // confirmed live via a zoomed screenshot even with a 4px transparent
+    // margin already added around each frame's content. Nearest-neighbor
+    // sampling (imageSmoothingEnabled = false) can never blend across a
+    // texel boundary the way bilinear does, so it's the actual fix here,
+    // not just a bigger margin. Scoped to just this drawImage call (saved/
+    // restored) rather than set globally, so it doesn't affect anything
+    // else's rendering quality.
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+
     // The source art only faces left (see facingLeft above) — mirror the
     // draw itself when moving right rather than needing a second set of
     // frames. translate to the sprite's right edge first so scale(-1, 1)
     // flips it back over the same x/y position instead of off to one side.
     if (!this.facingLeft) {
-      ctx.save();
       ctx.translate(this.x + this.frameWidth, this.y);
       ctx.scale(-1, 1);
       ctx.drawImage(
@@ -262,7 +311,6 @@ export default class Dog {
         sx, sy, this.nativeFrameWidth, this.nativeFrameHeight,
         0, 0, this.frameWidth, this.frameHeight
       );
-      ctx.restore();
     } else {
       ctx.drawImage(
         this.spriteSheet,
@@ -270,6 +318,7 @@ export default class Dog {
         this.x, this.y, this.frameWidth, this.frameHeight // Scaled destination rectangle
       );
     }
+    ctx.restore();
   }
 
   cleanup() {

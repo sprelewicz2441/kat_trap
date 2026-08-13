@@ -41,8 +41,19 @@ export default class Cat {
     this.canvasHeight = canvasHeight;
 
     // Sprite sheet details
+    // v2: a redrawn, more polished/glossy "Disneyfied" version of the same
+    // character (same white fur, coral inner ears, purple hair tufts and
+    // whiskers, big grin), now in a pink ballerina outfit, generated as a
+    // direct 6-frame sprite-sheet replacement — see CLAUDE.md for the full
+    // generation/verification history. Frame geometry (118×150, 6 frames)
+    // is unchanged from v1 on purpose: the new sheet was cropped/resized
+    // specifically to match v1's exact per-frame dimensions, so nothing
+    // else in this file (frameWidth/frameHeight/HITBOX ratios/size) needed
+    // to change for the swap. `assets/cat.png` (v1) stays on disk,
+    // unreferenced, same deprecate-don't-delete precedent as every other
+    // asset swap this project has done.
     this.spriteSheet = new Image();
-    this.spriteSheet.src = './assets/cat.png';
+    this.spriteSheet.src = './assets/cat_v2.png';
     this.frameWidth = 118; // Native frame width — for source-rect slicing only
     this.frameHeight = 150; // Native frame height — for source-rect slicing only
     this.totalFrames = 6;
@@ -198,6 +209,14 @@ export default class Cat {
     ctx.save();
     ctx.translate(this.x + width / 2, this.y + height / 2);
     this.applyDirectionalTransform(ctx);
+    // Same fix as Dog.js's draw() — cat_v2.png's 6 frames are packed with
+    // no blank separator rows either, so bilinear smoothing can bleed a
+    // sliver of the adjacent frame in at large display scale (reported as
+    // the cat's feet looking like they have a faint "bow" — the same bleed
+    // as the dog's, just subtler thanks to this sheet's slightly bigger
+    // original margin). Nearest-neighbor sampling can't cross a texel
+    // boundary the way bilinear does.
+    ctx.imageSmoothingEnabled = false;
 
     ctx.drawImage(
       this.spriteSheet,

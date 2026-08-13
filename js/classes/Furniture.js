@@ -106,7 +106,19 @@ export default class Furniture {
 
     // Draw sprite if loaded, otherwise draw placeholder
     if (this.sprite.complete) {
-      ctx.imageSmoothingEnabled = false;
+      // `imageSmoothingEnabled = false` used to sit here as a leftover from
+      // when kitchen sprites were small pixel art needing crisp nearest-
+      // neighbor scaling (see CLAUDE.md) — but every current kitchen_*.webp
+      // is a large photorealistic render (roughly 1000-1500px) drawn at a
+      // much smaller on-screen size (drawWidth/drawHeight above), i.e. a
+      // downscale, not an upscale. Nearest-neighbor downscaling drops most
+      // of the source detail and looks aliased/gritty rather than crisp —
+      // confirmed live as visibly lower quality than the source renders
+      // themselves. There's also no adjacent-frame sprite-sheet content to
+      // protect against here (unlike Cat.js/Dog.js) — each of these is its
+      // own standalone image file, so there was never actually a bleed risk
+      // this was guarding against. Left at the canvas default (smoothing
+      // on) instead, which downsamples cleanly.
       ctx.drawImage(
         this.sprite,
         this.cropX, this.cropY, this.spriteWidth, this.spriteHeight,
