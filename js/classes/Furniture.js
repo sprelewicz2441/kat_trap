@@ -8,6 +8,18 @@ import { aabbOverlap } from '../utils/collision.js';
 const KNOCK_OVER_DURATION = 350; // ms
 const KNOCK_OVER_ANGLE = (75 * Math.PI) / 180; // radians
 
+// Shake reaction (see startShake()/draw() below) — a small decaying
+// oscillation rather than a fall, for furniture that's passable but
+// should still visibly react to being brushed past (currently only the
+// table — see GameScreen's updateTableBump()). SHAKE_MAX_ANGLE is
+// deliberately small (a real tip-over already exists for the plant, this
+// is a rattle, not a topple) and the sine wave decays to 0 by
+// SHAKE_DURATION so it always settles back to resting rather than ending
+// mid-wobble.
+const SHAKE_DURATION = 400; // ms
+const SHAKE_MAX_ANGLE = (5 * Math.PI) / 180; // radians
+const SHAKE_CYCLES = 3; // back-and-forth oscillations over the full duration
+
 export default class Furniture {
   // Defaults match the Reakain "Kitchen Assets" appliance/counter sprites
   // (32x64 native). Table/chair sprites come from a different pack with
@@ -61,6 +73,16 @@ export default class Furniture {
     // read it every frame.
     this.knockedOver = false;
     this.knockStartTime = null;
+
+    // Shake reaction (currently only ever triggered for 'table' — see
+    // GameScreen's updateTableBump()) — same "replayable, not a one-shot"
+    // precedent as knockedOver above: every fresh bump restarts the
+    // wobble from the beginning. Unlike knockedOver (a permanent tipped-
+    // over pose), the shake itself always decays back to 0 by the end of
+    // SHAKE_DURATION (see draw()), so replaying it just means a fresh
+    // wobble-and-settle, not an accumulating tilt.
+    this.shaking = false;
+    this.shakeStartTime = null;
   }
 
   // Always (re)starts the fall from upright, even if one is already in
@@ -69,6 +91,13 @@ export default class Furniture {
   startKnockOver(timestamp) {
     this.knockedOver = true;
     this.knockStartTime = timestamp;
+  }
+
+  // Always (re)starts the wobble from the beginning, even if one is
+  // already in progress — same reasoning as startKnockOver() above.
+  startShake(timestamp) {
+    this.shaking = true;
+    this.shakeStartTime = timestamp;
   }
 
   draw(ctx) {
@@ -89,10 +118,23 @@ export default class Furniture {
       knockOverRotation = eased * KNOCK_OVER_ANGLE;
     }
 
+    // Shake — a small decaying oscillation, also additive on top of this
+    // piece's own base `rotation`, so a table rattles in place rather
+    // than tipping over. Decays linearly to 0 by SHAKE_DURATION (rather
+    // than a hard cutoff), so it always reads as settling down, never
+    // stopping mid-wobble.
+    let shakeRotation = 0;
+    if (this.shaking) {
+      const elapsed = performance.now() - this.shakeStartTime;
+      const t = Math.min(1, elapsed / SHAKE_DURATION);
+      const decay = 1 - t;
+      shakeRotation = Math.sin(t * Math.PI * 2 * SHAKE_CYCLES) * SHAKE_MAX_ANGLE * decay;
+    }
+
     // Apply rotation
-    if (this.rotation !== 0 || knockOverRotation !== 0) {
+    if (this.rotation !== 0 || knockOverRotation !== 0 || shakeRotation !== 0) {
       ctx.translate(centerX, centerY);
-      ctx.rotate((this.rotation * Math.PI) / 180 + knockOverRotation);
+      ctx.rotate((this.rotation * Math.PI) / 180 + knockOverRotation + shakeRotation);
       ctx.translate(-centerX, -centerY);
     }
 

@@ -620,8 +620,14 @@ const WALL_FURNITURE_TYPES = ['cabinet', 'sink', 'stove', 'fridge'];
 // a normal fully-blocking obstacle (see Kitchen furniture point 10 in
 // CLAUDE.md) — moved into this list on request shortly after, so it now
 // matches the cart's own passable-for-cat/blocking-for-dog behavior rather
-// than staying fully solid.
-const CAT_NON_BLOCKING_FURNITURE_TYPES = ['plant', 'cart', 'shelf'];
+// than staying fully solid. 'table' joined this list on request ("make the
+// table passable for the cat with a shake animation") — same cat-only
+// split as cart/shelf (not added to DOG_NON_BLOCKING_FURNITURE_TYPES: the
+// dog still collides with it normally), paired with a shake reaction
+// (Furniture.startShake(), see updateTableBump() below) rather than the
+// plant's knock-over, since a dining table shouldn't visibly tip over the
+// way a small potted plant does.
+const CAT_NON_BLOCKING_FURNITURE_TYPES = ['plant', 'cart', 'shelf', 'table'];
 const DOG_NON_BLOCKING_FURNITURE_TYPES = ['plant'];
 // Multiplier on top of the cat's normal speed while wandering blind (no
 // line of sight to the mouse) — not a BASE_* pixel value since it's a ratio
@@ -923,6 +929,10 @@ const SOUND_KEYS = {
   // layering on top of endGame()'s own event sound rather than replacing
   // it. A supplied recording, not synthesized — see loadSounds() below.
   GOTCHA: 'gotcha',
+  // Table shake bump — see updateTableBump() below. A supplied recording
+  // (dishware clinking/rattling, not synthesized), same as GOTCHA/
+  // CART_BUMP/SHELF_BUMP.
+  TABLE_SHAKE: 'tableShake',
 };
 
 const MESSAGES = {
@@ -1012,6 +1022,9 @@ export default class GameScreen {
     // continuously-driven play/pause/currentTime model updateCartBump()
     // uses), just for the shelf's own hit zone.
     this.shelfWasHit = false;
+    // Edge-detection state for updateTableBump() below — same reasoning
+    // as shelfWasHit above, just for the table's own hit zone.
+    this.tableWasHit = false;
     // True whenever tryMoveCat() actually moved the cat on the current
     // tick (reset to false at the top of update(), set from within
     // tryMoveCat() itself) — read by updateCartBump() below to decide
@@ -1315,6 +1328,11 @@ export default class GameScreen {
       // CART_BUMP. Renamed from the sound-generation tool's own default
       // export filename, same as CART_BUMP/SHELF_BUMP were.
       [SOUND_KEYS.GOTCHA]: this.loadSound('../../../sounds/gotcha.mp3'),
+      // A plain fire-and-forget one-shot, same shape as SHELF_BUMP —
+      // played once from updateTableBump() below, renamed from the
+      // sound-generation tool's own default export filename same as
+      // CART_BUMP/SHELF_BUMP/GOTCHA were.
+      [SOUND_KEYS.TABLE_SHAKE]: this.loadSound('../../../sounds/table_shake.mp3'),
     };
   }
 
@@ -1432,9 +1450,19 @@ export default class GameScreen {
   playSound(soundKey) {
     if (isSfxMuted()) return;
     const sound = this.sounds[soundKey];
-    if (sound) {
+    if (!sound) return;
+    // try/catch rather than just a .catch() on play()'s promise: a sound
+    // with no supported source loaded (e.g. SOUND_KEYS.TABLE_SHAKE for the
+    // stretch it was wired up before its recording was actually supplied —
+    // see loadSounds()) throws synchronously on `currentTime = 0` itself,
+    // not just on play(). Kept as a general safeguard rather than removed
+    // now that every sound key has a real file again — the next sound
+    // wired ahead of its recording will hit the same gap.
+    try {
       sound.currentTime = 0;
-      sound.play();
+      sound.play().catch(() => {});
+    } catch {
+      // See comment above.
     }
   }
 
@@ -1466,6 +1494,7 @@ export default class GameScreen {
     this.updatePlantBump(timestamp);
     this.updateCartBump();
     this.updateShelfBump();
+    this.updateTableBump(timestamp);
   }
 
   // Plant is passable (see NON_BLOCKING_FURNITURE_TYPES) — this is a
@@ -1565,6 +1594,29 @@ export default class GameScreen {
       this.playSound(SOUND_KEYS.SHELF_BUMP);
     }
     this.shelfWasHit = isHitting;
+  }
+
+  // Table counterpart to updateShelfBump() above — cat-only (same
+  // reasoning as cart/shelf: the table still blocks the dog outright, see
+  // DOG_NON_BLOCKING_FURNITURE_TYPES, so there's nothing for the dog side
+  // to react to), same edge-triggered fire-and-forget one-shot shape. The
+  // one difference from the shelf: this triggers Furniture.startShake()
+  // (a small decaying wobble, see Furniture.js) rather than a sound-only
+  // reaction, since a dining table brushed past should visibly rattle,
+  // not just make noise — a plain bump sound with no visual response
+  // would feel disconnected from something this size sitting in the
+  // middle of the room.
+  updateTableBump(timestamp) {
+    const table = this.furniture.find(f => f.type === 'table');
+    if (!table) return;
+
+    const isHitting = aabbOverlap(this.cat.x, this.cat.y, this.cat.displayWidth, this.cat.displayHeight, table.x, table.y, table.width, table.height);
+
+    if (isHitting && !this.tableWasHit) {
+      table.startShake(timestamp);
+      this.playSound(SOUND_KEYS.TABLE_SHAKE);
+    }
+    this.tableWasHit = isHitting;
   }
 
   // Dog-controlled mode: player-driven, same per-tick movement granularity
