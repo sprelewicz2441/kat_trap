@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kat Trap</title>
+  <!-- Google Analytics (GA4) — visitor stats, including a Realtime
+       location map (Reports > Realtime in analytics.google.com). Loaded
+       early per Google's own recommendation, but async so it can't block
+       main.js's own async load below or delay first paint. -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-29C0CKEGRN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-29C0CKEGRN');
+  </script>
   <!-- iOS Safari/Chrome never expose the Fullscreen API on iPhone (only
        iPadOS does) — requestFullscreen() is a silent no-op there regardless
        of which browser or when it's called (see SetupScreen.js). This is
