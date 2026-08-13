@@ -18,9 +18,15 @@ export default class Mouse {
 
     // Sprite sheet
     this.spriteSheet = new Image();
-    this.spriteSheet.src = './assets/mouse.png';
-    this.frameWidth = 32;
-    this.frameHeight = 32;
+    // mouse_v2.png — Disneyfied redraw, same 3-col x 4-row grid (walk-cycle
+    // frames x facing direction) and same all-fours top-down poses as v1's
+    // mouse.png, just at native (327x327/frame) resolution instead of v1's
+    // 32x32 — frameWidth/frameHeight below are native source-slicing size
+    // only; this.size (on-screen/collision size, above) is untouched so
+    // gameplay feel doesn't change. v1 stays on disk, unreferenced.
+    this.spriteSheet.src = './assets/mouse_v2.png?v=1';
+    this.frameWidth = 327;
+    this.frameHeight = 327;
     this.currentFrame = 0;
     this.totalFrames = 12; // 3 frames per direction, 4 directions
     this.frameSpeed = 10; // Adjust for smoother animation

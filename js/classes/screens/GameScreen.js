@@ -9,7 +9,7 @@
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=4';
-import Mouse from '../Mouse.js';
+import Mouse from '../Mouse.js?v=2';
 import Dog from '../Dog.js?v=4';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';

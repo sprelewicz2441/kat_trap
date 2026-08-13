@@ -70,7 +70,7 @@ const DISABLED_THEME = { start: '#6b7280', end: '#3f4653', glow: 'rgba(0, 0, 0, 
 // how these same sheets get sliced during actual gameplay.
 const PORTRAITS = {
   cat: { src: './assets/cat_v2.png?v=2', sx: 0, sy: 0, sw: 256, sh: 296 }, // v2 sprite — native pixel size (see Cat.js), not the logical 118×150 display size
-  mouse: { src: './assets/mouse.png', sx: 32, sy: 64, sw: 32, sh: 32 }, // south, frame 1
+  mouse: { src: './assets/mouse_v2.png?v=1', sx: 327, sy: 654, sw: 327, sh: 327 }, // v2 sprite — native pixel size (see Mouse.js), south, frame 1
   dog: { src: './assets/dog_v2.png?v=4', sx: 0, sy: 0, sw: 473, sh: 296 }, // v2 sprite — native pixel size (see Dog.js), not the logical 60×38 display size; ?v cache-busts asset updates
 };
 
