@@ -8,7 +8,7 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=4';
+import Cat from '../Cat.js?v=5';
 import Mouse from '../Mouse.js?v=2';
 import Dog from '../Dog.js?v=4';
 import InputHandler from '../InputHandler.js';
@@ -572,7 +572,12 @@ const BASE_MOUSE_PLAYER_SPEED = 10;
 // piloting any of the three characters feels identical.
 const BASE_DOG_PLAYER_SPEED = 10;
 
-const DOG_PAUSE_DURATION = 2000; // ms — a duration, not a size, so this doesn't scale with canvas size
+// ms — a duration, not a size, so this doesn't scale with canvas size.
+// Went 2000 (original) → 8000 (4x, on request) → 4000 (halved again, on
+// request) — net 2x the original. The stun visuals (drawStunBurst()/
+// drawStunStars(), see below) need no separate tuning either way: the
+// stars just keep orbiting for however long catPaused stays true.
+const DOG_PAUSE_DURATION = 4000;
 const DOG_COLLISION_COOLDOWN = 1000; // ms
 
 // How long the player-controlled mouse has to go without a movement key
@@ -662,12 +667,40 @@ const TOOT_EFFECT_DIRECTIONS = {
   right: { x: -1, y: 0 },
 };
 
-const BASE_CAT_OUTLINE_WIDTH = 3;
+// "Dummy caught Mia!" stun effect — an impact burst (adapted from
+// drawShockwave()'s expanding-ring technique, but a spiky "POW" starburst
+// instead of a plain ring, and warm amber/orange instead of punch's purple
+// so the two moments don't read as the same effect) fired once, timed to
+// the collision itself, plus a few "seeing stars" sparkles orbiting the
+// cat's head for the whole DOG_PAUSE_DURATION. Replaces the old flat,
+// static red silhouette outline (formerly drawRedOutline()/
+// getCatOutlineFrame(), removed) with a cohesive "impact, then daze"
+// language instead of one unchanging shape sitting there for the full 2
+// seconds — see CLAUDE.md's Planned work history for this moment.
+const DOG_COLLISION_BURST_DURATION = 400; // ms — quick, timed to the hit itself, not the whole pause
+const BASE_DOG_COLLISION_BURST_MAX_RADIUS = 70;
+const DOG_COLLISION_STAR_COUNT = 4;
+// Orbit is an ellipse, not a circle — flattened vertically so the stars
+// read as circling the head from a mostly-front view rather than a flat
+// halo ring floating above it.
+const BASE_DOG_COLLISION_STAR_ORBIT_RADIUS_X = 36;
+const DOG_COLLISION_STAR_ORBIT_RADIUS_Y_RATIO = 0.4;
+const DOG_COLLISION_STAR_ORBIT_PERIOD = 1100; // ms per full revolution
+const BASE_DOG_COLLISION_STAR_SIZE = 9;
+
+// How long the pause message takes to pop/scale in once the dog actually
+// connects — same ease-out-cubic scale+fade pattern as
+// displayGameOverModal()'s MODAL_POP_IN_DURATION, kept as its own constant
+// since it's a different moment (this fires mid-round, over a live board,
+// not at game-over).
+const DOG_COLLISION_MESSAGE_POP_IN_DURATION = 250; // ms
 // Still used by the transient (non-game-over) "Dummy caught Mia!" pause
-// message — plain text over the live board is fine there since gameplay is
-// still visibly running underneath. The actual game-over screen uses the
-// modal below instead (see displayGameOverModal()).
-const BASE_MESSAGE_FONT_SIZE = 24;
+// message — an overlay on the live board is fine there since gameplay is
+// still visibly running/paused underneath (see displayMessage()'s own
+// comment). The actual game-over screen uses the modal below instead (see
+// displayGameOverModal()). Bumped from 24 on request ("more obvious") —
+// paired with the bold stroke/shadow displayMessage() now draws with.
+const BASE_MESSAGE_FONT_SIZE = 36;
 const BASE_MESSAGE_Y_OFFSET = 80;
 
 // Game-over modal (see displayGameOverModal()) — a proper overlay with a
@@ -795,7 +828,9 @@ function computeLayout(canvasWidth) {
     punchShockwaveMaxRadius: BASE_PUNCH_SHOCKWAVE_MAX_RADIUS * scale,
     tootEffectMaxDrift: BASE_TOOT_EFFECT_MAX_DRIFT * scale,
     tootEffectMaxRadius: BASE_TOOT_EFFECT_MAX_RADIUS * scale,
-    catOutlineWidth: BASE_CAT_OUTLINE_WIDTH * scale,
+    dogCollisionBurstMaxRadius: BASE_DOG_COLLISION_BURST_MAX_RADIUS * scale,
+    dogCollisionStarOrbitRadiusX: BASE_DOG_COLLISION_STAR_ORBIT_RADIUS_X * scale,
+    dogCollisionStarSize: BASE_DOG_COLLISION_STAR_SIZE * scale,
     messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
     modalWidth: BASE_MODAL_WIDTH * uiScale,
@@ -824,9 +859,23 @@ const COLORS = {
   // furniture so counters/fridge/table still stand out against it.
   WALL_FILL: '#e4ddcf',
   WALL_TRIM: '#b9ae98',
-  // Still used by the transient (non-game-over) pause message only — see
-  // BASE_MESSAGE_FONT_SIZE above.
-  MESSAGE: 'purple',
+  // Transient (non-game-over) pause message only — see BASE_MESSAGE_FONT_SIZE
+  // above. A flat purple fillText (the very first version of this) read as
+  // amateurish and hard to read live — floating text with no backdrop gets
+  // lost against whatever happens to be drawn on the board behind it (a
+  // light floor tile, dark furniture, a character). displayMessage() now
+  // draws a small pill-shaped banner (this project's purple, matching the
+  // punch shockwave/settings-menu accent) behind white text with a dark
+  // stroke — the same "colored card + white outlined text" formula
+  // displayGameOverModal() already uses, just as a lightweight overlay
+  // banner rather than a full scrim-and-card modal.
+  MESSAGE: {
+    TEXT_FILL: '#ffffff',
+    TEXT_STROKE: 'rgba(0, 0, 0, 0.5)',
+    BANNER_GRADIENT_START: '#9b6fe0',
+    BANNER_GRADIENT_END: '#5b2fa6',
+    BANNER_BORDER: 'rgba(255, 255, 255, 0.85)',
+  },
   // Game-over modal (see displayGameOverModal()) — intentionally playful
   // either way (this is a kids' game), not somber on a loss: a warm gold
   // gradient for a win, a bright teal/blue gradient for a loss, rather than
@@ -845,7 +894,6 @@ const COLORS = {
     BUTTON_TEXT: '#2b1d3d',
     BUTTON_SHADOW: 'rgba(0, 0, 0, 0.25)',
   },
-  CAT_OUTLINE: 'red',
   // A small white/off-white two-tone tile look (see drawFloor()) — plain
   // and neutral rather than matched to the kitchen_*.png furniture's warm
   // cream/tan/honey-oak palette. Two earlier versions of this floor (large
@@ -869,6 +917,12 @@ const SOUND_KEYS = {
   DOG_BARK: 'dogBark',
   CART_BUMP: 'cartBump',
   SHELF_BUMP: 'shelfBump',
+  // Dedicated "gotcha!" cue for the dog-pauses-cat moment — layered on top
+  // of DOG_BARK (already played by handleDogCollision()), not a
+  // replacement for it, same pattern as playWinSound()/playLoseSound()
+  // layering on top of endGame()'s own event sound rather than replacing
+  // it. A supplied recording, not synthesized — see loadSounds() below.
+  GOTCHA: 'gotcha',
 };
 
 const MESSAGES = {
@@ -917,6 +971,12 @@ export default class GameScreen {
     this.catPaused = false;
     this.pauseEndTime = 0;
     this.dogCollisionCooldown = 0;
+    // performance.now() timestamp from handleDogCollision() — drives both
+    // the pause message's pop-in (displayMessage()) and the stun burst/
+    // stars' timing (drawStunBurst()/drawStunStars()), the same
+    // performance.now()-diff pattern this.gameOverStartTime/this.shockwave
+    // already use elsewhere in this file.
+    this.dogCollisionStartTime = 0;
     this.gameOver = false;
     this.message = '';
     this.shockwave = null;
@@ -1250,6 +1310,11 @@ export default class GameScreen {
       // (played via playSound(), see updateShelfBump() below) — no special
       // loop/loadSound arguments needed.
       [SOUND_KEYS.SHELF_BUMP]: this.loadSound('../../../sounds/shelf_bump.wav'),
+      // A plain fire-and-forget one-shot, same as SHELF_BUMP above — played
+      // once from handleDogCollision(), not driven continuously like
+      // CART_BUMP. Renamed from the sound-generation tool's own default
+      // export filename, same as CART_BUMP/SHELF_BUMP were.
+      [SOUND_KEYS.GOTCHA]: this.loadSound('../../../sounds/gotcha.mp3'),
     };
   }
 
@@ -2081,7 +2146,11 @@ export default class GameScreen {
     this.catPaused = true;
     this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
     this.message = MESSAGES.DOG_CAUGHT;
+    this.dogCollisionStartTime = performance.now();
     this.playSound(SOUND_KEYS.DOG_BARK);
+    // Layered on top of the bark above, not instead of it — see
+    // SOUND_KEYS.GOTCHA's own comment.
+    this.playSound(SOUND_KEYS.GOTCHA);
 
     const OFFSET = 20;
     if (this.dog.x < this.cat.x) this.dog.x -= OFFSET;
@@ -2268,9 +2337,17 @@ export default class GameScreen {
     // drawShockwave(), had it visibly painting over the cat's face.
     this.drawTootEffect();
 
-    if (this.catPaused) this.drawRedOutline();
+    // Behind the cat, same reasoning as the old drawRedOutline() this
+    // replaces — the burst radiates from behind the sprite rather than
+    // painting over it. Self-guards on this.catPaused internally, same
+    // style as drawShockwave()/drawTootEffect() above.
+    this.drawStunBurst();
     this.cat.draw(this.ctx);
     this.drawCatUnderFurnitureEffect();
+    // In front of (and above) the cat, unlike the burst — "seeing stars"
+    // orbiting the head needs to actually read against the sprite, not be
+    // painted over by it.
+    this.drawStunStars();
   }
 
   // Cat version of the mouse's "ducks under furniture" treatment (see
@@ -2413,92 +2490,178 @@ export default class GameScreen {
     this.ctx.restore();
   }
 
-  // Lazily builds (once per distinct animation frame, not per render call) a
-  // red silhouette of that frame: draw the frame to a small offscreen
-  // canvas, then `globalCompositeOperation = 'source-in'` recolors only the
-  // pixels the sprite actually painted (its alpha shape), leaving
-  // transparent pixels transparent. The result is a red cutout shaped like
-  // the cat, not a rectangle — cached per frame index since there are only
-  // a handful of frames and the source sprite sheet never changes.
-  getCatOutlineFrame(frameIndex) {
-    if (!this.catOutlineFrames) this.catOutlineFrames = [];
-    if (this.catOutlineFrames[frameIndex]) return this.catOutlineFrames[frameIndex];
+  // One-shot spiky "POW" burst timed to the moment the dog actually
+  // connects — adapts drawShockwave()'s expanding-ring/fade technique
+  // (progress → eased radius, alpha = 1 - progress) but as a filled
+  // 8-point starburst polygon rather than a stroked circle, and warm
+  // amber/orange rather than punch's purple, so the two moments read as
+  // distinct effects rather than the same ring recolored. Self-guards
+  // internally (this.catPaused, elapsed vs DOG_COLLISION_BURST_DURATION)
+  // so drawGameObjects() can call it unconditionally every frame, same
+  // style as drawShockwave()/drawTootEffect().
+  drawStunBurst() {
+    if (!this.catPaused) return;
+    const elapsed = performance.now() - this.dogCollisionStartTime;
+    if (elapsed > DOG_COLLISION_BURST_DURATION) return;
 
     const cat = this.cat;
-    if (!cat.spriteSheet.complete || cat.spriteSheet.naturalWidth === 0) return null;
-
-    const offscreen = document.createElement('canvas');
-    offscreen.width = cat.frameWidth;
-    offscreen.height = cat.frameHeight;
-    const offCtx = offscreen.getContext('2d');
-    offCtx.drawImage(
-      cat.spriteSheet,
-      0, frameIndex * cat.frameHeight, cat.frameWidth, cat.frameHeight,
-      0, 0, cat.frameWidth, cat.frameHeight
-    );
-    offCtx.globalCompositeOperation = 'source-in';
-    offCtx.fillStyle = COLORS.CAT_OUTLINE;
-    offCtx.fillRect(0, 0, cat.frameWidth, cat.frameHeight);
-
-    this.catOutlineFrames[frameIndex] = offscreen;
-    return offscreen;
-  }
-
-  // Draws the red silhouette (see getCatOutlineFrame()) offset in a ring of
-  // directions around the cat's actual draw position, called before
-  // cat.draw() (see drawGameObjects()) so the real sprite paints over the
-  // silhouette's interior right after — only the rim where an offset copy
-  // sticks out past the un-offset sprite stays visible, producing an
-  // outline that hugs the cat's actual shape instead of its bounding box.
-  drawRedOutline() {
-    const cat = this.cat;
-    const silhouette = this.getCatOutlineFrame(cat.currentFrame);
-    const width = Math.max(1, this.layout.catOutlineWidth);
-
-    this.ctx.save();
-    if (!silhouette) {
-      // Sprite sheet hasn't finished loading yet — fall back to the old
-      // bounding-box outline rather than drawing nothing.
-      this.ctx.strokeStyle = COLORS.CAT_OUTLINE;
-      this.ctx.lineWidth = width;
-      this.ctx.strokeRect(cat.x, cat.y, cat.displayWidth, cat.displayHeight);
-      this.ctx.restore();
-      return;
-    }
-
-    // Each ring offset gets its own save/restore: the offsets themselves
-    // stay in plain screen space (a circle around the cat) while the
-    // silhouette drawn at each one is rotated/stretched via
-    // cat.applyDirectionalTransform() — the same transform draw() applies
-    // to the real sprite — so the outline still hugs a tilted cat instead
-    // of drifting out of alignment with it.
     const centerX = cat.x + cat.displayWidth / 2;
     const centerY = cat.y + cat.displayHeight / 2;
-    const RING_STEPS = 8;
-    for (let i = 0; i < RING_STEPS; i++) {
-      const angle = (i / RING_STEPS) * Math.PI * 2;
-      const dx = Math.cos(angle) * width;
-      const dy = Math.sin(angle) * width;
-      this.ctx.save();
-      this.ctx.translate(centerX + dx, centerY + dy);
-      cat.applyDirectionalTransform(this.ctx);
-      this.ctx.drawImage(silhouette, -cat.displayWidth / 2, -cat.displayHeight / 2, cat.displayWidth, cat.displayHeight);
-      this.ctx.restore();
+
+    const progress = elapsed / DOG_COLLISION_BURST_DURATION;
+    const eased = 1 - Math.pow(1 - progress, 2); // ease-out quad — a snappier expand than the punch ring's linear one
+    const outerRadius = eased * this.layout.dogCollisionBurstMaxRadius;
+    const innerRadius = outerRadius * 0.5;
+    const alpha = 1 - progress;
+    const SPIKES = 8;
+
+    this.ctx.save();
+    this.ctx.fillStyle = `rgba(255, 111, 0, ${alpha})`;
+    this.ctx.beginPath();
+    for (let i = 0; i < SPIKES * 2; i++) {
+      const angle = (i / (SPIKES * 2)) * Math.PI * 2;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const px = centerX + Math.cos(angle) * radius;
+      const py = centerY + Math.sin(angle) * radius;
+      if (i === 0) this.ctx.moveTo(px, py);
+      else this.ctx.lineTo(px, py);
     }
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  // "Seeing stars" — a handful of small stars circling the cat's head in a
+  // flattened ellipse (so they read as orbiting a mostly-front-facing head
+  // rather than floating in a flat halo) for the entire pause, the classic
+  // cartoon "stunned" cue. Continuous rather than one-shot: angle is driven
+  // directly off elapsed time each frame (no stored per-star state), so it
+  // just keeps circling for as long as this.catPaused stays true. Self-
+  // guards the same way drawStunBurst() above does.
+  drawStunStars() {
+    if (!this.catPaused) return;
+    const elapsed = performance.now() - this.dogCollisionStartTime;
+
+    const cat = this.cat;
+    const centerX = cat.x + cat.displayWidth / 2;
+    // Orbits above the head, not the sprite's own center.
+    const orbitCenterY = cat.y + cat.displayHeight * 0.15;
+    const orbitRadiusX = this.layout.dogCollisionStarOrbitRadiusX;
+    const orbitRadiusY = orbitRadiusX * DOG_COLLISION_STAR_ORBIT_RADIUS_Y_RATIO;
+    const angularSpeed = (Math.PI * 2) / DOG_COLLISION_STAR_ORBIT_PERIOD;
+
+    for (let i = 0; i < DOG_COLLISION_STAR_COUNT; i++) {
+      const phase = (i / DOG_COLLISION_STAR_COUNT) * Math.PI * 2;
+      const angle = elapsed * angularSpeed + phase;
+      const x = centerX + Math.cos(angle) * orbitRadiusX;
+      const y = orbitCenterY + Math.sin(angle) * orbitRadiusY;
+      this.drawStar(x, y, this.layout.dogCollisionStarSize);
+    }
+  }
+
+  // Small 5-point star polygon, filled bright yellow with a dark outline —
+  // shared by every star drawStunStars() places above the cat's head.
+  drawStar(x, y, size) {
+    const SPIKES = 5;
+    const outerRadius = size;
+    const innerRadius = size * 0.45;
+
+    this.ctx.save();
+    this.ctx.translate(x, y);
+    this.ctx.beginPath();
+    for (let i = 0; i < SPIKES * 2; i++) {
+      const angle = (i / (SPIKES * 2)) * Math.PI * 2 - Math.PI / 2;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const px = Math.cos(angle) * radius;
+      const py = Math.sin(angle) * radius;
+      if (i === 0) this.ctx.moveTo(px, py);
+      else this.ctx.lineTo(px, py);
+    }
+    this.ctx.closePath();
+    this.ctx.fillStyle = '#fff176';
+    this.ctx.fill();
+    this.ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
+    this.ctx.strokeStyle = '#5d4037';
+    this.ctx.stroke();
     this.ctx.restore();
   }
 
   // Only reached while !gameOver (see render()) — the transient "Dummy
-  // caught Mia!" pause message. Plain text over the live board is fine
-  // here since gameplay is still visibly running underneath; the actual
-  // game-over screen uses displayGameOverModal() instead.
+  // caught Mia!" pause message. An overlay drawn directly on top of the
+  // live board is fine here since gameplay is still visibly running/paused
+  // underneath (this isn't a modal moment the way game-over is); the
+  // actual game-over screen uses displayGameOverModal() instead. Pops/
+  // scales in (same ease-out-cubic pattern as displayGameOverModal(), see
+  // DOG_COLLISION_MESSAGE_POP_IN_DURATION). A first pass here was just a
+  // bold purple fillText with a dark stroke — still read as amateurish and
+  // hard to read live, since floating text with no backdrop is at the
+  // mercy of whatever's drawn on the board directly behind it. Fixed by
+  // giving it a small pill-shaped banner (drawRoundedRect, this project's
+  // purple) behind white text, the same "colored card + white outlined
+  // text" formula displayGameOverModal() already uses — just a lightweight
+  // banner sized to the text rather than a full scrim-and-card modal.
   displayMessage() {
-    this.ctx.fillStyle = COLORS.MESSAGE;
-    this.ctx.font = `${this.layout.messageFontSize}px Arial`;
-    this.ctx.textAlign = 'center';
+    const ctx = this.ctx;
+    const { scale, messageFontSize } = this.layout;
+    const elapsed = performance.now() - this.dogCollisionStartTime;
+    const progress = Math.min(1, elapsed / DOG_COLLISION_MESSAGE_POP_IN_DURATION);
+    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic, same as displayGameOverModal()
+    const popScale = 0.4 + 0.6 * eased;
 
+    const centerX = this.canvas.width / 2;
     const messageY = this.canvas.height / 2 - this.layout.messageYOffset;
-    this.ctx.fillText(this.message, this.canvas.width / 2, messageY);
+
+    ctx.save();
+    ctx.globalAlpha = eased;
+    ctx.translate(centerX, messageY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-centerX, -messageY);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // 'Impact'/'Arial Black' fallback stack, same reasoning as
+    // displayGameOverModal()'s own headline font.
+    ctx.font = `900 ${messageFontSize}px Impact, 'Arial Black', sans-serif`;
+
+    // Banner sized to the actual text (plus padding) rather than a fixed
+    // width, so it hugs "Dummy caught Mia!" tightly instead of either
+    // clipping a longer message or looking sparse around a shorter one.
+    // Padding is proportional to the font size (not its own BASE_* layout
+    // constant) so it scales correctly at any canvas size for free.
+    const textWidth = ctx.measureText(this.message).width;
+    const paddingX = messageFontSize * 0.55;
+    const paddingY = messageFontSize * 0.32;
+    const bannerWidth = textWidth + paddingX * 2;
+    const bannerHeight = messageFontSize + paddingY * 2;
+    const bannerX = centerX - bannerWidth / 2;
+    const bannerY = messageY - bannerHeight / 2;
+
+    const gradient = ctx.createLinearGradient(centerX, bannerY, centerX, bannerY + bannerHeight);
+    gradient.addColorStop(0, COLORS.MESSAGE.BANNER_GRADIENT_START);
+    gradient.addColorStop(1, COLORS.MESSAGE.BANNER_GRADIENT_END);
+
+    drawRoundedRect(ctx, bannerX, bannerY, bannerWidth, bannerHeight, bannerHeight / 2);
+    ctx.fillStyle = gradient;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 10 * scale;
+    ctx.shadowOffsetY = 3 * scale;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+    ctx.strokeStyle = COLORS.MESSAGE.BANNER_BORDER;
+    ctx.stroke();
+
+    // A lighter stroke than the first (banner-less) attempt used — the
+    // banner itself now carries most of the contrast, so a heavy black
+    // outline on top of an already-bold Impact face just read muddy.
+    ctx.lineWidth = Math.max(1.5, 3 * scale);
+    ctx.strokeStyle = COLORS.MESSAGE.TEXT_STROKE;
+    ctx.strokeText(this.message, centerX, messageY);
+    ctx.fillStyle = COLORS.MESSAGE.TEXT_FILL;
+    ctx.fillText(this.message, centerX, messageY);
+    ctx.restore();
   }
 
   // Replaces the old plain-text end screen with a proper modal: a dimming

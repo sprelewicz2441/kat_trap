@@ -203,13 +203,14 @@ export default class Cat {
     this.frameCounter = 0;
   }
 
-  // Exposed as its own method (rather than inlined in draw()) so
-  // GameScreen's drawRedOutline() (the catPaused ring effect) can apply the
-  // identical rotation/stretch to its silhouette and stay visually aligned
-  // with the actual sprite, instead of drawing an axis-aligned outline
-  // under a now-tilted cat. Caller is responsible for having already
-  // translated to the cat's center — this only rotates/scales around
-  // whatever the current transform origin is.
+  // Exposed as its own method (rather than inlined in draw()) so any other
+  // caller that needs to replicate the cat's own tilt/stretch (previously
+  // GameScreen's now-removed drawRedOutline() catPaused silhouette; draw()
+  // below is the only caller today) can apply the identical rotation/
+  // stretch and stay visually aligned with the actual sprite, instead of
+  // drawing something axis-aligned under a now-tilted cat. Caller is
+  // responsible for having already translated to the cat's center — this
+  // only rotates/scales around whatever the current transform origin is.
   applyDirectionalTransform(ctx) {
     if (!this.hasMoved) return;
     if (this.facingDirection === 'left') ctx.rotate(-TILT_ANGLE);
