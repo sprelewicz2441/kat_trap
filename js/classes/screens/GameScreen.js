@@ -18,7 +18,7 @@ import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
 import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap } from '../../utils/collision.js';
-import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js';
+import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';

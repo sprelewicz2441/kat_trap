@@ -1,4 +1,4 @@
-import { getUIScale } from '../../utils/scale.js';
+import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { playModalPopSound } from '../../utils/audio.js';
 

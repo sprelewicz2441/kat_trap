@@ -1,5 +1,5 @@
 import CharacterSelectScreen from './CharacterSelectScreen.js';
-import { isTouch } from '../../utils/scale.js';
+import { isTouch } from '../../utils/scale.js?v=1';
 
 export default class SetupScreen {
   constructor(screenManager, canvas) {

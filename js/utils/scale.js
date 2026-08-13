@@ -80,13 +80,27 @@ const DESKTOP_CHARACTER_SIZE_MULTIPLIER = 1.95;
 // *relative to their own canvas width*. Desktop's character-to-canvas-width
 // ratio is (1 * DESKTOP_CHARACTER_SIZE_MULTIPLIER) / REFERENCE_WIDTH;
 // mobile's (before this) was just MOBILE_ASSET_MULTIPLIER / REFERENCE_WIDTH,
-// i.e. missing an equivalent size-only boost. This constant is exactly
-// DESKTOP_CHARACTER_SIZE_MULTIPLIER / MOBILE_ASSET_MULTIPLIER (1.95 / 1.5),
-// so mobile characters end up at the *same* proportion of the board desktop
-// characters have — not bigger or smaller, just matched. Same split from
-// getScale() as DESKTOP_CHARACTER_SIZE_MULTIPLIER: speed isn't affected,
-// only on-screen/collision size.
-const MOBILE_CHARACTER_SIZE_MULTIPLIER = 1.3;
+// i.e. missing an equivalent size-only boost. 1.3 (= DESKTOP_CHARACTER_SIZE_
+// MULTIPLIER / MOBILE_ASSET_MULTIPLIER, i.e. 1.95 / 1.5) matched mobile
+// characters to desktop's own board-width proportion exactly.
+//
+// A sequence of explicit follow-up requests against the 1.3 baseline above,
+// each applied to the *current* value at the time, not re-derived from
+// scratch: "make mobile characters 50% bigger" (1.3 * 1.5 = 1.95, reported
+// live as an overshoot and walked back), "go back to last size, then make
+// them 15% bigger" (1.3 * 1.15 = 1.495), "15% more from the current values"
+// (1.495 * 1.15 = 1.71925), "15% even more from the current values"
+// (1.71925 * 1.15 = 1.9771375 — this now exceeds DESKTOP_CHARACTER_SIZE_
+// MULTIPLIER's own 1.95 as a raw number, though the two were never directly
+// comparable anyway, see below). Each step moves further from the
+// desktop-parity rationale above, on purpose — mobile's *effective*
+// on-screen size also carries `MOBILE_ASSET_MULTIPLIER` from inside
+// getScale(), so this was never a 1:1 comparison against
+// DESKTOP_CHARACTER_SIZE_MULTIPLIER anyway. Same split from getScale() as
+// DESKTOP_CHARACTER_SIZE_MULTIPLIER: speed isn't affected, only on-screen/
+// collision size. If another "N% more" request comes in, apply it to
+// *this* value, not back to 1.3 or any earlier step.
+const MOBILE_CHARACTER_SIZE_MULTIPLIER = 1.9771375;
 
 // Exported so main.js's resizeCanvas() can reserve extra side-margin width
 // for the touch d-pad/action buttons — see resizeCanvas() for why.
