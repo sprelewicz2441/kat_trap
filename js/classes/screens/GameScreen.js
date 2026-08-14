@@ -10,14 +10,14 @@
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=5';
 import Mouse from '../Mouse.js?v=2';
-import Dog from '../Dog.js?v=4';
+import Dog from '../Dog.js?v=5';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
 import CharacterSelectScreen from './CharacterSelectScreen.js';
-import { aabbOverlap } from '../../utils/collision.js';
+import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
@@ -2282,14 +2282,19 @@ export default class GameScreen {
   // box), not cat.size (the oversized logical box also used for wall
   // clamping/AI lane width) — confirmed live and by direct measurement that
   // cat.size let the cat "catch" the mouse from noticeably outside its
-  // visible sprite, reported as "you can catch other characters from
-  // pretty far away." mouse.size is left as-is — it already equals the
-  // mouse's own displayWidth/displayHeight (see Mouse.js), so it was never
-  // oversized to begin with.
+  // visible sprite. That fix alone still wasn't tight enough — reported
+  // live again as "you can catch other characters from pretty far away" —
+  // since a full display box still reaches past the cat's actual solid
+  // body out to its ear/whisker tips. insetBox() (see collision.js) shrinks
+  // both boxes to their central CATCH_HITBOX_SCALE, so contact now has to
+  // happen closer to where the characters actually look like they're
+  // touching, not just where their outermost protrusions overlap.
   checkCollision(cat, mouse) {
+    const catBox = insetBox(cat.x, cat.y, cat.displayWidth, cat.displayHeight);
+    const mouseBox = insetBox(mouse.x, mouse.y, mouse.size, mouse.size);
     return aabbOverlap(
-      cat.x, cat.y, cat.displayWidth, cat.displayHeight,
-      mouse.x, mouse.y, mouse.size, mouse.size
+      catBox.x, catBox.y, catBox.width, catBox.height,
+      mouseBox.x, mouseBox.y, mouseBox.width, mouseBox.height
     );
   }
 

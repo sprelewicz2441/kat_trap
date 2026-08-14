@@ -1,4 +1,4 @@
-import { aabbOverlap } from '../utils/collision.js';
+import { aabbOverlap, insetBox } from '../utils/collision.js';
 
 export default class Dog {
   // `scale` (see js/utils/scale.js) shrinks speed/wallOffset on a small
@@ -277,12 +277,19 @@ export default class Dog {
   // and this.update() below) — uses entity.displayWidth/displayHeight
   // (the cat's actual visible sprite box) rather than entity.size (the
   // cat's oversized logical box), matching GameScreen.checkCollision()'s
-  // own fix for the same "catches from too far away" complaint.
+  // own fix for the same "catches from too far away" complaint. Both boxes
+  // are further shrunk via insetBox() (see collision.js) to their central
+  // CATCH_HITBOX_SCALE — the full display box still reaches out to ear/
+  // tail tips well past where the dog and cat actually look like they're
+  // touching, which is what kept this catching from too far away even
+  // after the displayWidth/displayHeight fix alone.
   isColliding(entity) {
     if (!entity) return false; // Prevents crash if entity is undefined
+    const dogBox = insetBox(this.x, this.y, this.frameWidth, this.frameHeight);
+    const entityBox = insetBox(entity.x, entity.y, entity.displayWidth, entity.displayHeight);
     return aabbOverlap(
-      this.x, this.y, this.frameWidth, this.frameHeight,
-      entity.x, entity.y, entity.displayWidth, entity.displayHeight
+      dogBox.x, dogBox.y, dogBox.width, dogBox.height,
+      entityBox.x, entityBox.y, entityBox.width, entityBox.height
     );
   }
 
