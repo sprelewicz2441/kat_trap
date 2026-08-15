@@ -8,7 +8,7 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=5';
+import Cat from '../Cat.js?v=6';
 import Mouse from '../Mouse.js?v=2';
 import Dog from '../Dog.js?v=6';
 import InputHandler from '../InputHandler.js';
@@ -598,14 +598,14 @@ const POOP_LIFETIME_MS = 15000;
 // How long the pile's own "plop" spawn-in animation takes (see drawPoop()).
 const POOP_POP_IN_DURATION = 220; // ms
 
-// Stink-line orbit above a poop pile (see drawStinkLines()/drawStinkLine()
-// below) — the same "bold, continuously orbiting" visual language
-// drawStunStars() already uses for the cat's dazed stars, applied here so
-// the hazard reads as obvious at a glance rather than needing the player to
-// notice a faint static squiggle. Unlike the stars (gated to catPaused, a
-// few seconds), these run for as long as the pile itself exists — a lazier
-// orbit (STINK_ORBIT_PERIOD vs. the stars' 1100ms) reading as a smell
-// wafting rather than a dazed spin.
+// Stink-line orbit (see drawStinkLines()/drawStinkLine() below) — the same
+// "bold, continuously orbiting" visual language drawStunStars() already
+// uses for the cat's dazed stars, applied above a poop pile so the hazard
+// reads as obvious at a glance rather than needing the player to notice a
+// faint static squiggle. Reused a second time by drawYuckStink() (the
+// poop-stun flavor of the cat's own dazed cue), centered on the cat's head
+// instead of the pile — the pile's own call runs for as long as it exists
+// (not gated to catPaused the way the cat's use of it is).
 const STINK_LINE_COUNT = 3;
 const BASE_STINK_ORBIT_RADIUS_X = 20;
 const STINK_ORBIT_RADIUS_Y_RATIO = 0.5;
@@ -1038,6 +1038,14 @@ export default class GameScreen {
     // this file. Named for what it drives (the cat's stun), not either one
     // trigger, since both share this same field and the visuals it drives.
     this.catStunStartTime = 0;
+    // Which trigger last stunned the cat — 'dog' (handleDogCollision()) or
+    // 'poop' (updatePoops()) — read by drawStunBurst()/drawStunStars() to
+    // pick which flavor of stun visual to draw (the amber POW burst/yellow
+    // stars for a dog catch, vs. a brown splat/stink squiggles for a poop
+    // pile), so the two causes read as visually distinct rather than the
+    // same effect regardless of what actually happened. Meaningless while
+    // catPaused is false, same as catStunStartTime above.
+    this.catStunSource = null;
     this.gameOver = false;
     this.message = '';
     this.shockwave = null;
@@ -1885,9 +1893,11 @@ export default class GameScreen {
   // mouse, not a standing puddle the cat can be re-stunned by while paused
   // on top of it. Shares this.catPaused/this.pauseEndTime/
   // this.catStunStartTime/this.message with handleDogCollision() — the dog
-  // physically catching the cat — so the exact same stun visuals
-  // (drawStunBurst()/drawStunStars()) and message banner (displayMessage())
-  // apply here for free, just with their own duration/message text.
+  // physically catching the cat — so the message banner (displayMessage())
+  // applies here for free, just with its own duration/text. The stun
+  // *visuals* diverge, though — drawStunBurst()/drawStunStars() branch on
+  // this.catStunSource (set below) to draw a poop-flavored splat/stink-
+  // squiggle pair instead of the dog-catch's amber burst/yellow stars.
   updatePoops(timestamp) {
     this.poops = this.poops.filter(poop => timestamp - poop.createdAt < POOP_LIFETIME_MS);
 
@@ -1904,6 +1914,8 @@ export default class GameScreen {
     this.pauseEndTime = timestamp + POOP_STUN_DURATION;
     this.message = MESSAGES.CAT_STUCK_IN_POOP;
     this.catStunStartTime = timestamp;
+    this.catStunSource = 'poop';
+    this.cat.startYuckReaction(timestamp);
     playCatStuckSound();
   }
 
@@ -2385,6 +2397,7 @@ export default class GameScreen {
     this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
     this.message = MESSAGES.DOG_CAUGHT;
     this.catStunStartTime = performance.now();
+    this.catStunSource = 'dog';
     this.playSound(SOUND_KEYS.DOG_BARK);
     // Layered on top of the bark above, not instead of it — see
     // SOUND_KEYS.GOTCHA's own comment.
@@ -2647,22 +2660,27 @@ export default class GameScreen {
     }
   }
 
-  // Small wavy green lines circling above a poop pile — same "bold, always
-  // orbiting" visual language drawStunStars() uses for the cat's dazed
-  // stars, not the original single-spot wavy-line treatment this replaced
-  // (which read as too subtle to register as a hazard marker at a glance,
-  // per live feedback). Runs for as long as the pile itself exists (`elapsed`
-  // is time since the pile was created, not gated to any shorter window the
-  // way the stun stars are to catPaused).
-  drawStinkLines(centerX, orbitCenterY, elapsed) {
-    const { stinkOrbitRadiusX, scale } = this.layout;
-    const orbitRadiusY = stinkOrbitRadiusX * STINK_ORBIT_RADIUS_Y_RATIO;
+  // Small squiggly brown lines circling above a poop pile — same "bold,
+  // always orbiting" visual language drawStunStars() uses for the cat's
+  // dazed stars. Brown rather than the green this originally shipped with
+  // (green read as more plant/toxic than "stink" — per explicit direction,
+  // "squiggly brown stink lines"), matching the pile's own color family so
+  // the two visually belong together. `orbitRadiusX` defaults to the
+  // pile's own layout value but is overridable — drawYuckStink() below
+  // reuses this exact method centered on the cat's head instead, at the
+  // stars' own (larger) orbit radius, rather than duplicating the orbit
+  // math for a second call site. Runs for as long as its caller keeps
+  // calling it with a growing `elapsed` — the pile calls this every frame
+  // it exists (not gated to catPaused the way the stun flavor is).
+  drawStinkLines(centerX, orbitCenterY, elapsed, orbitRadiusX = this.layout.stinkOrbitRadiusX) {
+    const { scale } = this.layout;
+    const orbitRadiusY = orbitRadiusX * STINK_ORBIT_RADIUS_Y_RATIO;
     const angularSpeed = (Math.PI * 2) / STINK_ORBIT_PERIOD;
 
     for (let i = 0; i < STINK_LINE_COUNT; i++) {
       const phase = (i / STINK_LINE_COUNT) * Math.PI * 2;
       const angle = elapsed * angularSpeed + phase;
-      const x = centerX + Math.cos(angle) * stinkOrbitRadiusX;
+      const x = centerX + Math.cos(angle) * orbitRadiusX;
       const y = orbitCenterY + Math.sin(angle) * orbitRadiusY;
       // Each line's own wobble phase offset by its orbit position so the
       // three don't wave in lockstep as they circle.
@@ -2670,31 +2688,43 @@ export default class GameScreen {
     }
   }
 
-  // A single wavy stink line, outlined for boldness — a dark, wider stroke
-  // drawn first, then a bright green, narrower stroke on top, the same
-  // "outlined solid shape" boldness drawStar() uses (fill + stroke) rather
-  // than a single thin translucent line.
+  // A single squiggly stink line, outlined for boldness — a dark, wider
+  // stroke drawn first, then a lighter brown, narrower stroke on top, the
+  // same "outlined solid shape" boldness drawStar() uses (fill + stroke)
+  // rather than a single thin translucent line. A short multi-wave zigzag
+  // (sampled along a sine) rather than one quadratic-curve hump, so it
+  // actually reads as "squiggly" rather than a single gentle bend.
   drawStinkLine(x, y, wobblePhase, scale) {
     const ctx = this.ctx;
     const height = 20 * scale;
-    const wobble = Math.sin(wobblePhase / 220) * 4 * scale;
-    const tipX = x + wobble;
-    const tipY = y - height;
+    const amplitude = 3.5 * scale;
+    const segments = 8;
+    const points = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      // Amplitude tapers slightly toward the tip so the squiggle narrows
+      // as it rises, rather than staying a uniform width band.
+      const wave = Math.sin(t * Math.PI * 2.4 + wobblePhase / 220) * amplitude * (1 - t * 0.25);
+      points.push({ x: x + wave, y: y - t * height });
+    }
+
+    const tracePath = () => {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    };
 
     ctx.save();
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#2d5c1a';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#3d2712';
     ctx.lineWidth = Math.max(2.5, 4 * scale);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.quadraticCurveTo(x + wobble, y - height / 2, tipX, tipY);
+    tracePath();
     ctx.stroke();
 
-    ctx.strokeStyle = '#7cd44a';
+    ctx.strokeStyle = '#9c6b3a';
     ctx.lineWidth = Math.max(1.5, 2.2 * scale);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.quadraticCurveTo(x + wobble, y - height / 2, tipX, tipY);
+    tracePath();
     ctx.stroke();
     ctx.restore();
   }
@@ -2860,17 +2890,26 @@ export default class GameScreen {
     this.ctx.restore();
   }
 
-  // One-shot spiky "POW" burst timed to the moment the dog actually
-  // connects — adapts drawShockwave()'s expanding-ring/fade technique
-  // (progress → eased radius, alpha = 1 - progress) but as a filled
-  // 8-point starburst polygon rather than a stroked circle, and warm
-  // amber/orange rather than punch's purple, so the two moments read as
-  // distinct effects rather than the same ring recolored. Self-guards
-  // internally (this.catPaused, elapsed vs DOG_COLLISION_BURST_DURATION)
-  // so drawGameObjects() can call it unconditionally every frame, same
-  // style as drawShockwave()/drawTootEffect().
+  // One-shot burst timed to the moment the cat's stun actually starts —
+  // dispatches to whichever flavor matches this.catStunSource (set by
+  // handleDogCollision()/updatePoops()) so the dog physically catching the
+  // cat and the cat stepping in a poop pile read as distinct causes rather
+  // than the same effect regardless of what happened. Self-guards
+  // internally (this.catPaused) so drawGameObjects() can call it
+  // unconditionally every frame, same style as drawShockwave()/
+  // drawTootEffect().
   drawStunBurst() {
     if (!this.catPaused) return;
+    if (this.catStunSource === 'poop') {
+      this.drawYuckBurst();
+      return;
+    }
+
+    // Adapts drawShockwave()'s expanding-ring/fade technique (progress →
+    // eased radius, alpha = 1 - progress) but as a filled 8-point starburst
+    // polygon rather than a stroked circle, and warm amber/orange rather
+    // than punch's purple, so the two moments read as distinct effects
+    // rather than the same ring recolored.
     const elapsed = performance.now() - this.catStunStartTime;
     if (elapsed > DOG_COLLISION_BURST_DURATION) return;
 
@@ -2901,15 +2940,60 @@ export default class GameScreen {
     this.ctx.restore();
   }
 
-  // "Seeing stars" — a handful of small stars circling the cat's head in a
-  // flattened ellipse (so they read as orbiting a mostly-front-facing head
-  // rather than floating in a flat halo) for the entire pause, the classic
-  // cartoon "stunned" cue. Continuous rather than one-shot: angle is driven
-  // directly off elapsed time each frame (no stored per-star state), so it
-  // just keeps circling for as long as this.catPaused stays true. Self-
-  // guards the same way drawStunBurst() above does.
+  // Poop-stun flavor of the one-shot burst above — small brown droplets
+  // spraying outward and downward from the cat's feet (where it actually
+  // stepped), rather than a centered starburst, so it reads as a splash/
+  // splat rather than an impact. Same expanding/fading technique and
+  // duration (DOG_COLLISION_BURST_DURATION) as the amber POW burst it
+  // replaces, just a different shape/color/origin point.
+  drawYuckBurst() {
+    const elapsed = performance.now() - this.catStunStartTime;
+    if (elapsed > DOG_COLLISION_BURST_DURATION) return;
+
+    const cat = this.cat;
+    const centerX = cat.x + cat.displayWidth / 2;
+    const centerY = cat.y + cat.displayHeight * 0.85; // near the feet, not the sprite's center
+
+    const progress = elapsed / DOG_COLLISION_BURST_DURATION;
+    const eased = 1 - Math.pow(1 - progress, 2);
+    const maxRadius = this.layout.dogCollisionBurstMaxRadius;
+    const alpha = 1 - progress;
+    const DROPLETS = 7;
+
+    this.ctx.save();
+    for (let i = 0; i < DROPLETS; i++) {
+      const angle = (i / DROPLETS) * Math.PI * 2 + 0.4;
+      // Uneven per-droplet distance — a real splash sprays unevenly rather
+      // than landing every droplet on one clean ring.
+      const distanceMul = 0.55 + 0.45 * ((i * 37) % 5) / 4;
+      const dist = eased * maxRadius * distanceMul;
+      const dropX = centerX + Math.cos(angle) * dist;
+      const dropY = centerY + Math.sin(angle) * dist * 0.6; // flattened spray, not a full circle
+      const dropSize = (2.5 + (i % 3)) * this.layout.scale;
+      this.ctx.fillStyle = `rgba(93, 62, 26, ${alpha})`;
+      this.ctx.beginPath();
+      this.ctx.ellipse(dropX, dropY, dropSize, dropSize * 0.8, angle, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    this.ctx.restore();
+  }
+
+  // Continuous "dazed" cue for the entire pause — dispatches to whichever
+  // flavor matches this.catStunSource, same reasoning as drawStunBurst()
+  // above. Self-guards the same way drawStunBurst() does.
   drawStunStars() {
     if (!this.catPaused) return;
+    if (this.catStunSource === 'poop') {
+      this.drawYuckStink();
+      return;
+    }
+
+    // "Seeing stars" — a handful of small stars circling the cat's head in
+    // a flattened ellipse (so they read as orbiting a mostly-front-facing
+    // head rather than floating in a flat halo), the classic cartoon
+    // "stunned" cue. Continuous rather than one-shot: angle is driven
+    // directly off elapsed time each frame (no stored per-star state), so
+    // it just keeps circling for as long as this.catPaused stays true.
     const elapsed = performance.now() - this.catStunStartTime;
 
     const cat = this.cat;
@@ -2927,6 +3011,21 @@ export default class GameScreen {
       const y = orbitCenterY + Math.sin(angle) * orbitRadiusY;
       this.drawStar(x, y, this.layout.dogCollisionStarSize);
     }
+  }
+
+  // Poop-stun flavor of the "seeing stars" cue above — reuses the exact
+  // same orbiting stink-squiggle drawStinkLines() the pile itself uses
+  // (see drawPoop()), just centered on the cat's head instead of the pile,
+  // and at the same orbit radius the stars use (dogCollisionStarOrbitRadiusX)
+  // so the "size" of the dazed effect stays consistent regardless of which
+  // flavor is showing. Ties the visual directly back to what caused it —
+  // the cat now reeks, rather than an unrelated dazed cue.
+  drawYuckStink() {
+    const elapsed = performance.now() - this.catStunStartTime;
+    const cat = this.cat;
+    const centerX = cat.x + cat.displayWidth / 2;
+    const orbitCenterY = cat.y + cat.displayHeight * 0.15;
+    this.drawStinkLines(centerX, orbitCenterY, elapsed, this.layout.dogCollisionStarOrbitRadiusX);
   }
 
   // Small 5-point star polygon, filled bright yellow with a dark outline —

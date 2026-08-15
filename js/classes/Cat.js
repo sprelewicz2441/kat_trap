@@ -11,6 +11,17 @@
 const TILT_ANGLE = 0.14; // radians, ~8 degrees
 const STRETCH_AMOUNT = 0.08; // 8% taller/shorter
 
+// Poop-stun "yuck" reaction — a quick decaying side-to-side wobble layered
+// on top of whatever directional tilt/stretch is already active (see
+// startYuckReaction()/draw() below), the same oscillate-and-decay shape
+// Furniture.js's own shake reaction uses for a bumped piece of furniture,
+// borrowed here for the cat's own "shaking it off" recoil. A bit bigger
+// than Furniture's shake angle (10° vs 5°) since this is a full-body
+// recoil, not a small piece of furniture rattling.
+const YUCK_SHAKE_DURATION = 450; // ms
+const YUCK_SHAKE_MAX_ANGLE = (10 * Math.PI) / 180; // radians
+const YUCK_SHAKE_CYCLES = 3; // back-and-forth oscillations over the full duration
+
 // cat.png's frame is a big round head (with ears/whiskers sticking out to
 // both sides) over a much narrower body/legs section — see getHitboxAt()
 // below for where this is actually used. Ratios measured directly off the
@@ -92,6 +103,14 @@ export default class Cat {
     // squashed (the 'down' stretch) for the entire cutscene, a visible
     // regression from before this transform existed.
     this.hasMoved = false;
+
+    // Poop-stun "yuck" reaction state — see startYuckReaction()/draw()
+    // below. Not reset back to false once triggered (same convention as
+    // Furniture.js's own shaking flag): the wobble angle itself decays to
+    // exactly 0 by YUCK_SHAKE_DURATION via the sine easing in draw(), so
+    // leaving `yucking` true afterward is harmless.
+    this.yucking = false;
+    this.yuckStartTime = null;
   }
 
   // The actual on-screen size (see draw()) — GameScreen uses this instead
@@ -219,6 +238,16 @@ export default class Cat {
     else if (this.facingDirection === 'down') ctx.scale(1, 1 - STRETCH_AMOUNT);
   }
 
+  // Called by GameScreen.updatePoops() the instant the cat actually steps
+  // in a poop pile. Always restarts from the beginning — same "replayable,
+  // not a one-shot" convention as Dog.js's startPoopAnim()/Furniture.js's
+  // startShake() — though in practice a pile is consumed on contact (see
+  // updatePoops()), so this only ever fires once per pile.
+  startYuckReaction(timestamp) {
+    this.yucking = true;
+    this.yuckStartTime = timestamp;
+  }
+
   draw(ctx) {
     const sx = 0; // Since all frames are in a single column
     const sy = this.currentFrame * this.frameHeight; // Native frameHeight — indexes the source sheet
@@ -228,6 +257,18 @@ export default class Cat {
     ctx.save();
     ctx.translate(this.x + width / 2, this.y + height / 2);
     this.applyDirectionalTransform(ctx);
+    // Poop-stun wobble (see startYuckReaction() above) — a plain sine over
+    // [0, YUCK_SHAKE_CYCLES full cycles] times a linear decay, so it starts
+    // and ends at 0 with no separate decay math needed, same shape
+    // Furniture.js's shake uses. Composes with applyDirectionalTransform()'s
+    // own rotate/scale above rather than replacing it, since both act on
+    // the same already-centered transform origin.
+    if (this.yucking) {
+      const elapsed = performance.now() - this.yuckStartTime;
+      const t = Math.min(1, elapsed / YUCK_SHAKE_DURATION);
+      const decay = 1 - t;
+      ctx.rotate(Math.sin(t * Math.PI * 2 * YUCK_SHAKE_CYCLES) * YUCK_SHAKE_MAX_ANGLE * decay);
+    }
     // No longer disables imageSmoothingEnabled here — that was a workaround
     // for cross-frame bleed in the old low-resolution sheet (see CLAUDE.md),
     // which is now fixed at the asset level (stray pixels stripped from the
