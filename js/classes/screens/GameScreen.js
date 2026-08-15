@@ -10,7 +10,7 @@
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=5';
 import Mouse from '../Mouse.js?v=2';
-import Dog from '../Dog.js?v=5';
+import Dog from '../Dog.js?v=6';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
@@ -20,7 +20,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // ==============================
@@ -580,6 +580,37 @@ const BASE_DOG_PLAYER_SPEED = 10;
 const DOG_PAUSE_DURATION = 4000;
 const DOG_COLLISION_COOLDOWN = 1000; // ms
 
+// Dog poop hazard — the dog can drop a pile that stuns the cat for
+// POOP_STUN_DURATION on contact, same catPaused/pauseEndTime/message
+// mechanism handleDogCollision() already drives for the dog-catches-cat
+// pause (see handleDogPoop()/updatePoops() below), just a different trigger
+// and duration. Requested as "5 seconds", independent of DOG_PAUSE_DURATION
+// above rather than reusing it, since the two moments (dog physically
+// catching the cat vs. the cat stepping in a hazard) are conceptually
+// unrelated even though they now share the same underlying pause plumbing.
+const POOP_STUN_DURATION = 5000; // ms
+// How long an un-stepped-in poop pile sits on the board before vanishing on
+// its own — without this, a cautious player (or an AI cat that never
+// happens to wander into it) could permanently block the dog from ever
+// dropping another one, since handleDogPoop() only allows one active pile
+// at a time (see its own comment).
+const POOP_LIFETIME_MS = 15000;
+// How long the pile's own "plop" spawn-in animation takes (see drawPoop()).
+const POOP_POP_IN_DURATION = 220; // ms
+
+// Stink-line orbit above a poop pile (see drawStinkLines()/drawStinkLine()
+// below) — the same "bold, continuously orbiting" visual language
+// drawStunStars() already uses for the cat's dazed stars, applied here so
+// the hazard reads as obvious at a glance rather than needing the player to
+// notice a faint static squiggle. Unlike the stars (gated to catPaused, a
+// few seconds), these run for as long as the pile itself exists — a lazier
+// orbit (STINK_ORBIT_PERIOD vs. the stars' 1100ms) reading as a smell
+// wafting rather than a dazed spin.
+const STINK_LINE_COUNT = 3;
+const BASE_STINK_ORBIT_RADIUS_X = 20;
+const STINK_ORBIT_RADIUS_Y_RATIO = 0.5;
+const STINK_ORBIT_PERIOD = 1400; // ms per full revolution
+
 // How long the player-controlled mouse has to go without a movement key
 // held before "not pressing a key this tick" (movePlayerMouse()'s escape-
 // check trigger) counts as an actual stop, rather than just the brief gap
@@ -739,6 +770,13 @@ const BASE_CAT_SIZE = 39;
 const BASE_MOUSE_SIZE = 32;
 const BASE_DOG_SIZE = 50;
 
+// Dog poop pile footprint — a squat blob (wider than tall), sized roughly
+// like the mouse-hole escapes (BASE_ESCAPE_SIZE) so it reads as a real,
+// visible-at-a-glance hazard rather than a tiny speck, without being as
+// large as a character.
+const BASE_POOP_WIDTH = 34;
+const BASE_POOP_HEIGHT = 26;
+
 // Wall clearance must cover the tallest thing placed on that wall, plus the
 // wall band itself — every module's back is flush against the wall band's
 // front face (see makeModule()/buildWallVertical() below), so the interior
@@ -852,6 +890,9 @@ function computeLayout(canvasWidth) {
     catSizeApprox: BASE_CAT_SIZE * characterScale,
     mouseSizeApprox: BASE_MOUSE_SIZE * characterScale,
     dogSizeApprox: BASE_DOG_SIZE * characterScale,
+    poopWidth: BASE_POOP_WIDTH * scale,
+    poopHeight: BASE_POOP_HEIGHT * scale,
+    stinkOrbitRadiusX: BASE_STINK_ORBIT_RADIUS_X * scale,
     topWallHeight,
     bottomWallHeight,
     leftWallWidth,
@@ -939,6 +980,7 @@ const MESSAGES = {
   DOG_CAUGHT: `${CHARACTER_NAMES.DOG} caught ${CHARACTER_NAMES.CAT}!`,
   CAT_CAUGHT_MOUSE: `${CHARACTER_NAMES.CAT} caught ${CHARACTER_NAMES.MOUSE}!`,
   MOUSE_ESCAPED: `${CHARACTER_NAMES.MOUSE} escaped!`,
+  CAT_STUCK_IN_POOP: `${CHARACTER_NAMES.CAT} stepped in ${CHARACTER_NAMES.DOG}'s poop!`,
 };
 
 // ==============================
@@ -976,17 +1018,26 @@ export default class GameScreen {
     this.escapes = [];
     this.furniture = [];
     this.wallGap = null;
+    // Active dog poop piles — see handleDogPoop()/updatePoops() below. In
+    // practice never more than one at a time (handleDogPoop() no-ops while
+    // one's already out there), but kept as an array rather than a single
+    // nullable field so a future loosening of that one-at-a-time rule
+    // wouldn't need a shape change here too.
+    this.poops = [];
 
     this.running = false;
     this.catPaused = false;
     this.pauseEndTime = 0;
     this.dogCollisionCooldown = 0;
-    // performance.now() timestamp from handleDogCollision() — drives both
-    // the pause message's pop-in (displayMessage()) and the stun burst/
-    // stars' timing (drawStunBurst()/drawStunStars()), the same
-    // performance.now()-diff pattern this.gameOverStartTime/this.shockwave
-    // already use elsewhere in this file.
-    this.dogCollisionStartTime = 0;
+    // performance.now() timestamp from whichever trigger last stunned the
+    // cat — handleDogCollision() (the dog physically catching it) or
+    // updatePoops() (stepping in a poop pile) — drives both the pause
+    // message's pop-in (displayMessage()) and the stun burst/stars' timing
+    // (drawStunBurst()/drawStunStars()), the same performance.now()-diff
+    // pattern this.gameOverStartTime/this.shockwave already use elsewhere in
+    // this file. Named for what it drives (the cat's stun), not either one
+    // trigger, since both share this same field and the visuals it drives.
+    this.catStunStartTime = 0;
     this.gameOver = false;
     this.message = '';
     this.shockwave = null;
@@ -1103,15 +1154,26 @@ export default class GameScreen {
       if (e.detail.open) {
         this.wasRunningBeforeMenu = this.running;
         this.running = false;
-        if (this.dog) this.dog.pauseBarking();
+        if (this.dog) {
+          this.dog.pauseBarking();
+          this.dog.pausePooping();
+        }
         this.stopDogBarkSound();
       } else if (this.wasRunningBeforeMenu !== null) {
         this.running = this.wasRunningBeforeMenu;
         this.wasRunningBeforeMenu = null;
-        // Only resume barking if play is actually resuming — if the menu
-        // was opened after the round had already ended, this.running
+        // Only resume barking/pooping if play is actually resuming — if the
+        // menu was opened after the round had already ended, this.running
         // restores to false (game over) and the dog should stay silent.
-        if (this.running && this.dog) this.dog.resumeBarking();
+        // resumePooping() is also skipped in Dog mode — the autonomous
+        // timer was never started there in the first place (see
+        // resetGameObjects()), and resuming it unconditionally here would
+        // start it for the first time in a mode where poop is meant to be
+        // player-triggered only.
+        if (this.running && this.dog) {
+          this.dog.resumeBarking();
+          if (this.controlledEntity !== 'dog') this.dog.resumePooping();
+        }
       }
     };
     document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
@@ -1127,8 +1189,18 @@ export default class GameScreen {
     document.addEventListener('toot', this.tootHandler);
 
     this.punchHandler = () => {
-      this.playSound(SOUND_KEYS.PUNCH);
-      this.handlePunch();
+      // Punch already no-ops position-wise in Dog mode (see handlePunch())
+      // — shoving the dog away from the cat makes no sense when the player
+      // IS the dog, so pressing 'p' there used to just play a punch sound
+      // for no visible effect. Repurposed instead: in Dog mode, 'p' drops a
+      // poop pile — the dog's own direct way to stall the cat (see
+      // handleDogPoop()) — rather than sharing the punch sound/effect.
+      if (this.controlledEntity === 'dog') {
+        this.handleDogPoop();
+      } else {
+        this.playSound(SOUND_KEYS.PUNCH);
+        this.handlePunch();
+      }
     };
     document.addEventListener('punch', this.punchHandler);
 
@@ -1158,6 +1230,11 @@ export default class GameScreen {
   resetGameObjects() {
     this.furniture = this.generateKitchenFurniture();
     this.escapes = this.generateEscapes(NUM_OF_ESCAPES);
+    // resetGameObjects() can run a second time within one GameScreen
+    // instance (see the outgoing-dog cleanup comment just below) — clear
+    // out any poop from that earlier pass rather than carrying it into the
+    // new layout.
+    this.poops = [];
 
     if (this.inputHandler) this.inputHandler.cleanup();
     // resetGameObjects() unconditionally reassigns this.dog below — called
@@ -1242,6 +1319,18 @@ export default class GameScreen {
                   characterScale
                 );
     this.dog.setNextBark();
+    // Autonomous poop-dropping only — when the player IS the dog, 'p'
+    // triggers it directly instead (see the punchHandler in init(), which
+    // repurposes the punch key since it already no-ops for a player-
+    // controlled dog). Wiring the callback unconditionally would be
+    // harmless on its own, but only actually starting the timer when it's
+    // not player-controlled keeps setNextPoop()'s wall-clock schedule from
+    // ever running (and needing to be paused/resumed) in a mode where it's
+    // not supposed to fire at all.
+    this.dog.setPoopCallback(() => this.handleDogPoop());
+    if (this.controlledEntity !== 'dog') {
+      this.dog.setNextPoop();
+    }
 
     this.inputHandler = new InputHandler();
     // wallHitCallback is sound-only — see checkMouseEscapeOnWallHit()'s own
@@ -1503,6 +1592,7 @@ export default class GameScreen {
     this.updateCartBump(timestamp);
     this.updateShelfBump(timestamp);
     this.updateTableBump(timestamp);
+    this.updatePoops(timestamp);
   }
 
   // Plant is passable (see NON_BLOCKING_FURNITURE_TYPES) — this is a
@@ -1741,6 +1831,80 @@ export default class GameScreen {
     // Ensure the dog stays within bounds
     this.dog.x = Math.max(0, Math.min(this.canvas.width - this.dog.size, this.dog.x));
     this.dog.y = Math.max(0, Math.min(this.canvas.height - this.dog.size, this.dog.y));
+  }
+
+  // Drops a poop pile at the dog's current position — either the player
+  // pressing 'p' in Dog mode (see the punchHandler in init(), which
+  // repurposes the punch key since it already does nothing when playing as
+  // the dog) or Dog.js's own random-interval autonomous timer (Cat/Mouse
+  // mode, wired via setPoopCallback() in resetGameObjects()). Only one
+  // active (un-stepped-in) pile is allowed on the board at a time — without
+  // this, mashing 'p' or a fast autonomous roll could carpet the board with
+  // piles, which reads as clutter rather than a placed hazard. See
+  // updatePoops() below for how a pile is consumed/expires.
+  handleDogPoop() {
+    if (!this.dog || this.poops.length > 0) return;
+
+    const { poopWidth, poopHeight } = this.layout;
+    const dogCenterX = this.dog.x + this.dog.displayWidth / 2;
+    const dogCenterY = this.dog.y + this.dog.displayHeight / 2;
+    // Offset toward the dog's tail (the side opposite whichever way it's
+    // facing), not centered directly under it — confirmed live that a
+    // centered pile was fully hidden under the dog's own sprite until it
+    // moved away, reading as if nothing happened. Dog.js has no up/down
+    // facing art (only facingLeft — see its own comment), so "behind" is
+    // always this horizontal offset. 0.55 * displayWidth puts the pile's
+    // center just outside the dog's own bounding box on that side, so most
+    // of it peeks out immediately rather than needing the dog to step away
+    // first — the dog is still drawn on top of it (see render()'s draw
+    // order), so it still reads as "behind the dog," just no longer fully
+    // swallowed by it.
+    const behindSign = this.dog.facingLeft ? 1 : -1;
+    const poopCenterX = dogCenterX + behindSign * this.dog.displayWidth * 0.55;
+    const poopCenterY = dogCenterY + this.dog.displayHeight * 0.15;
+
+    this.poops.push({
+      x: poopCenterX - poopWidth / 2,
+      y: poopCenterY - poopHeight / 2,
+      width: poopWidth,
+      height: poopHeight,
+      createdAt: performance.now(),
+    });
+    this.dog.startPoopAnim(performance.now());
+    playPoopSound();
+  }
+
+  // Expires stale piles (see POOP_LIFETIME_MS) and checks whether the cat
+  // has stepped in one — cat-only, same as the plant/cart/shelf/table bump
+  // checks above, and using the same full-display-box aabbOverlap those use
+  // (not checkCollision()'s tightened insetBox() — that's specifically for
+  // character-vs-character catch checks, see collision.js's own comment; a
+  // poop pile is a ground hazard, not a character). Stepping in a pile
+  // consumes it (spliced out) rather than leaving it there to re-trigger —
+  // a single-use trap, the same shape Escape's hasMouseEntered() is for the
+  // mouse, not a standing puddle the cat can be re-stunned by while paused
+  // on top of it. Shares this.catPaused/this.pauseEndTime/
+  // this.catStunStartTime/this.message with handleDogCollision() — the dog
+  // physically catching the cat — so the exact same stun visuals
+  // (drawStunBurst()/drawStunStars()) and message banner (displayMessage())
+  // apply here for free, just with their own duration/message text.
+  updatePoops(timestamp) {
+    this.poops = this.poops.filter(poop => timestamp - poop.createdAt < POOP_LIFETIME_MS);
+
+    if (this.catPaused || this.poops.length === 0) return;
+
+    const cat = this.cat;
+    const poopIndex = this.poops.findIndex(poop =>
+      aabbOverlap(cat.x, cat.y, cat.displayWidth, cat.displayHeight, poop.x, poop.y, poop.width, poop.height)
+    );
+    if (poopIndex === -1) return;
+
+    this.poops.splice(poopIndex, 1);
+    this.catPaused = true;
+    this.pauseEndTime = timestamp + POOP_STUN_DURATION;
+    this.message = MESSAGES.CAT_STUCK_IN_POOP;
+    this.catStunStartTime = timestamp;
+    playCatStuckSound();
   }
 
   moveCat() {
@@ -2220,7 +2384,7 @@ export default class GameScreen {
     this.catPaused = true;
     this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
     this.message = MESSAGES.DOG_CAUGHT;
-    this.dogCollisionStartTime = performance.now();
+    this.catStunStartTime = performance.now();
     this.playSound(SOUND_KEYS.DOG_BARK);
     // Layered on top of the bark above, not instead of it — see
     // SOUND_KEYS.GOTCHA's own comment.
@@ -2315,6 +2479,11 @@ export default class GameScreen {
     this.drawFloor();
     this.drawWalls();
     this.escapes.forEach(escape => escape.draw(this.ctx));
+    // A floor-level hazard, same as the escapes above — drawn before the
+    // mouse/furniture/characters so anything walking over it draws on top,
+    // the same convention every other ground-level thing in this sequence
+    // already follows.
+    this.drawPoops();
     // Mouse draws before furniture so it visually ducks under furniture
     // it's overlapping, even though it isn't blocked by it (see updateMouse).
     // Skipped once it's escaped (see checkMouseEscaped()) so it doesn't
@@ -2406,6 +2575,128 @@ export default class GameScreen {
     this.ctx.ellipse(centerX, centerY, this.mouse.size / 2, this.mouse.size / 2.5, 0, 0, Math.PI * 2);
     this.ctx.fill();
     this.ctx.restore();
+  }
+
+  drawPoops() {
+    this.poops.forEach(poop => this.drawPoop(poop));
+  }
+
+  // Classic cartoon poop swirl — three stacked, tapering lumps plus a
+  // couple of wavy "stink lines" above, so it reads clearly as a hazard to
+  // avoid at a glance rather than an ambiguous brown blob. Pops in with a
+  // quick overshoot scale (see POOP_POP_IN_DURATION) so it reads as
+  // "plopping down" rather than snapping straight to full size.
+  drawPoop(poop) {
+    const ctx = this.ctx;
+    const elapsed = performance.now() - poop.createdAt;
+    const popProgress = Math.min(1, elapsed / POOP_POP_IN_DURATION);
+    // Back-out ease (overshoots past 1 then settles) rather than a flat
+    // linear grow — same family of "landed with a bit of bounce" motion as
+    // the rest of this file's pop-ins, just with an overshoot instead of
+    // their ease-out-cubic settle, since a fresh drop landing reads better
+    // with a little jiggle than a smooth glide-in.
+    // Standard easeOutBack coefficients — c3 (the cubic term) and c1 (the
+    // quadratic term) have to be *different* constants (c3 = c1 + 1), not
+    // the same one, or f(0) no longer lands at 0: plugging progress=0 in
+    // with a single shared constant k gives 1 - k + k = 1, i.e. the pile
+    // would already be full-size at the very first frame instead of
+    // actually growing in.
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    const settled = popProgress - 1;
+    const eased = 1 + c3 * settled * settled * settled + c1 * settled * settled;
+    const popScale = popProgress >= 1 ? 1 : Math.max(0, eased);
+
+    const centerX = poop.x + poop.width / 2;
+    const bottomY = poop.y + poop.height;
+
+    ctx.save();
+    ctx.translate(centerX, bottomY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-centerX, -bottomY);
+
+    const lumps = [
+      { rx: poop.width * 0.5, ry: poop.height * 0.38, dy: 0 },
+      { rx: poop.width * 0.36, ry: poop.height * 0.3, dy: -poop.height * 0.32 },
+      { rx: poop.width * 0.22, ry: poop.height * 0.2, dy: -poop.height * 0.58 },
+    ];
+    ctx.fillStyle = '#6d4c28';
+    ctx.strokeStyle = '#4a3218';
+    ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
+    lumps.forEach(lump => {
+      ctx.beginPath();
+      ctx.ellipse(centerX, bottomY + lump.dy - lump.ry * 0.3, lump.rx, lump.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+
+    // Small highlight for a bit of shine/dimension.
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(centerX - poop.width * 0.12, bottomY - poop.height * 0.65, poop.width * 0.08, poop.height * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Stink lines drawn outside the pop-in transform above (always full
+    // scale once the pile itself has finished popping in) so they don't
+    // shrink along with the plop, and only once the plop itself has
+    // settled rather than wobbling mid-overshoot.
+    if (popProgress >= 1) {
+      this.drawStinkLines(centerX, bottomY - poop.height * 0.75, elapsed);
+    }
+  }
+
+  // Small wavy green lines circling above a poop pile — same "bold, always
+  // orbiting" visual language drawStunStars() uses for the cat's dazed
+  // stars, not the original single-spot wavy-line treatment this replaced
+  // (which read as too subtle to register as a hazard marker at a glance,
+  // per live feedback). Runs for as long as the pile itself exists (`elapsed`
+  // is time since the pile was created, not gated to any shorter window the
+  // way the stun stars are to catPaused).
+  drawStinkLines(centerX, orbitCenterY, elapsed) {
+    const { stinkOrbitRadiusX, scale } = this.layout;
+    const orbitRadiusY = stinkOrbitRadiusX * STINK_ORBIT_RADIUS_Y_RATIO;
+    const angularSpeed = (Math.PI * 2) / STINK_ORBIT_PERIOD;
+
+    for (let i = 0; i < STINK_LINE_COUNT; i++) {
+      const phase = (i / STINK_LINE_COUNT) * Math.PI * 2;
+      const angle = elapsed * angularSpeed + phase;
+      const x = centerX + Math.cos(angle) * stinkOrbitRadiusX;
+      const y = orbitCenterY + Math.sin(angle) * orbitRadiusY;
+      // Each line's own wobble phase offset by its orbit position so the
+      // three don't wave in lockstep as they circle.
+      this.drawStinkLine(x, y, elapsed + i * 200, scale);
+    }
+  }
+
+  // A single wavy stink line, outlined for boldness — a dark, wider stroke
+  // drawn first, then a bright green, narrower stroke on top, the same
+  // "outlined solid shape" boldness drawStar() uses (fill + stroke) rather
+  // than a single thin translucent line.
+  drawStinkLine(x, y, wobblePhase, scale) {
+    const ctx = this.ctx;
+    const height = 20 * scale;
+    const wobble = Math.sin(wobblePhase / 220) * 4 * scale;
+    const tipX = x + wobble;
+    const tipY = y - height;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#2d5c1a';
+    ctx.lineWidth = Math.max(2.5, 4 * scale);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x + wobble, y - height / 2, tipX, tipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#7cd44a';
+    ctx.lineWidth = Math.max(1.5, 2.2 * scale);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x + wobble, y - height / 2, tipX, tipY);
+    ctx.stroke();
+    ctx.restore();
   }
 
   drawGameObjects() {
@@ -2580,7 +2871,7 @@ export default class GameScreen {
   // style as drawShockwave()/drawTootEffect().
   drawStunBurst() {
     if (!this.catPaused) return;
-    const elapsed = performance.now() - this.dogCollisionStartTime;
+    const elapsed = performance.now() - this.catStunStartTime;
     if (elapsed > DOG_COLLISION_BURST_DURATION) return;
 
     const cat = this.cat;
@@ -2619,7 +2910,7 @@ export default class GameScreen {
   // guards the same way drawStunBurst() above does.
   drawStunStars() {
     if (!this.catPaused) return;
-    const elapsed = performance.now() - this.dogCollisionStartTime;
+    const elapsed = performance.now() - this.catStunStartTime;
 
     const cat = this.cat;
     const centerX = cat.x + cat.displayWidth / 2;
@@ -2682,7 +2973,7 @@ export default class GameScreen {
   displayMessage() {
     const ctx = this.ctx;
     const { scale, messageFontSize } = this.layout;
-    const elapsed = performance.now() - this.dogCollisionStartTime;
+    const elapsed = performance.now() - this.catStunStartTime;
     const progress = Math.min(1, elapsed / DOG_COLLISION_MESSAGE_POP_IN_DURATION);
     const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic, same as displayGameOverModal()
     const popScale = 0.4 + 0.6 * eased;

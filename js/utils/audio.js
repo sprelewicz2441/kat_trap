@@ -301,3 +301,98 @@ export function playPlantKnockOverSound() {
   noise.start(now);
   noise.stop(now + scatterDuration);
 }
+
+// Dog poop drop: a squelchy "plop" — a short low thud (the pile landing)
+// layered with a brief wet, bandpassed noise burst for the squish texture,
+// same "impact and texture happen at the same instant" approach as
+// playPlantKnockOverSound() above, just pitched squishier/wetter than that
+// one's dry dirt-scatter. Triggered directly from GameScreen.handleDogPoop()
+// (both the player-triggered 'p' press in Dog mode and the autonomous
+// random-interval drop) rather than routed through GameScreen.playSound()
+// (file-backed SOUND_KEYS only) — same reasoning as every other synthesized
+// one-shot in this file.
+export function playPoopSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+
+  playNote(ctx, {
+    freq: 220,
+    endFreq: 90,
+    start: now,
+    duration: 0.14,
+    type: 'sine',
+    peakGain: 0.35,
+  });
+
+  const squishDuration = 0.16;
+  const bufferSize = Math.floor(ctx.sampleRate * squishDuration);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.Q.value = 1.2;
+  filter.frequency.setValueAtTime(900, now);
+  filter.frequency.exponentialRampToValueAtTime(250, now + squishDuration);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.3, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + squishDuration);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+
+  noise.start(now);
+  noise.stop(now + squishDuration);
+}
+
+// Cat-steps-in-it reaction: a short comedic "eww" wobble — a descending
+// triangle-wave note with a fast, exaggerated pitch vibrato (a second LFO
+// oscillator modulating the main one's frequency), landing low. Deliberately
+// not a straight melodic tone like playWinSound()/playLoseSound() — this is
+// a gag reaction mid-round, not a round-ending fanfare/stinger. Triggered
+// directly from GameScreen.updatePoops() the instant the cat's stun actually
+// starts, same "call directly, don't route through playSound()" pattern as
+// every other synthesized one-shot here.
+export function playCatStuckSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+  const duration = 0.4;
+
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(500, now);
+  osc.frequency.exponentialRampToValueAtTime(180, now + duration);
+
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 18;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 30;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.3, now + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(now);
+  lfo.start(now);
+  osc.stop(now + duration + 0.05);
+  lfo.stop(now + duration + 0.05);
+}

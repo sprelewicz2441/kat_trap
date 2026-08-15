@@ -1,5 +1,13 @@
 import { aabbOverlap, insetBox } from '../utils/collision.js';
 
+// Poop-drop "squat and release" — a quick vertical squash timed to the
+// drop itself (see startPoopAnim()/draw() below), so the moment reads as
+// the dog actually doing something rather than a pile just silently
+// appearing. Sized modestly (22% compression at the peak) since this is a
+// quick gag beat, not a big showy animation.
+const POOP_ANIM_DURATION = 450; // ms
+const POOP_ANIM_MAX_SQUASH = 0.22; // fraction of height compressed at the peak
+
 export default class Dog {
   // `scale` (see js/utils/scale.js) shrinks speed/wallOffset on a small
   // canvas. `sizeScale` (getCharacterScale() — defaults to `scale` if not
@@ -116,6 +124,25 @@ export default class Dog {
 
     //We want more control over the bark action, not to call it on construction. Commenting out for now.
     //this.setNextBark();
+
+    // Poop hazard — only scheduled by GameScreen.resetGameObjects() when
+    // the dog is autonomous (not the player's own controlledEntity); see
+    // setPoopCallback()/setNextPoop() below. Kept as an external callback
+    // (set via setPoopCallback(), not a constructor param) rather than
+    // threading a fourth thing through the already-long constructor
+    // signature — same pattern Mouse.js already uses for
+    // setWallHitCallback()/setEscapeCheckCallback().
+    this.poopCallback = null;
+    this.poopTimeoutId = null;
+
+    // Poop-drop squat animation state — see startPoopAnim()/draw() below.
+    // Not reset back to false once triggered (same convention as
+    // Furniture.js's own knockedOver/shaking flags): the squash amount
+    // itself decays to exactly 0 by POOP_ANIM_DURATION via the sine easing
+    // in draw(), so leaving `pooping` true afterward is harmless — draw()
+    // just keeps computing a squash of 0.
+    this.pooping = false;
+    this.poopStartTime = null;
   }
 
   setNextBark() {
@@ -151,6 +178,58 @@ export default class Dog {
     if (!this.barkTimeoutId) {
       this.setNextBark();
     }
+  }
+
+  setPoopCallback(callback) {
+    this.poopCallback = callback;
+  }
+
+  // Same self-rescheduling setTimeout shape as setNextBark() above, but a
+  // slower, wider interval (8-18s vs bark's 1-10s) — this is a gameplay
+  // hazard the mouse can benefit from and the cat has to actually watch
+  // out for, not ambient flavor, so it shouldn't carpet the board the way
+  // a frequent decorative sound safely can. Fires with no arguments —
+  // GameScreen.handleDogPoop() (the callback, wired in
+  // resetGameObjects()) reads this dog's own current x/y itself rather
+  // than this passing position through, since it's the one that knows
+  // where poop piles actually live (this.poops) and how to lay one out.
+  setNextPoop() {
+    const randomDelay = Math.random() * 10000 + 8000;
+    this.poopTimeoutId = setTimeout(() => {
+      if (this.poopCallback) {
+        this.poopCallback();
+      }
+      this.setNextPoop();
+    }, randomDelay);
+  }
+
+  // Same pause/resume shape as pauseBarking()/resumeBarking() above, for
+  // the same reason — a raw setTimeout chain runs on wall-clock time
+  // regardless of GameScreen.running, so it needs its own way to actually
+  // pause alongside the rest of the game (settings menu open) rather than
+  // only ever being cancelled for good (cleanup()).
+  pausePooping() {
+    if (this.poopTimeoutId) {
+      clearTimeout(this.poopTimeoutId);
+      this.poopTimeoutId = null;
+    }
+  }
+
+  resumePooping() {
+    if (!this.poopTimeoutId) {
+      this.setNextPoop();
+    }
+  }
+
+  // Called by GameScreen.handleDogPoop() the instant a pile is actually
+  // placed (both the player-triggered 'p' press and the autonomous timer).
+  // Always restarts from the beginning, same "replayable, not a one-shot"
+  // convention as Furniture.js's startKnockOver()/startShake() — though in
+  // practice handleDogPoop() only allows one pile on the board at a time,
+  // so this only ever fires once per approach anyway.
+  startPoopAnim(timestamp) {
+    this.pooping = true;
+    this.poopStartTime = timestamp;
   }
 
   // Shared by the autonomous wander below and available the same way
@@ -307,6 +386,29 @@ export default class Dog {
     // one — same lesson as Furniture.js's own smoothing fix.
     ctx.save();
 
+    // Poop-drop squat (see startPoopAnim() above) — a quick vertical
+    // squash-and-release, eased via a plain sine over [0, π] so it starts
+    // and ends at 0 with a peak at the animation's midpoint, no separate
+    // decay math needed the way Furniture.js's shake needs. Anchored to the
+    // sprite's bottom-center (its feet), not its middle, so the dog visibly
+    // hunkers down toward the ground and springs back rather than
+    // squashing from its own center — a little horizontal give in the
+    // opposite direction keeps the silhouette reading as a squish rather
+    // than a flat vertical scale. Applied before the facing-direction
+    // transform below so it composes correctly with the mirror flip.
+    if (this.pooping) {
+      const elapsed = performance.now() - this.poopStartTime;
+      const t = Math.min(1, elapsed / POOP_ANIM_DURATION);
+      const squat = Math.sin(t * Math.PI) * POOP_ANIM_MAX_SQUASH;
+      if (squat > 0) {
+        const pivotX = this.x + this.frameWidth / 2;
+        const pivotY = this.y + this.frameHeight;
+        ctx.translate(pivotX, pivotY);
+        ctx.scale(1 + squat * 0.35, 1 - squat);
+        ctx.translate(-pivotX, -pivotY);
+      }
+    }
+
     // The source art only faces left (see facingLeft above) — mirror the
     // draw itself when moving right rather than needing a second set of
     // frames. translate to the sprite's right edge first so scale(-1, 1)
@@ -331,5 +433,6 @@ export default class Dog {
 
   cleanup() {
     this.pauseBarking();
+    this.pausePooping();
   }
 }
