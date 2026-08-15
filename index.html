@@ -151,7 +151,12 @@
        buttons (punch/toot/meow — the same keys as desktop, see
        InputHandler.js) on the right; a future credits/settings/etc. icon
        row is planned for the top corners rather than competing with either
-       of these. -->
+       of these. This markup ships the Cat/Mouse-mode default (all three
+       visible, punchBtn showing punch) — touchControls.js's
+       setActionButtonsMode() (called from GameScreen.init()) swaps
+       punchBtn to a poop icon and hides toot/meow in Dog mode, where
+       toot's own dog-shoving effect is already a no-op (see
+       GameScreen.js's handleToot()/punchHandler). -->
   <div id="dpad">
     <button id="dpadUp" class="dpad-btn dpad-up" aria-label="Up"></button>
     <button id="dpadLeft" class="dpad-btn dpad-left" aria-label="Left"></button>

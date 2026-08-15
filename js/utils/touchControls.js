@@ -23,6 +23,59 @@ function dispatchKey(type, key) {
   window.dispatchEvent(new KeyboardEvent(type, { key }));
 }
 
+// The punch button doubles as the poop-drop button in Dog mode — the same
+// 'p' key dispatched above already does the right thing there (see
+// GameScreen.js's punchHandler, which branches on controlledEntity), so
+// this only needs to update what the button *looks like*, not how it's
+// wired. Cat/Mouse mode keep the original punch icon/label (per explicit
+// direction — "Cat can stay like is"), since punch still does its normal
+// dog-shoving thing in both of those modes.
+const PUNCH_BUTTON_CONTENT = {
+  default: { icon: '\u{1F44A}', label: 'Punch' }, // 👊
+  dog: { icon: '\u{1F4A9}', label: 'Poop' }, // 💩
+};
+
+// How many action buttons are actually visible right now — starts at 3
+// (the static markup's own default) and updated by setActionButtonsMode()
+// below. Read by layoutTouchControls() so the settings-menu collision-
+// avoidance math sizes the visible cluster's real height instead of always
+// assuming the full 3-button set.
+let visibleActionButtonCount = 3;
+
+// Called once per round by GameScreen.init() — these buttons are page-
+// lifetime DOM elements set up once by setupTouchControls() below, not
+// recreated per GameScreen instance, so nothing else keeps them in sync
+// with whichever character is actually being played this round. Cat/Mouse
+// mode keep the full punch/toot/meow set (per explicit direction — "Cat
+// can stay like is"); Dog mode shows just the poop button — toot's own
+// dog-shoving effect is already a no-op there (see handleToot()), and per
+// explicit direction Dog mode should read as "just poop," not the same
+// three-button row with two of them quietly doing nothing.
+export function setActionButtonsMode(controlledEntity) {
+  const punchButton = document.getElementById('punchBtn');
+  const tootButton = document.getElementById('tootBtn');
+  const meowButton = document.getElementById('meowBtn');
+  if (!punchButton || !tootButton || !meowButton) return;
+
+  const isDog = controlledEntity === 'dog';
+  const content = isDog ? PUNCH_BUTTON_CONTENT.dog : PUNCH_BUTTON_CONTENT.default;
+  punchButton.textContent = content.icon;
+  punchButton.setAttribute('aria-label', content.label);
+
+  // Empty-string (not a fixed value) so this defers back to the
+  // `.action-btn` class's own `display: flex` when un-hiding, rather than
+  // hardcoding a value here that could drift from the CSS.
+  tootButton.style.display = isDog ? 'none' : '';
+  meowButton.style.display = isDog ? 'none' : '';
+  visibleActionButtonCount = isDog ? 1 : 3;
+
+  // The settings-menu collision-avoidance math in layoutTouchControls()
+  // depends on the cluster's actual on-screen height — recompute now so a
+  // mode change (any fresh round, via "Play Again" or otherwise) doesn't
+  // leave it sized for whichever mode was active at the last layout pass.
+  layoutTouchControls();
+}
+
 // Movement is continuous while InputHandler sees the key as held (polled
 // every frame via getDirection()), so these need a real press/release pair
 // — pointerleave/pointercancel are included so a finger sliding off the
@@ -132,8 +185,9 @@ const SETTINGS_TOP_MARGIN = 20;
 // list of four identical icons.
 const ICON_GROUP_GAP = 24;
 // Matches #actionButtons' own `gap: 10px` in styles.css — needed here to
-// compute the actual on-screen height of the 3-button column (which the
-// CSS `gap` alone doesn't expose to JS).
+// compute the actual on-screen height of the button column (which the CSS
+// `gap` alone doesn't expose to JS). The column isn't always 3 buttons tall
+// any more (see visibleActionButtonCount/setActionButtonsMode() above).
 const ACTION_BTN_GAP = 10;
 
 function clamp(value, min, max) {
@@ -224,7 +278,8 @@ function layoutTouchControls() {
     // but the shortest viewports, so this doesn't change the common case.
     const settingsOnScreenSize = ACTION_BTN_NATURAL_SIZE * actionScale;
     const settingsBottom = SETTINGS_TOP_MARGIN + settingsOnScreenSize;
-    const clusterHeight = actionScale * (3 * ACTION_BTN_NATURAL_SIZE + 2 * ACTION_BTN_GAP);
+    const gapCount = Math.max(0, visibleActionButtonCount - 1);
+    const clusterHeight = actionScale * (visibleActionButtonCount * ACTION_BTN_NATURAL_SIZE + gapCount * ACTION_BTN_GAP);
     const minClusterCenterY = settingsBottom + ICON_GROUP_GAP + clusterHeight / 2;
     const centeredY = window.innerHeight / 2;
     actionButtons.style.top = `${Math.max(centeredY, minClusterCenterY)}px`;

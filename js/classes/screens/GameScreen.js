@@ -22,6 +22,7 @@ import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../.
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
+import { setActionButtonsMode } from '../../utils/touchControls.js';
 
 // ==============================
 //  CONSTANTS
@@ -1121,6 +1122,14 @@ export default class GameScreen {
     // Reveals the touch D-pad/action buttons (see styles.css) — only
     // during actual gameplay, not the setup screen.
     document.body.classList.add('in-game');
+    // Dog mode shows just the poop button (punch's icon repurposed) rather
+    // than the full punch/toot/meow set Cat/Mouse mode keeps — see
+    // setActionButtonsMode()'s own comment. Called here (once per round,
+    // covering both a fresh game and "Play Again") since these buttons'
+    // DOM elements are set up once for the page's lifetime, not recreated
+    // per GameScreen instance, so nothing else keeps them in sync with
+    // whichever character this round is actually controlling.
+    setActionButtonsMode(this.controlledEntity);
 
     this.resetGameObjects();
 
@@ -1337,7 +1346,12 @@ export default class GameScreen {
     // not supposed to fire at all.
     this.dog.setPoopCallback(() => this.handleDogPoop());
     if (this.controlledEntity !== 'dog') {
-      this.dog.setNextPoop();
+      // `true` — this specific call is the round's very first poop timer
+      // kick-off, which gets its own short fixed delay (see Dog.js's
+      // setNextPoop()); every poop after it (including resumePooping()'s
+      // own calls, after the settings menu pauses/resumes it) goes back to
+      // the normal random range.
+      this.dog.setNextPoop(true);
     }
 
     this.inputHandler = new InputHandler();

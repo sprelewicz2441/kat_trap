@@ -8,6 +8,11 @@ import { aabbOverlap, insetBox } from '../utils/collision.js';
 const POOP_ANIM_DURATION = 450; // ms
 const POOP_ANIM_MAX_SQUASH = 0.22; // fraction of height compressed at the peak
 
+// How long the dog's very first autonomous poop of a round takes — see
+// setNextPoop()'s own comment for why this is a short fixed delay rather
+// than the normal random 8-18s range every poop after it uses.
+const POOP_FIRST_DELAY = 2000; // ms
+
 export default class Dog {
   // `scale` (see js/utils/scale.js) shrinks speed/wallOffset on a small
   // canvas. `sizeScale` (getCharacterScale() — defaults to `scale` if not
@@ -193,14 +198,23 @@ export default class Dog {
   // resetGameObjects()) reads this dog's own current x/y itself rather
   // than this passing position through, since it's the one that knows
   // where poop piles actually live (this.poops) and how to lay one out.
-  setNextPoop() {
-    const randomDelay = Math.random() * 10000 + 8000;
+  //
+  // `isFirst` (only ever passed `true` by resetGameObjects()'s initial
+  // kick-off, not by resumePooping() or this method's own reschedule) uses
+  // a short, fixed 2s delay instead of the normal random range — per
+  // explicit direction, the dog's very first poop of a round shouldn't
+  // make the mouse/cat wait as long as a mid-round one might, since 2s in
+  // it's a predictable "here's a hazard in play" beat rather than a random
+  // wait. Every poop after that (including the very next one this
+  // schedules) goes back to the normal random 8-18s range.
+  setNextPoop(isFirst = false) {
+    const delay = isFirst ? POOP_FIRST_DELAY : Math.random() * 10000 + 8000;
     this.poopTimeoutId = setTimeout(() => {
       if (this.poopCallback) {
         this.poopCallback();
       }
       this.setNextPoop();
-    }, randomDelay);
+    }, delay);
   }
 
   // Same pause/resume shape as pauseBarking()/resumeBarking() above, for
