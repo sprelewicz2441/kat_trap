@@ -23,6 +23,7 @@ import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
+import { isLoggedIn, submitRound } from '../../utils/api.js';
 
 // ==============================
 //  CONSTANTS
@@ -2454,6 +2455,19 @@ export default class GameScreen {
     // the win/lose modal. stopDogBarkSound() below handles that half.
     if (this.dog) this.dog.cleanup();
     this.stopDogBarkSound();
+
+    // Fire-and-forget - a failed/slow submission shouldn't block or delay
+    // the game-over modal the player is already looking at. coins_collected
+    // is hardcoded to 0 for now: the in-gameplay coin-pickup mechanic
+    // itself isn't built yet (see kpground-api CLAUDE.md's Known gaps),
+    // only the round-outcome reward this call unlocks. Silently no-ops if
+    // never logged in (e.g. the API is unreachable, or this screen was
+    // reached some way other than through SetupScreen's auth buttons).
+    if (isLoggedIn()) {
+      submitRound(this.controlledEntity, isWin ? 'win' : 'loss', 0).catch((err) => {
+        console.warn('Round submission failed:', err.message);
+      });
+    }
   }
 
   // Immediately silences a dog bark that's already mid-playback — shared by
