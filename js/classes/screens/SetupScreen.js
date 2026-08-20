@@ -1,15 +1,5 @@
 import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { isTouch } from '../../utils/scale.js?v=1';
-import { drawRoundedRect } from '../../utils/canvasShapes.js';
-import { kathrynQuickLogin } from '../../utils/api.js';
-import { openLoginModal } from '../../utils/loginModal.js';
-
-// Hidden for now per explicit direction - only the quick-login button
-// ("Play Now") is shown so Kathryn has one obvious thing to press. The
-// Login modal/flow itself is untouched and still fully wired (see
-// loginModal.js) - flip this back to true to bring the button back,
-// nothing else needs to change.
-const SHOW_LOGIN_BUTTON = false;
 
 export default class SetupScreen {
   constructor(screenManager, canvas) {
@@ -17,18 +7,8 @@ export default class SetupScreen {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.backgroundImage = new Image();
-    this.backgroundImage.src = './assets/start_screen.jpg';
-    // Replaces the old single startButtonArea - the background image's
-    // own baked-in "Start Game" art is no longer the functional button
-    // (see the two drawRoundedRect pills in render(), drawn directly over
-    // that area); auth now has to happen before character select, since
-    // every economy endpoint needs a logged-in user.
-    this.kathrynButtonArea = null;
-    this.loginButtonArea = null;
-    // Set while kathrynQuickLogin()'s request is in flight, so a second
-    // click can't fire a duplicate request before the first resolves.
-    this.loggingIn = false;
-    this.errorMessage = null;
+    this.backgroundImage.src = './assets/start_screen.jpg'; 
+    this.startButtonArea = null;
     this.animationOffset = 0;
     // Lets animateBackground()'s self-perpetuating rAF loop stop once this
     // screen is no longer active (see cleanup()) — previously nothing ever
@@ -51,19 +31,6 @@ export default class SetupScreen {
     // Draw animated background
     this.drawAnimatedBackground();
 
-    // animateBackground()'s rAF loop calls render() every frame starting
-    // immediately in init(), before backgroundImage.onload has
-    // necessarily fired - backgroundImage.width/height are 0 until then,
-    // which cascades into NaN image/button dimensions. drawImage()
-    // silently no-ops on non-finite args (so the original single-button
-    // version never visibly broke here), but createLinearGradient()
-    // throws on them - drawAuthButton() surfaced this on the very first
-    // frame or two of a fresh load. Just skip the image/buttons for
-    // those frames; the animated gradient alone still fills the canvas.
-    if (!this.backgroundImage.complete || this.backgroundImage.naturalWidth === 0) {
-      return;
-    }
-
     // Calculate image dimensions to maintain aspect ratio
     const aspectRatio = this.backgroundImage.width / this.backgroundImage.height;
     let imgWidth = this.canvas.width * 1.0;
@@ -80,79 +47,18 @@ export default class SetupScreen {
     // Draw the image
     this.ctx.drawImage(this.backgroundImage, imgX, imgY, imgWidth, imgHeight);
 
-    // Same overall area the old single "Start Game" hit-box used (the
-    // background image's own baked-in button art lives here), drawn over
-    // directly since auth has to happen before character select.
-    const buttonX = imgX + imgWidth * 0.23;
-    const buttonY = imgY + imgHeight * 0.42;
+    // Define the clickable area for the "Start Game" button
+    const buttonX = imgX + imgWidth * 0.23; // Adjust as per the button position in the image
+    const buttonY = imgY + imgHeight * 0.42; // Adjust as per the button position in the image
     const buttonWidth = imgWidth * 0.5;
     const buttonHeight = imgHeight * 0.11;
 
-    if (SHOW_LOGIN_BUTTON) {
-      // Split into two side-by-side pills.
-      const buttonGap = buttonWidth * 0.06;
-      const halfWidth = (buttonWidth - buttonGap) / 2;
-      this.kathrynButtonArea = { x: buttonX, y: buttonY, width: halfWidth, height: buttonHeight };
-      this.loginButtonArea = {
-        x: buttonX + halfWidth + buttonGap,
-        y: buttonY,
-        width: halfWidth,
-        height: buttonHeight,
-      };
-    } else {
-      // One pill, full width - same footprint the original single
-      // "Start Game" button used.
-      this.kathrynButtonArea = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
-      this.loginButtonArea = null;
-    }
+    this.startButtonArea = { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight };
 
-    // Gold/orange - matches manifest.json's theme-color and
-    // CharacterSelectScreen's cat-gold theme.
-    this.drawAuthButton(this.kathrynButtonArea, 'Play Now', ['#ffb238', '#fb8c00']);
-    if (SHOW_LOGIN_BUTTON) {
-      this.drawAuthButton(this.loginButtonArea, 'Login', ['#8a2be2', '#6a1fc2']);
-    }
-
-    if (this.loggingIn || this.errorMessage) {
-      this.ctx.save();
-      this.ctx.font = `bold ${Math.round(imgHeight * 0.035)}px Arial, sans-serif`;
-      this.ctx.textAlign = 'center';
-      this.ctx.fillStyle = this.errorMessage ? '#ffcdd2' : '#ffffff';
-      this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-      this.ctx.shadowBlur = 4;
-      this.ctx.fillText(
-        this.errorMessage || 'Logging in...',
-        buttonX + buttonWidth / 2,
-        buttonY + buttonHeight + imgHeight * 0.05
-      );
-      this.ctx.restore();
-    }
-  }
-
-  // Pill-shaped gradient button with white, drop-shadowed text - same
-  // "white text over a saturated gradient" convention CharacterSelectScreen
-  // uses for its own cards, for the same reason: legible across the whole
-  // gradient's range without needing per-button contrast tuning.
-  drawAuthButton(area, label, [colorFrom, colorTo]) {
-    const radius = area.height / 2;
-    const gradient = this.ctx.createLinearGradient(area.x, area.y, area.x, area.y + area.height);
-    gradient.addColorStop(0, colorFrom);
-    gradient.addColorStop(1, colorTo);
-
-    this.ctx.save();
-    drawRoundedRect(this.ctx, area.x, area.y, area.width, area.height, radius);
-    this.ctx.fillStyle = gradient;
-    this.ctx.fill();
-
-    this.ctx.font = `bold ${Math.round(area.height * 0.42)}px Arial, sans-serif`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    this.ctx.shadowBlur = 4;
-    this.ctx.shadowOffsetY = 2;
-    this.ctx.fillText(label, area.x + area.width / 2, area.y + area.height / 2 + 1);
-    this.ctx.restore();
+    // Draw a transparent rectangle over the clickable area for testing
+    //this.ctx.strokeStyle = 'red';
+    //this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
+    
   }
 
   drawAnimatedBackground() {
@@ -201,48 +107,35 @@ export default class SetupScreen {
     requestAnimationFrame(() => this.animateBackground());
   }
 
-  isInsideArea(area, x, y) {
-    return area && x >= area.x && x <= area.x + area.width && y >= area.y && y <= area.y + area.height;
-  }
-
-  // Requesting fullscreen has to happen synchronously inside the click
-  // handler (a user-gesture requirement) - deliberately not deferred
-  // until after the async login call resolves, since that could lose the
-  // gesture in some browsers. Login succeeding or failing doesn't change
-  // whether fullscreen was worth requesting.
-  requestFullscreenIfTouch() {
-    if (isTouch() && document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
-  }
-
-  // Shared by both auth paths once a token actually exists - stops the
-  // animation loop/listeners and hands off to character select, exactly
-  // what the old single Start Game button did on click.
-  proceedToCharacterSelect() {
-    this.cleanup();
-    this.screenManager.setScreen(new CharacterSelectScreen(this.screenManager, this.canvas));
-  }
-
   addEventListeners() {
     this.startClickHandler = (event) => {
-      const { offsetX, offsetY } = event;
+        const { offsetX, offsetY } = event;
 
-      if (this.isInsideArea(this.kathrynButtonArea, offsetX, offsetY)) {
-        if (this.loggingIn) return;
-        this.requestFullscreenIfTouch();
-        this.errorMessage = null;
-        this.loggingIn = true;
-        kathrynQuickLogin()
-          .then(() => this.proceedToCharacterSelect())
-          .catch((err) => {
-            this.loggingIn = false;
-            this.errorMessage = err.message || 'Could not log in as Kathryn.';
-          });
-      } else if (this.isInsideArea(this.loginButtonArea, offsetX, offsetY)) {
-        this.requestFullscreenIfTouch();
-        openLoginModal(() => this.proceedToCharacterSelect());
-      }
+        // Check if the click is inside the "Start Game" button area
+        if (
+            offsetX >= this.startButtonArea.x &&
+            offsetX <= this.startButtonArea.x + this.startButtonArea.width &&
+            offsetY >= this.startButtonArea.y &&
+            offsetY <= this.startButtonArea.y + this.startButtonArea.height
+        ) {
+            // Request fullscreen here, inside the click handler, since browsers
+            // require a user gesture to grant it — it can't be requested on
+            // page load. Touch-only: on desktop the browser chrome isn't
+            // eating board real estate the way a mobile toolbar does, so
+            // there's no reason to take over the whole screen there. Silently
+            // no-ops wherever unsupported (notably iOS Safari before 16.4)
+            // rather than surfacing an error — this is a nice-to-have, not
+            // something the game depends on.
+            if (isTouch() && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+
+            // Stop the animation loop and remove listeners before transitioning
+            this.cleanup();
+
+            // Transition to character selection before gameplay starts
+            this.screenManager.setScreen(new CharacterSelectScreen(this.screenManager, this.canvas));
+        }
     };
 
     // Add the event listener
@@ -251,10 +144,17 @@ export default class SetupScreen {
     // Named (not anonymous) so cleanup() can actually remove it.
     this.moveHandler = (event) => {
       const { offsetX, offsetY } = event;
-      const overButton =
-        this.isInsideArea(this.kathrynButtonArea, offsetX, offsetY) ||
-        this.isInsideArea(this.loginButtonArea, offsetX, offsetY);
-      this.canvas.style.cursor = overButton ? 'pointer' : 'default';
+
+      if (
+        offsetX >= this.startButtonArea.x &&
+        offsetX <= this.startButtonArea.x + this.startButtonArea.width &&
+        offsetY >= this.startButtonArea.y &&
+        offsetY <= this.startButtonArea.y + this.startButtonArea.height
+      ) {
+        this.canvas.style.cursor = 'pointer'; // Change cursor to hand
+      } else {
+        this.canvas.style.cursor = 'default'; // Reset cursor to default
+      }
     };
     this.canvas.addEventListener('mousemove', this.moveHandler);
   }
