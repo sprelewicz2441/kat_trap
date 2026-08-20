@@ -146,6 +146,28 @@
     </div>
   </div>
 
+  <!-- Login modal (see js/utils/loginModal.js) — opened from SetupScreen's
+       canvas-drawn "Login" button. A real DOM form since canvas can't take
+       text input, same reasoning as the touch d-pad dispatching real
+       KeyboardEvents rather than trying to fake input on canvas. Styled
+       close to #creditsModal's cream-card language (this is still a
+       pre-game moment, not utility chrome) but without the cat-ear cutouts
+       — this card holds real form controls, not just text. -->
+  <div id="loginModal" hidden>
+    <div id="loginCard" role="dialog" aria-modal="true" aria-labelledby="loginHeading">
+      <button id="loginCloseBtn" aria-label="Close login" type="button">&times;</button>
+      <h2 id="loginHeading">Login</h2>
+      <form id="loginForm">
+        <label for="loginUsername">Username</label>
+        <input id="loginUsername" name="username" type="text" autocomplete="username" required>
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+        <p id="loginError" hidden></p>
+        <button id="loginSubmitBtn" type="submit">Log In</button>
+      </form>
+    </div>
+  </div>
+
   <!-- On-screen touch controls — only visible on touch devices during
        gameplay (see styles.css). D-pad (movement) on the left, action
        buttons (punch/toot/meow — the same keys as desktop, see
