@@ -20,7 +20,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=2';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=3';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
@@ -757,6 +757,18 @@ const BASE_MODAL_BUTTON_WIDTH = 200;
 const BASE_MODAL_BUTTON_HEIGHT = 60;
 const BASE_MODAL_BUTTON_RADIUS = 16;
 const BASE_MODAL_BUTTON_FONT_SIZE = 24;
+// Extra room the modal grows by to fit the "here's what you earned"
+// rewards section (see endGame()'s roundRewardBreakdown, displayGameOverModal()'s
+// drawRewardsBreakdown()) - only added when that section will actually be
+// shown (this.roundRewardBreakdown truthy, i.e. the wallet loaded
+// successfully at round start). This is a fixed reservation, decided once
+// synchronously in endGame() before submitRound() resolves, not
+// recomputed per line-count once real numbers arrive - see
+// roundRewardBreakdown's own comment for why that matters (no layout jump
+// between the 'pending' placeholder and the real breakdown).
+const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 130;
+const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 22;
+const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 15;
 // How long the modal takes to pop/scale in once the round ends — a
 // duration, not a size, so this doesn't scale with canvas size (same
 // reasoning as DOG_PAUSE_DURATION below).
@@ -764,17 +776,61 @@ const MODAL_POP_IN_DURATION = 250; // ms
 
 const BASE_FLOOR_TILE_SIZE = 24;
 
-// Coin/level/XP HUD (see drawHud()) - top-left corner, live during
+// Coin/level/XP HUD (see drawHud()) - top-center, wide, live during
 // gameplay only (skipped entirely when this.wallet is null, i.e. never
 // logged in - see fetchWallet()). UI chrome, sized with uiScale like the
-// rest of this section.
+// rest of this section. Redesigned per explicit direction from the
+// original narrow top-left box: centered instead of corner-anchored,
+// wider so all wallet stats (coins/level/XP) read as their own
+// icon+value chip across one row rather than stacked coins-then-level
+// rows, each with a hover tooltip explaining the metric (see
+// getHudLayout()/drawHudTooltip()).
 const BASE_HUD_MARGIN = 16;
-const BASE_HUD_PADDING = 12;
-const BASE_HUD_WIDTH = 150;
-const BASE_HUD_ROW_HEIGHT = 24;
-const BASE_HUD_RADIUS = 14;
-const BASE_HUD_FONT_SIZE = 16;
-const BASE_HUD_XP_BAR_HEIGHT = 6;
+const BASE_HUD_PADDING = 14;
+const BASE_HUD_WIDTH = 440;
+const BASE_HUD_STAT_ROW_HEIGHT = 32;
+const BASE_HUD_RADIUS = 18;
+const BASE_HUD_FONT_SIZE = 19;
+const BASE_HUD_XP_BAR_HEIGHT = 7;
+// Hover tooltip shown over a stat chip - see drawHudTooltip(). Bumped
+// 15 -> 21 (title) per explicit "too small" feedback. BASE_HUD_TOOLTIP_
+// MAX_WIDTH is a wrap threshold, not a fixed box size - drawHudTooltip()
+// also clamps it against a fraction of the live canvas width, so the box
+// actually gets *narrower* (wrapping the description onto more lines,
+// same font size) on a small mobile canvas rather than either overflowing
+// past the screen edge or shrinking its text to fit - that's the
+// "responsive" part of the fix, not just a bigger static number.
+const BASE_HUD_TOOLTIP_FONT_SIZE = 21;
+const BASE_HUD_TOOLTIP_PADDING = 14;
+const BASE_HUD_TOOLTIP_MAX_WIDTH = 260;
+
+// One entry per HUD stat chip, in display order - shared by drawHud()
+// (what to render) and getHudLayout()'s stat-count math, so adding a
+// future wallet stat (e.g. a premium currency) is one entry here rather
+// than touching the row-layout math in two places.
+const HUD_STATS = [
+  {
+    key: 'coins',
+    emoji: '\u{1FA99}', // 🪙
+    label: 'Coins',
+    description: 'Spend at the Store to unlock perks & outfits.',
+    getText: (wallet) => `${wallet.coins}`,
+  },
+  {
+    key: 'level',
+    emoji: '⭐', // ⭐
+    label: 'Level',
+    description: 'Levels unlock new Store items.',
+    getText: (wallet) => `Lvl ${wallet.level}`,
+  },
+  {
+    key: 'xp',
+    emoji: '✨', // ✨
+    label: 'XP',
+    description: 'Fill the bar to reach the next level.',
+    getText: (wallet) => `${wallet.xp}${wallet.xp_to_next_level ? `/${wallet.xp_to_next_level}` : ''}`,
+  },
+];
 
 // Store button, drawn just below the HUD box.
 const BASE_STORE_BUTTON_WIDTH = 96;
@@ -809,8 +865,8 @@ const BASE_POOP_HEIGHT = 26;
 // so any one can change without touching the others.
 const MAX_ACTIVE_DOOBERS = 1; // on the board at once
 const DOOBER_CATCH_DURATION = 10000; // ms a doober stays before vanishing uncaught
-const DOOBER_SPAWN_INTERVAL = 3000; // ms after one disappears before the next can appear
-const BASE_DOOBER_SIZE = 65; // footprint of the whole doober, not one coin
+const DOOBER_SPAWN_INTERVAL = 7000; // ms after one disappears before the next can appear - a real minimum gap, see updateDoobers()
+const BASE_DOOBER_SIZE = 32.5; // footprint of the whole doober, not one coin
 // Drop-in animation: falls from DOOBER_DROP_HEIGHT above its resting spot
 // down to rest over DOOBER_DROP_DURATION, with a little bounce on landing
 // (see drawDoober()'s easeOutBounce) - not just fading/popping into place.
@@ -843,6 +899,33 @@ const DOOBER_ARROW_BOB_PERIOD = 700; // ms per full cycle - quicker than the doo
 // that doober's whole lifetime.
 const dooberArrowShownForType = new Set();
 
+// "+N" flies from a collected doober's position to the HUD's coin
+// readout (see getHudCoinTargetPosition()) over DOOBER_POPUP_DURATION,
+// shrinking/fading in over the final stretch as if being pulled in
+// rather than just stopping. The coin count itself only actually
+// increments once the popup arrives (see updateDooberPopups()), not the
+// instant the doober is grabbed, so the number visibly ticks up in sync
+// with the flight landing rather than jumping ahead of it.
+const DOOBER_POPUP_DURATION = 700; // ms
+// Bumped 22 -> 38 plus a stronger outline/glow per explicit "bigger and
+// readable" feedback - the original size read as a small, easy-to-miss
+// flick against a busy kitchen board.
+const BASE_DOOBER_POPUP_FONT_SIZE = 38;
+
+// A quick "crash" burst at the HUD's coin readout the instant a popup's
+// flight actually lands there (see updateDooberPopups()/
+// spawnHudCoinImpact()) - per explicit request that coins hitting the HUD
+// should feel like an impact, not just a silent number change. Same
+// expanding-ring technique as drawShockwave() (punch)/drawStunBurst() (dog
+// collision), recolored gold to match the coin itself, plus a few short
+// radiating spark lines for a "crash" flourish those two don't have -
+// distinct enough from both that this doesn't read as a recolor of an
+// existing effect.
+const HUD_COIN_IMPACT_DURATION = 420; // ms
+const BASE_HUD_COIN_IMPACT_MAX_RADIUS = 34;
+const HUD_COIN_IMPACT_SPARK_COUNT = 6;
+const BASE_HUD_COIN_IMPACT_SPARK_LENGTH = 16;
+
 // Coins are the only doober type today, but this project explicitly
 // wants the system ready for other, non-coin doober types later - so
 // every doober carries a `type`, and everything type-specific (what it
@@ -851,6 +934,10 @@ const dooberArrowShownForType = new Set();
 // future type is: add an entry, add its own draw*DooberContent() method,
 // done - no changes to spawnDoober()/updateDoobers()/drawDoober().
 const DOOBER_COIN_VALUE = 1; // coins credited per coin-doober collected
+// How big the real coin-stack image (drawCoinDooberContent()) draws
+// relative to the doober's own footprint - tuned by eye against the
+// source art's own internal proportions, not derived from baseRadius.
+const DOOBER_COIN_IMAGE_SCALE = 1.5;
 const DOOBER_TYPES = {
   coin: {
     draw: (screen, centerX, centerY, baseRadius) =>
@@ -858,6 +945,7 @@ const DOOBER_TYPES = {
     onCollect: (screen) => {
       screen.coinsCollectedThisRound += DOOBER_COIN_VALUE;
       playDooberSound();
+      return DOOBER_COIN_VALUE;
     },
   },
 };
@@ -969,6 +1057,9 @@ function computeLayout(canvasWidth) {
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
     modalWidth: BASE_MODAL_WIDTH * uiScale,
     modalHeight: BASE_MODAL_HEIGHT * uiScale,
+    modalRewardsExtraHeight: BASE_MODAL_REWARDS_EXTRA_HEIGHT * uiScale,
+    modalRewardsTitleFontSize: BASE_MODAL_REWARDS_TITLE_FONT_SIZE * uiScale,
+    modalRewardsLineFontSize: BASE_MODAL_REWARDS_LINE_FONT_SIZE * uiScale,
     modalRadius: BASE_MODAL_RADIUS * uiScale,
     modalTitleFontSize: BASE_MODAL_TITLE_FONT_SIZE * uiScale,
     modalSubtitleFontSize: BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale,
@@ -980,10 +1071,16 @@ function computeLayout(canvasWidth) {
     hudMargin: BASE_HUD_MARGIN * uiScale,
     hudPadding: BASE_HUD_PADDING * uiScale,
     hudWidth: BASE_HUD_WIDTH * uiScale,
-    hudRowHeight: BASE_HUD_ROW_HEIGHT * uiScale,
+    hudStatRowHeight: BASE_HUD_STAT_ROW_HEIGHT * uiScale,
     hudRadius: BASE_HUD_RADIUS * uiScale,
     hudFontSize: BASE_HUD_FONT_SIZE * uiScale,
     hudXpBarHeight: BASE_HUD_XP_BAR_HEIGHT * uiScale,
+    hudTooltipFontSize: BASE_HUD_TOOLTIP_FONT_SIZE * uiScale,
+    hudTooltipPadding: BASE_HUD_TOOLTIP_PADDING * uiScale,
+    hudTooltipMaxWidth: BASE_HUD_TOOLTIP_MAX_WIDTH * uiScale,
+    dooberPopupFontSize: BASE_DOOBER_POPUP_FONT_SIZE * uiScale,
+    hudCoinImpactMaxRadius: BASE_HUD_COIN_IMPACT_MAX_RADIUS * uiScale,
+    hudCoinImpactSparkLength: BASE_HUD_COIN_IMPACT_SPARK_LENGTH * uiScale,
     storeButtonWidth: BASE_STORE_BUTTON_WIDTH * uiScale,
     storeButtonHeight: BASE_STORE_BUTTON_HEIGHT * uiScale,
     storeButtonRadius: BASE_STORE_BUTTON_RADIUS * uiScale,
@@ -1136,6 +1233,26 @@ export default class GameScreen {
     this.doobers = [];
     this.coinsCollectedThisRound = 0;
     this.lastDooberSpawnTime = 0;
+    // The 'coin' doober type's art (see drawCoinDooberContent()) - one
+    // shared Image loaded once per GameScreen instance and reused for
+    // every coin doober drawn, rather than a new Image() per spawn.
+    this.dooberCoinImage = new Image();
+    this.dooberCoinImage.src = './assets/doober_coin.png?v=1';
+    // "+N" popups flying from a just-collected doober to the HUD (see
+    // spawnDooberCollectPopup()/updateDooberPopups() below).
+    this.dooberPopups = [];
+    // "Crash" bursts fired the instant a popup above actually lands on the
+    // HUD's coin readout (see spawnHudCoinImpact()) - kept as its own list
+    // (not folded into dooberPopups) since an impact outlives the popup
+    // that triggered it by HUD_COIN_IMPACT_DURATION.
+    this.hudCoinImpacts = [];
+
+    // Hit boxes for each HUD stat chip (rebuilt every drawHud() call) and
+    // which one, if any, the mouse is currently over - see
+    // handleMouseMove()/drawHudTooltip(). null/[] until the wallet loads
+    // and drawHud() actually draws something to hover over.
+    this.hudStatAreas = [];
+    this.hoveredHudStatIndex = null;
 
     this.running = false;
     this.catPaused = false;
@@ -1230,6 +1347,14 @@ export default class GameScreen {
     // Stays null (HUD/store button both skip drawing entirely) if never
     // logged in - see fetchWallet().
     this.wallet = null;
+    // Snapshot of this.wallet's coins/xp/level the moment it first loads
+    // (see init()'s getWallets().then()) - endGame()'s reward breakdown
+    // diffs against this. this.roundRewardBreakdown itself (see endGame())
+    // is what displayGameOverModal() actually reads to draw the "here's
+    // everything you earned" section; null means "don't show that section
+    // at all" (never logged in, or the round hasn't ended yet).
+    this.walletAtRoundStart = null;
+    this.roundRewardBreakdown = null;
     this.storeButtonArea = null;
     // Mirrors wasRunningBeforeMenu's pattern for the settings menu - see
     // storeModalToggleHandler in init().
@@ -1338,6 +1463,15 @@ export default class GameScreen {
       getWallets()
         .then((wallets) => {
           this.wallet = wallets.find((w) => w.character === this.controlledEntity) || null;
+          // A snapshot of coins/xp/level as they stood the moment this
+          // round started - see endGame()'s reward breakdown, which diffs
+          // the post-submitRound() wallet against this rather than trying
+          // to duplicate the backend's own WIN_COINS/LOSS_XP/etc reward
+          // constants client-side (see kattrap/services.py's submit_round
+          // in kpground-api) to guess what changed and why.
+          this.walletAtRoundStart = this.wallet
+            ? { coins: this.wallet.coins, xp: this.wallet.xp, level: this.wallet.level }
+            : null;
         })
         .catch((err) => console.warn('Could not load wallet:', err.message));
     }
@@ -1345,6 +1479,15 @@ export default class GameScreen {
     // Always add the click handler
     this.clickHandler = this.handleClick.bind(this);
     this.canvas.addEventListener('click', this.clickHandler);
+
+    // HUD stat hover tooltip (see drawHudTooltip()) - a plain mousemove
+    // listener rather than per-shape DOM elements, matching this game's
+    // existing convention of hand-rolled AABB hit-testing (isClickInside)
+    // over the canvas's own drawn regions. Touch devices simply never fire
+    // mousemove without a cursor, so this is naturally desktop-only,
+    // exactly the "hover" behavior it's meant to be.
+    this.mouseMoveHandler = this.handleMouseMove.bind(this);
+    this.canvas.addEventListener('mousemove', this.mouseMoveHandler);
 
     this.tootHandler = () => {
       this.playSound(SOUND_KEYS.TOOT);
@@ -1406,6 +1549,8 @@ export default class GameScreen {
     // again mid-round-setup, and a player shouldn't lose an already-
     // ticking spawn timer or tally to that.
     this.doobers = [];
+    this.dooberPopups = [];
+    this.hudCoinImpacts = [];
 
     if (this.inputHandler) this.inputHandler.cleanup();
     // resetGameObjects() unconditionally reassigns this.dog below — called
@@ -1679,6 +1824,16 @@ export default class GameScreen {
     }
   }
 
+  // Tracks which HUD stat chip (if any) the mouse is currently over, for
+  // drawHud()'s hover tooltip (see drawHudTooltip()) - just a hit-test
+  // against whatever this.hudStatAreas the last drawHud() call produced,
+  // same isClickInside() helper the click handler already uses.
+  handleMouseMove(event) {
+    const { offsetX, offsetY } = event;
+    const index = this.hudStatAreas.findIndex((area) => this.isClickInside(offsetX, offsetY, area));
+    this.hoveredHudStatIndex = index === -1 ? null : index;
+  }
+
   // "Play Again" now returns to character select rather than immediately
   // replaying with the same controlledEntity — per explicit direction, so
   // a player can pick a different character for the next round instead of
@@ -1716,6 +1871,7 @@ export default class GameScreen {
     document.removeEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
     document.removeEventListener('storemodaltoggle', this.storeModalToggleHandler);
     this.canvas.removeEventListener('click', this.clickHandler);
+    this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
     if (this.inputHandler) this.inputHandler.cleanup();
     if (this.dog) this.dog.cleanup();
   }
@@ -1780,6 +1936,8 @@ export default class GameScreen {
     this.updateTableBump(timestamp);
     this.updatePoops(timestamp);
     this.updateDoobers(timestamp);
+    this.updateDooberPopups(timestamp);
+    this.updateHudCoinImpacts(timestamp);
   }
 
   // Plant is passable (see NON_BLOCKING_FURNITURE_TYPES) — this is a
@@ -2098,15 +2256,14 @@ export default class GameScreen {
     playCatStuckSound();
   }
 
-  // Spawns a new doober at a random clear spot in the playable area,
-  // capped at MAX_ACTIVE_DOOBERS on the board at once. Reuses
-  // resolveClearSpawn() (see resetGameObjects()'s own use of it for
-  // character spawns) so a doober avoids landing under furniture and (if
-  // MAX_ACTIVE_DOOBERS is ever raised above 1) avoids stacking on top of
-  // another doober, the same guarantees character spawns already get.
+  // Spawns a new doober at a random clear spot in the playable area. The
+  // MAX_ACTIVE_DOOBERS/DOOBER_SPAWN_INTERVAL gating is entirely the
+  // caller's job (updateDoobers()) - this always spawns one when called.
+  // Reuses resolveClearSpawn() (see resetGameObjects()'s own use of it
+  // for character spawns) so a doober avoids landing under furniture and
+  // (if MAX_ACTIVE_DOOBERS is ever raised above 1) avoids stacking on
+  // top of another doober, the same guarantees character spawns already get.
   spawnDoober(timestamp) {
-    if (this.doobers.length >= MAX_ACTIVE_DOOBERS) return;
-
     const { dooberSize } = this.layout;
     const { x: areaX, y: areaY, width: areaWidth, height: areaHeight } = this.playableArea;
     const randomX = areaX + Math.random() * Math.max(0, areaWidth - dooberSize);
@@ -2134,18 +2291,31 @@ export default class GameScreen {
   // Expires any doober that's sat uncaught past DOOBER_CATCH_DURATION
   // (same shape as updatePoops()'s POOP_LIFETIME_MS filter), spawns a
   // replacement once the board has room and DOOBER_SPAWN_INTERVAL has
-  // passed since the last spawn (see spawnDoober()), and checks whether
-  // the player-controlled character has walked over what's left -
-  // deliberately only the controlled character, regardless of mode
-  // (Cat/Mouse/Dog all wander autonomously when not player-driven, and
-  // autonomous entities never collect doobers). What collecting a doober
-  // actually does is dispatched through DOOBER_TYPES[doober.type].onCollect
-  // rather than hardcoded here, so this stays correct for any future
-  // non-coin doober type without changes.
+  // passed since one last actually disappeared (see spawnDoober()), and
+  // checks whether the player-controlled character has walked over
+  // what's left - deliberately only the controlled character, regardless
+  // of mode (Cat/Mouse/Dog all wander autonomously when not
+  // player-driven, and autonomous entities never collect doobers). What
+  // collecting a doober actually does is dispatched through
+  // DOOBER_TYPES[doober.type].onCollect rather than hardcoded here, so
+  // this stays correct for any future non-coin doober type without
+  // changes; onCollect() returns the amount gained so a "+N" popup can
+  // fly it to the HUD (see spawnDooberCollectPopup()).
+  //
+  // lastDooberSpawnTime is only ever reset at an actual disappearance
+  // moment (expiry below, or collection at the bottom) - not on every
+  // tick the interval check happens to pass, which would let the
+  // "cooldown" clock silently keep ticking (and resetting) while a
+  // doober was still sitting on the board, undermining the whole point
+  // of DOOBER_SPAWN_INTERVAL being a real minimum gap between doobers.
   updateDoobers(timestamp) {
+    const countBeforeExpiry = this.doobers.length;
     this.doobers = this.doobers.filter(doober => timestamp - doober.createdAt < DOOBER_CATCH_DURATION);
+    if (this.doobers.length < countBeforeExpiry) {
+      this.lastDooberSpawnTime = timestamp;
+    }
 
-    if (timestamp - this.lastDooberSpawnTime >= DOOBER_SPAWN_INTERVAL) {
+    if (this.doobers.length < MAX_ACTIVE_DOOBERS && timestamp - this.lastDooberSpawnTime >= DOOBER_SPAWN_INTERVAL) {
       this.spawnDoober(timestamp);
       this.lastDooberSpawnTime = timestamp;
     }
@@ -2170,7 +2340,150 @@ export default class GameScreen {
     if (dooberIndex === -1) return;
 
     const [doober] = this.doobers.splice(dooberIndex, 1);
-    DOOBER_TYPES[doober.type].onCollect(this);
+    this.lastDooberSpawnTime = timestamp;
+    const amount = DOOBER_TYPES[doober.type].onCollect(this);
+    this.spawnDooberCollectPopup(doober, amount, timestamp);
+  }
+
+  // Starts a "+N" flying from where the doober was collected toward the
+  // HUD's coin readout (see getHudCoinTargetPosition()) - see
+  // updateDooberPopups() for where the actual coin-count increment
+  // happens. No-ops if the HUD isn't showing (this.wallet not loaded/not
+  // logged in) - nothing sensible to fly toward in that case, though the
+  // doober was still collected/tallied normally either way.
+  spawnDooberCollectPopup(doober, amount, timestamp) {
+    if (!this.wallet) return;
+    const target = this.getHudCoinTargetPosition();
+    this.dooberPopups.push({
+      text: `+${amount}`,
+      amount,
+      startX: doober.x + doober.size / 2,
+      startY: doober.y + doober.size / 2,
+      targetX: target.x,
+      targetY: target.y,
+      createdAt: timestamp,
+    });
+  }
+
+  // Removes popups once their flight finishes - the moment one does, its
+  // amount is applied to the locally-displayed wallet right then (not at
+  // pickup), so the HUD's coin count visibly ticks up in sync with the
+  // "+N" landing rather than jumping ahead of the animation.
+  // kpground-api's submitRound() response (see endGame()) is still the
+  // authoritative reconciliation at round end - this is just an
+  // optimistic local bump for immediate feedback. Per explicit "coins
+  // hitting the HUD should feel like an impact" request, landing also
+  // fires a crash burst (spawnHudCoinImpact()) and a dedicated sound
+  // (playCoinLandSound()) - distinct from playDooberSound()'s pickup ding,
+  // since this is a different moment (the flight finishing, not the
+  // doober being grabbed).
+  updateDooberPopups(timestamp) {
+    this.dooberPopups = this.dooberPopups.filter(popup => {
+      if (timestamp - popup.createdAt < DOOBER_POPUP_DURATION) return true;
+      if (this.wallet) {
+        this.wallet.coins += popup.amount;
+        this.spawnHudCoinImpact(popup.targetX, popup.targetY, timestamp);
+        playCoinLandSound();
+      }
+      return false;
+    });
+  }
+
+  spawnHudCoinImpact(x, y, timestamp) {
+    this.hudCoinImpacts.push({ x, y, createdAt: timestamp });
+  }
+
+  updateHudCoinImpacts(timestamp) {
+    this.hudCoinImpacts = this.hudCoinImpacts.filter(
+      (impact) => timestamp - impact.createdAt < HUD_COIN_IMPACT_DURATION
+    );
+  }
+
+  drawDooberPopups() {
+    this.dooberPopups.forEach(popup => this.drawDooberPopup(popup));
+  }
+
+  // "Crash" burst where a "+N" popup just landed on the HUD - an expanding,
+  // fading gold ring (same technique as drawShockwave()/drawStunBurst())
+  // plus a handful of short radiating spark lines for extra "impact" punch,
+  // since a plain ring alone reads closer to those two effects than a
+  // distinct coin crash.
+  drawHudCoinImpacts() {
+    this.hudCoinImpacts.forEach((impact) => this.drawHudCoinImpact(impact));
+  }
+
+  drawHudCoinImpact(impact) {
+    const ctx = this.ctx;
+    const elapsed = performance.now() - impact.createdAt;
+    const t = Math.min(1, elapsed / HUD_COIN_IMPACT_DURATION);
+    const eased = 1 - Math.pow(1 - t, 2); // ease-out, quick expansion up front
+    const alpha = 1 - t;
+
+    const { hudCoinImpactMaxRadius, hudCoinImpactSparkLength } = this.layout;
+    const radius = eased * hudCoinImpactMaxRadius;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#ffd54f';
+    ctx.lineWidth = Math.max(1, 3 * this.layout.scale);
+    ctx.beginPath();
+    ctx.arc(impact.x, impact.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Sparks travel a bit further than the ring itself and shrink as they
+    // go, reading as debris flung outward rather than a second ring.
+    const sparkReach = radius + hudCoinImpactSparkLength * eased;
+    ctx.strokeStyle = '#fff3c4';
+    ctx.lineWidth = Math.max(1, 2 * this.layout.scale);
+    for (let i = 0; i < HUD_COIN_IMPACT_SPARK_COUNT; i++) {
+      const angle = (i / HUD_COIN_IMPACT_SPARK_COUNT) * Math.PI * 2;
+      const innerR = radius * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(impact.x + Math.cos(angle) * innerR, impact.y + Math.sin(angle) * innerR);
+      ctx.lineTo(impact.x + Math.cos(angle) * sparkReach, impact.y + Math.sin(angle) * sparkReach);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Ease-in flight (starts slow, accelerates toward the HUD) from the
+  // collection point to the coin readout, shrinking and fading over the
+  // final stretch as if being pulled in rather than just stopping.
+  drawDooberPopup(popup) {
+    const ctx = this.ctx;
+    const elapsed = performance.now() - popup.createdAt;
+    const t = Math.min(1, elapsed / DOOBER_POPUP_DURATION);
+    const eased = t * t * t;
+
+    const x = popup.startX + (popup.targetX - popup.startX) * eased;
+    const y = popup.startY + (popup.targetY - popup.startY) * eased;
+
+    const shrinkStart = 0.7;
+    const scale = t < shrinkStart ? 1 : 1 - 0.5 * ((t - shrinkStart) / (1 - shrinkStart));
+    const fadeStart = 0.85;
+    const alpha = t < fadeStart ? 1 : Math.max(0, 1 - (t - fadeStart) / (1 - fadeStart));
+
+    const { dooberPopupFontSize } = this.layout;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.font = `900 ${Math.round(dooberPopupFontSize)}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    // A soft glow behind the outline/fill, on top of the darker/thicker
+    // outline below - per "bigger and readable" feedback, the old thin
+    // dark stroke alone still got lost against a busy board.
+    ctx.shadowColor = 'rgba(255, 213, 79, 0.9)';
+    ctx.shadowBlur = dooberPopupFontSize * 0.4;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.lineWidth = Math.max(1, dooberPopupFontSize * 0.16);
+    ctx.strokeText(popup.text, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(popup.text, 0, 0);
+    ctx.restore();
   }
 
   moveCat() {
@@ -2706,13 +3019,58 @@ export default class GameScreen {
     // no-ops if never logged in (e.g. the API is unreachable, or this
     // screen was reached some way other than through SetupScreen's auth
     // buttons).
+    //
+    // roundRewardBreakdown drives displayGameOverModal()'s "here's what you
+    // earned" section (per explicit request the win/lose modal should show
+    // everything the player was rewarded for the round). Set to a 'pending'
+    // placeholder *synchronously* here, before submitRound() has actually
+    // resolved, so the modal reserves the section's height on its very
+    // first paint - filling it in once the real numbers arrive doesn't then
+    // require the modal to grow/jump. Only shown at all if walletAtRoundStart
+    // exists (i.e. the wallet loaded successfully at round start) - matches
+    // the rest of this game's "no wallet, no HUD" convention for logged-out
+    // play.
+    this.roundRewardBreakdown = this.walletAtRoundStart ? { status: 'pending' } : null;
+
     if (isLoggedIn()) {
       submitRound(this.controlledEntity, isWin ? 'win' : 'loss', this.coinsCollectedThisRound)
         .then((wallet) => {
           this.wallet = wallet;
+          if (this.walletAtRoundStart) {
+            // Diffed against the snapshot taken when the wallet first
+            // loaded, rather than duplicating the backend's own reward
+            // constants (WIN_COINS/LOSS_XP/etc - see kpground-api's
+            // kattrap/services.py submit_round()) client-side to guess at
+            // them - this way the breakdown can never drift out of sync
+            // with whatever the backend actually awarded.
+            const start = this.walletAtRoundStart;
+            const totalCoinsGained = wallet.coins - start.coins;
+            const dooberCoins = this.coinsCollectedThisRound;
+            const leveledUp = wallet.level > start.level;
+            this.roundRewardBreakdown = {
+              status: 'ready',
+              totalCoinsGained,
+              dooberCoins,
+              // Whatever's left after doobers is the flat win/loss round
+              // reward - never negative in practice (dooberCoins can't
+              // exceed what was actually collected this round), but
+              // clamped defensively since this is arithmetic on live
+              // network data, not a value this code controls end-to-end.
+              baseCoinsGained: Math.max(0, totalCoinsGained - dooberCoins),
+              leveledUp,
+              newLevel: wallet.level,
+              // XP gained is only meaningful to show as a plain delta when
+              // no level-up happened this round - add_xp()'s own carry/reset
+              // behavior across a level boundary isn't duplicated
+              // client-side, so a raw wallet.xp - start.xp diff would be
+              // wrong (and misleading) whenever a level-up occurred.
+              xpGained: leveledUp ? null : wallet.xp - start.xp,
+            };
+          }
         })
         .catch((err) => {
           console.warn('Round submission failed:', err.message);
+          if (this.roundRewardBreakdown) this.roundRewardBreakdown = { status: 'error' };
         });
     }
   }
@@ -2793,6 +3151,12 @@ export default class GameScreen {
       // covers this area anyway, and storeButtonArea is nulled out below
       // so a click can't land on where the button used to be.
       this.drawHud();
+      // Drawn after the HUD so a flying "+N" visibly lands on top of the
+      // coin readout at the end of its flight, not underneath it. The
+      // crash burst draws last of the three so it's never covered by a
+      // still-in-flight popup that happens to land the same frame.
+      this.drawDooberPopups();
+      this.drawHudCoinImpacts();
       if (this.message) this.displayMessage();
     }
   }
@@ -2810,23 +3174,51 @@ export default class GameScreen {
     });
   }
 
-  // Coin/level/XP HUD, top-left corner - skipped entirely if this.wallet
+  // Shared geometry for the HUD box (top-center, wide) and its
+  // three-stat row (see HUD_STATS) - used by drawHud() itself,
+  // getHudCoinTargetPosition() (the doober popup's flight target), and
+  // handleMouseMove()'s hover hit-test, so all three agree on where the
+  // HUD actually sits without recomputing (and risking drift on) the
+  // same math three separate times. Geometry only - doesn't need
+  // this.wallet, unlike drawHud() itself.
+  getHudLayout() {
+    const { hudMargin, hudPadding, hudWidth, hudStatRowHeight } = this.layout;
+    const x = (this.canvas.width - hudWidth) / 2;
+    const y = hudMargin;
+    const innerWidth = hudWidth - hudPadding * 2;
+    const statWidth = innerWidth / HUD_STATS.length;
+    const statRowY = y + hudPadding + hudStatRowHeight / 2;
+    return { x, y, hudWidth, hudPadding, hudStatRowHeight, innerWidth, statWidth, statRowY };
+  }
+
+  // Where the coin stat is actually drawn (see drawHud()) - shared with
+  // spawnDooberCollectPopup()'s flight target so the two can never drift
+  // apart, same "one shared position, two consumers" pattern
+  // Cutscene.js's getButtonRect() uses for its own drawn button vs.
+  // click hit box. Coins is always HUD_STATS[0].
+  getHudCoinTargetPosition() {
+    const { x, hudPadding, statWidth, statRowY } = this.getHudLayout();
+    return { x: x + hudPadding + statWidth * 0.5, y: statRowY };
+  }
+
+  // Coin/level/XP HUD, top-center - skipped entirely if this.wallet
   // hasn't loaded yet (still fetching, or never logged in). Same "dark
   // translucent rounded box, white text" chrome language as
-  // displayMessage()'s pill banner, just a persistent corner readout
-  // instead of a transient centered one.
+  // displayMessage()'s pill banner. Redesigned per explicit direction:
+  // wider, centered (not corner-anchored), and every wallet stat gets its
+  // own emoji+value chip in one row (see HUD_STATS) with a hover tooltip
+  // (drawHudTooltip()) rather than coins/level being drawn as two
+  // differently-styled stacked rows.
   drawHud() {
     if (!this.wallet) {
       this.storeButtonArea = null;
+      this.hudStatAreas = [];
       return;
     }
 
-    const { hudMargin, hudPadding, hudWidth, hudRowHeight, hudRadius, hudFontSize, hudXpBarHeight } =
-      this.layout;
-    const x = hudMargin;
-    const y = hudMargin;
-    const rows = 2; // coins row, level+XP-bar row
-    const height = hudPadding * 2 + rows * hudRowHeight;
+    const { hudPadding, hudWidth, hudStatRowHeight, hudRadius, hudFontSize, hudXpBarHeight } = this.layout;
+    const { x, y, statWidth, statRowY } = this.getHudLayout();
+    const height = hudPadding * 2.5 + hudStatRowHeight + hudXpBarHeight;
 
     this.ctx.save();
     drawRoundedRect(this.ctx, x, y, hudWidth, height, hudRadius);
@@ -2838,22 +3230,52 @@ export default class GameScreen {
 
     this.ctx.font = `bold ${Math.round(hudFontSize)}px Arial, sans-serif`;
     this.ctx.textBaseline = 'middle';
-    this.ctx.textAlign = 'left';
+    this.ctx.textAlign = 'center';
     this.ctx.fillStyle = '#ffffff';
 
-    const textX = x + hudPadding;
-    const coinsRowY = y + hudPadding + hudRowHeight / 2;
-    this.ctx.fillText(`\u{1FA99} ${this.wallet.coins}`, textX, coinsRowY);
+    // Divider lines between chips - purely visual, not part of the hit
+    // boxes below (those stay the full chip width so a hover doesn't
+    // require pixel-precise aim right up to a 1px line).
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    for (let i = 1; i < HUD_STATS.length; i++) {
+      const dividerX = x + hudPadding + statWidth * i;
+      this.ctx.beginPath();
+      this.ctx.moveTo(dividerX, y + hudPadding * 0.5);
+      this.ctx.lineTo(dividerX, y + hudPadding * 0.5 + hudStatRowHeight);
+      this.ctx.stroke();
+    }
+    this.ctx.fillStyle = '#ffffff';
 
-    const levelRowY = y + hudPadding + hudRowHeight * 1.5;
-    this.ctx.font = `600 ${Math.round(hudFontSize * 0.85)}px Arial, sans-serif`;
-    this.ctx.fillText(`Lvl ${this.wallet.level}`, textX, levelRowY - hudXpBarHeight);
+    // Rebuilt fresh every frame - cheap, and means a wallet stat changing
+    // (coins ticking up, a level-up) never leaves a stale hit box behind.
+    this.hudStatAreas = HUD_STATS.map((stat, i) => {
+      const centerX = x + hudPadding + statWidth * (i + 0.5);
+      // Coins gets a small crop of the real doober_coin.png art instead of
+      // an emoji, per explicit request ("the coin icon should be a smaller
+      // version of the coin doober") - matches drawCoinDooberContent()'s
+      // own image once loaded; falls back to the emoji for one frame if
+      // somehow drawn before the image has decoded.
+      if (stat.key === 'coins' && this.dooberCoinImage.naturalWidth) {
+        this.drawHudCoinStatText(centerX, statRowY, stat.getText(this.wallet));
+      } else {
+        this.ctx.fillText(`${stat.emoji} ${stat.getText(this.wallet)}`, centerX, statRowY);
+      }
+      return {
+        x: x + hudPadding + statWidth * i,
+        y,
+        width: statWidth,
+        height: hudPadding + hudStatRowHeight,
+        centerX,
+        label: stat.label,
+        description: stat.description,
+      };
+    });
 
-    // Small XP progress bar under the level number - xp_to_next_level
+    // Full-width XP progress bar under the stat row - xp_to_next_level
     // comes from the backend (see kpground-api's CharacterWalletSerializer)
     // rather than duplicating the XP_PER_LEVEL curve here.
-    const barX = textX;
-    const barY = levelRowY + hudXpBarHeight * 0.6;
+    const barX = x + hudPadding;
+    const barY = y + hudPadding * 1.5 + hudStatRowHeight;
     const barWidth = hudWidth - hudPadding * 2;
     const xpFraction = this.wallet.xp_to_next_level
       ? Math.min(1, this.wallet.xp / this.wallet.xp_to_next_level)
@@ -2869,10 +3291,10 @@ export default class GameScreen {
     }
     this.ctx.restore();
 
-    // Store button, just below the HUD box.
+    // Store button, centered just below the HUD box.
     const { storeButtonWidth, storeButtonHeight, storeButtonRadius, storeButtonFontSize } = this.layout;
     this.storeButtonArea = {
-      x,
+      x: x + hudWidth / 2 - storeButtonWidth / 2,
       y: y + height + 8,
       width: storeButtonWidth,
       height: storeButtonHeight,
@@ -2910,6 +3332,120 @@ export default class GameScreen {
       this.storeButtonArea.y + this.storeButtonArea.height / 2 + 1
     );
     this.ctx.restore();
+
+    // Hover tooltip, drawn last so it sits on top of the HUD/store button
+    // it's explaining - see handleMouseMove() for how hoveredHudStatIndex
+    // gets set.
+    if (this.hoveredHudStatIndex !== null && this.hudStatAreas[this.hoveredHudStatIndex]) {
+      this.drawHudTooltip(this.hudStatAreas[this.hoveredHudStatIndex]);
+    }
+  }
+
+  // Draws a coin icon (a small crop of the real doober_coin.png art) plus
+  // a value, centered together as one unit under `centerX` - can't just
+  // fillText() an emoji next to it, since the icon and text need
+  // independent draw calls (drawImage vs fillText) but still have to land
+  // centered as a pair. Reused by both drawHud() (the HUD's coins chip)
+  // and drawRewardsBreakdown() (the modal's "+N Coins" row) - fontSize
+  // defaults to the HUD's own size but each caller passes whatever size
+  // its own ctx.font is currently set to, so the icon scales with the text
+  // it's sitting next to rather than always matching the HUD specifically.
+  // ctx.font/textBaseline are assumed already set by the caller.
+  drawHudCoinStatText(centerX, y, text, fontSize = this.layout.hudFontSize) {
+    const ctx = this.ctx;
+    const image = this.dooberCoinImage;
+    const iconWidth = fontSize * 1.3;
+    const iconHeight = iconWidth * (image.naturalHeight / image.naturalWidth);
+    const gap = fontSize * 0.25;
+    const textWidth = ctx.measureText(text).width;
+    const totalWidth = iconWidth + gap + textWidth;
+    const startX = centerX - totalWidth / 2;
+
+    ctx.drawImage(image, startX, y - iconHeight / 2, iconWidth, iconHeight);
+
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+    ctx.fillText(text, startX + iconWidth + gap, y);
+    ctx.textAlign = prevAlign;
+  }
+
+  // Small popover under a hovered HUD stat chip explaining what the
+  // metric is - a bold label line plus a word-wrapped description, same
+  // dark rounded-box chrome as the HUD itself. The description wraps
+  // (see wrapText()) against a max width that's itself clamped to a
+  // fraction of the live canvas width, rather than either a single
+  // unbroken line (which could overflow a narrow canvas) or a fixed pixel
+  // width (which wouldn't actually shrink on a small screen) - that's what
+  // makes this "responsive" rather than just bigger.
+  drawHudTooltip(area) {
+    const ctx = this.ctx;
+    const { hudTooltipFontSize, hudTooltipPadding, hudTooltipMaxWidth } = this.layout;
+    const titleFontSize = hudTooltipFontSize;
+    const descFontSize = hudTooltipFontSize * 0.82;
+    const maxWidth = Math.min(hudTooltipMaxWidth, this.canvas.width * 0.7);
+
+    ctx.save();
+    ctx.font = `bold ${Math.round(titleFontSize)}px Arial, sans-serif`;
+    const titleWidth = ctx.measureText(area.label).width;
+
+    ctx.font = `${Math.round(descFontSize)}px Arial, sans-serif`;
+    const descLines = this.wrapText(ctx, area.description, maxWidth);
+    const descWidth = Math.max(...descLines.map((line) => ctx.measureText(line).width));
+
+    const lineHeight = descFontSize * 1.25;
+    const boxWidth = Math.max(titleWidth, descWidth) + hudTooltipPadding * 2;
+    const boxHeight =
+      titleFontSize + hudTooltipPadding * 0.5 + descLines.length * lineHeight + hudTooltipPadding * 1.5;
+    const boxY = area.y + area.height + 8;
+    const boxX = Math.max(
+      8,
+      Math.min(area.centerX - boxWidth / 2, this.canvas.width - boxWidth - 8)
+    );
+
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 10);
+    ctx.fillStyle = 'rgba(15, 8, 22, 0.94)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = `bold ${Math.round(titleFontSize)}px Arial, sans-serif`;
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(area.label, boxX + boxWidth / 2, boxY + hudTooltipPadding * 0.9);
+
+    ctx.font = `${Math.round(descFontSize)}px Arial, sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    const descStartY = boxY + hudTooltipPadding * 0.9 + titleFontSize + hudTooltipPadding * 0.5;
+    descLines.forEach((line, i) => {
+      ctx.fillText(line, boxX + boxWidth / 2, descStartY + i * lineHeight);
+    });
+    ctx.restore();
+  }
+
+  // Greedy word-wrap: packs words onto a line until the next one would
+  // exceed maxWidth, then starts a new line - assumes ctx.font is already
+  // set to the font the wrapped text will actually be drawn in, since
+  // measureText() depends on it. Shared by drawHudTooltip() today; general
+  // enough to reuse for any future multi-line canvas text.
+  wrapText(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let currentLine = '';
+
+    words.forEach((word) => {
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(candidate).width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = candidate;
+      }
+    });
+    if (currentLine) lines.push(currentLine);
+
+    return lines;
   }
 
   drawFloor() {
@@ -3142,84 +3678,27 @@ export default class GameScreen {
     ctx.restore();
   }
 
-  // The 'coin' doober type's content (see DOOBER_TYPES): a small pack of
-  // 3 overlapping gold coins, not one lone coin - per explicit direction
-  // ("look like a pack or at least a few stacked coins"). A bold green
-  // dollar sign on the back coin's own visible cap, plus each coin's own
-  // shine highlight, so the cluster reads clearly as coins/money at a
-  // glance from the top-down camera rather than just "gold blobs".
+  // The 'coin' doober type's content (see DOOBER_TYPES): a real generated
+  // image (assets/doober_coin.png) rather than canvas-drawn shapes - per
+  // explicit direction, matching this game's own established pattern of
+  // using real art for anything wanting real polish/dimensionality
+  // (character sprites, kitchen furniture) rather than fighting canvas
+  // gradients for it. this.dooberCoinImage is loaded once in the
+  // constructor; drawImage() with an unloaded image is a no-op-safe
+  // pattern this file doesn't otherwise guard for (see Cat.js's own
+  // sprite draw - by the time gameplay actually starts, the intro
+  // cutscenes have already given small local images time to load).
+  // Sized to DOOBER_COIN_IMAGE_SCALE * the doober's own footprint, not
+  // 1:1 with baseRadius*2 - the source art has its own internal margin/
+  // proportions that don't match the abstract circle-cluster this
+  // replaced, so this is tuned by eye rather than derived.
   drawCoinDooberContent(centerX, centerY, baseRadius) {
-    // Three coins in a loose cluster, drawn back-to-front so the front
-    // two visually overlap the back one - reads as a small pile rather
-    // than a single coin at this size.
-    const backCoin = { dx: 0, dy: -baseRadius * 0.18, r: baseRadius * 0.62 };
-    const coins = [
-      backCoin,
-      { dx: -baseRadius * 0.42, dy: baseRadius * 0.28, r: baseRadius * 0.56 },
-      { dx: baseRadius * 0.42, dy: baseRadius * 0.22, r: baseRadius * 0.56 },
-    ];
-    coins.forEach(coin => this.drawGoldCoin(centerX + coin.dx, centerY + coin.dy, coin.r));
+    const image = this.dooberCoinImage;
+    if (!image.naturalWidth) return;
 
-    // $ sits on the back coin's own center, nudged up slightly so it
-    // stays clear of where the two front coins overlap its lower half.
-    const ctx = this.ctx;
-    const dollarX = centerX + backCoin.dx;
-    const dollarY = centerY + backCoin.dy - backCoin.r * 0.08;
-    ctx.save();
-    ctx.font = `900 ${Math.round(backCoin.r * 1.6)}px Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.lineWidth = Math.max(1, backCoin.r * 0.09);
-    ctx.strokeText('$', dollarX, dollarY);
-    ctx.fillStyle = '#1b8a3a';
-    ctx.fillText('$', dollarX, dollarY);
-    ctx.restore();
-  }
-
-  // One gold coin: radial gradient disc, darker rim stroke, and a bright
-  // crescent highlight for a bit of shine/dimension - same "gradient fill
-  // + highlight" language the rest of this game's UI chrome uses
-  // (drawAuthButton() on SetupScreen, the HUD's pill). Shared by
-  // drawCoinDooberContent()'s 3-coin cluster so all three stay visually
-  // identical.
-  drawGoldCoin(centerX, centerY, radius) {
-    const ctx = this.ctx;
-    const gradient = ctx.createRadialGradient(
-      centerX - radius * 0.3,
-      centerY - radius * 0.3,
-      radius * 0.1,
-      centerX,
-      centerY,
-      radius
-    );
-    gradient.addColorStop(0, '#fff3c4');
-    gradient.addColorStop(0.5, '#ffd54f');
-    gradient.addColorStop(1, '#f9a825');
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.strokeStyle = '#c67c00';
-    ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.ellipse(
-      centerX - radius * 0.3,
-      centerY - radius * 0.3,
-      radius * 0.3,
-      radius * 0.15,
-      -Math.PI / 4,
-      0,
-      Math.PI * 2
-    );
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.fill();
-    ctx.restore();
+    const drawWidth = baseRadius * 2 * DOOBER_COIN_IMAGE_SCALE;
+    const drawHeight = drawWidth * (image.naturalHeight / image.naturalWidth);
+    this.ctx.drawImage(image, centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
   }
 
   // Standard easeOutBounce (x in [0,1] -> [0,1], overshoots into a
@@ -3723,10 +4202,19 @@ export default class GameScreen {
     const ctx = this.ctx;
     const { width, height } = this.canvas;
     const {
-      scale, modalWidth, modalHeight, modalRadius,
+      scale, modalWidth, modalRadius,
       modalTitleFontSize, modalSubtitleFontSize,
       modalButtonWidth, modalButtonHeight, modalButtonRadius, modalButtonFontSize,
+      modalRewardsExtraHeight,
     } = this.layout;
+    // baseModalHeight (the layout's own modalHeight) drives the title/
+    // subtitle's position exactly as before - the card itself grows taller
+    // by modalRewardsExtraHeight to fit the rewards section (see
+    // roundRewardBreakdown), but title/subtitle should stay put relative to
+    // center rather than drifting because a section below them exists.
+    const baseModalHeight = this.layout.modalHeight;
+    const showRewards = !!this.roundRewardBreakdown;
+    const modalHeight = baseModalHeight + (showRewards ? modalRewardsExtraHeight : 0);
 
     ctx.save();
     ctx.fillStyle = COLORS.MODAL.SCRIM;
@@ -3778,7 +4266,7 @@ export default class GameScreen {
 
     ctx.textAlign = 'center';
     const title = this.gameOverIsWin ? 'You Win!' : 'You Lose!';
-    const titleY = centerY - modalHeight * 0.12;
+    const titleY = centerY - baseModalHeight * 0.12;
     // 'Impact'/'Arial Black' aren't available on every OS — the bold
     // sans-serif fallback plus the outline stroke below keep it reading as
     // "big playful headline" either way, without loading an external font.
@@ -3789,12 +4277,24 @@ export default class GameScreen {
     ctx.fillStyle = COLORS.MODAL.TITLE_FILL;
     ctx.fillText(title, centerX, titleY);
 
+    const subtitleY = centerY + baseModalHeight * 0.06;
     ctx.font = `bold ${modalSubtitleFontSize}px Arial`;
     ctx.fillStyle = COLORS.MODAL.SUBTITLE;
-    ctx.fillText(this.message, centerX, centerY + modalHeight * 0.06);
+    ctx.fillText(this.message, centerX, subtitleY);
 
     const buttonX = centerX - modalButtonWidth / 2;
-    const buttonY = centerY + modalHeight * 0.22;
+    // Rewards showing: bottom-anchored inside the grown card, leaving the
+    // rewards section the rest of the room between the subtitle and here.
+    // Not showing: the original centerY-relative offset, untouched, so a
+    // logged-out player's modal is pixel-for-pixel what it always was.
+    const buttonY = showRewards
+      ? modalY + modalHeight - modalRadius - modalButtonHeight
+      : centerY + baseModalHeight * 0.22;
+
+    if (showRewards) {
+      this.drawRewardsBreakdown(centerX, subtitleY + modalSubtitleFontSize * 0.9, buttonY - 10 * scale, modalWidth);
+    }
+
     drawRoundedRect(ctx, buttonX, buttonY, modalButtonWidth, modalButtonHeight, modalButtonRadius);
     ctx.shadowColor = COLORS.MODAL.BUTTON_SHADOW;
     ctx.shadowBlur = 10 * scale;
@@ -3812,6 +4312,96 @@ export default class GameScreen {
     ctx.restore();
 
     this.playAgainButtonArea = { x: buttonX, y: buttonY, width: modalButtonWidth, height: modalButtonHeight };
+  }
+
+  // "Here's everything you earned" section on the win/lose modal, between
+  // the subtitle and the Play Again button - per explicit request the
+  // modal should show the full reward breakdown, not just leave it implied
+  // by the HUD's coin count having changed. Content is vertically centered
+  // within [topY, bottomY] rather than stacked from a fixed top, since the
+  // number of lines varies (pending/error is one line; the ready state is
+  // 1-3 depending on whether doobers were collected and whether the player
+  // leveled up) while the reserved space itself (modalRewardsExtraHeight)
+  // stays fixed - see roundRewardBreakdown's own comment for why that
+  // matters (no layout jump when the real numbers arrive).
+  drawRewardsBreakdown(centerX, topY, bottomY, modalWidth) {
+    const ctx = this.ctx;
+    const { modalRewardsTitleFontSize: titleSize, modalRewardsLineFontSize: lineSize, scale } = this.layout;
+    const breakdown = this.roundRewardBreakdown;
+    const boxHeight = bottomY - topY;
+
+    ctx.save();
+    // A slightly darker inset panel so the section reads as its own block
+    // rather than floating text on the gradient card, same "content needs
+    // its own backdrop for legibility" lesson as displayMessage()'s pill.
+    drawRoundedRect(ctx, centerX - modalWidth * 0.42, topY, modalWidth * 0.84, boxHeight, 12 * scale);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+
+    if (breakdown.status === 'pending' || breakdown.status === 'error') {
+      ctx.font = `italic ${Math.round(lineSize)}px Arial`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        breakdown.status === 'pending' ? 'Tallying rewards…' : 'Rewards will show next round',
+        centerX,
+        topY + boxHeight / 2
+      );
+      ctx.restore();
+      return;
+    }
+
+    // Build the actual rows first so their combined height can be centered
+    // in the reserved box, rather than stacking from a fixed top and
+    // leaving uneven space depending on which rows apply.
+    const coinLineHeight = titleSize * 1.15;
+    const subLineHeight = lineSize * 1.3;
+    const rows = [{ type: 'coins', height: coinLineHeight }];
+    if (breakdown.dooberCoins > 0) {
+      rows.push({ type: 'coinsBreakdown', height: subLineHeight });
+    }
+    if (breakdown.leveledUp) {
+      rows.push({ type: 'levelUp', height: subLineHeight });
+    } else if (breakdown.xpGained) {
+      rows.push({ type: 'xp', height: subLineHeight });
+    }
+
+    const totalHeight = rows.reduce((sum, row) => sum + row.height, 0);
+    let rowY = topY + (boxHeight - totalHeight) / 2;
+
+    rows.forEach((row) => {
+      const rowCenterY = rowY + row.height / 2;
+      if (row.type === 'coins') {
+        ctx.font = `bold ${Math.round(titleSize)}px Arial, sans-serif`;
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        this.drawHudCoinStatText(centerX, rowCenterY, `+${breakdown.totalCoinsGained} Coins`, titleSize);
+      } else if (row.type === 'coinsBreakdown') {
+        ctx.font = `${Math.round(lineSize)}px Arial`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          `Round +${breakdown.baseCoinsGained} · Doobers +${breakdown.dooberCoins}`,
+          centerX,
+          rowCenterY
+        );
+      } else if (row.type === 'levelUp') {
+        ctx.font = `bold ${Math.round(lineSize * 1.1)}px Arial`;
+        ctx.fillStyle = '#ffd54f';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`⭐ Level Up! → Lvl ${breakdown.newLevel}`, centerX, rowCenterY);
+      } else if (row.type === 'xp') {
+        ctx.font = `${Math.round(lineSize)}px Arial`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`✨ +${breakdown.xpGained} XP`, centerX, rowCenterY);
+      }
+      rowY += row.height;
+    });
+
+    ctx.restore();
   }
 
   // A wall band flush against all four canvas edges, drawn under the

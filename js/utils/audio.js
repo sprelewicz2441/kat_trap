@@ -427,3 +427,75 @@ export function playDooberSound() {
   playNote(ctx, { freq: 987.77, start: now, duration: 0.08, type: 'triangle', peakGain: 0.25 });
   playNote(ctx, { freq: 1567.98, start: now + 0.06, duration: 0.16, type: 'triangle', peakGain: 0.25 });
 }
+
+// Coin "crash" landing in the HUD — a distinct, punchier cue from
+// playDooberSound() above on purpose: that one fires the instant a doober
+// is physically picked up on the board, this one fires ~DOOBER_POPUP_
+// DURATION later, when the "+N" popup's flight actually finishes and the
+// HUD's coin count ticks up (see GameScreen.updateDooberPopups()) — two
+// different moments in time, so they needed two different sounds rather
+// than reusing the pickup ding a second time. A quick 3-note bright
+// glissando (coins clattering into a pile) layered with a short
+// high-passed "clink" noise burst for the metallic impact, then a soft
+// sparkle tail — same "impact + texture at once" layering
+// playPlantKnockOverSound()/playPoopSound() already use elsewhere in this
+// file, just tuned bright/metallic instead of dull/wet.
+export function playCoinLandSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+
+  // The clatter: three fast, slightly detuned bright notes rather than one
+  // clean tone — reads as multiple coins landing together, not a single bell.
+  const clatterNotes = [1318.51, 1567.98, 2093.0]; // E6, G6, C7
+  clatterNotes.forEach((freq, i) => {
+    playNote(ctx, {
+      freq,
+      start: now + i * 0.03,
+      duration: 0.12,
+      type: 'triangle',
+      peakGain: 0.22,
+    });
+  });
+
+  // The metallic clink: a short burst of high-passed noise right at the
+  // start, giving the clatter above a hard edge instead of pure tones.
+  const clinkDuration = 0.09;
+  const bufferSize = Math.floor(ctx.sampleRate * clinkDuration);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 4000;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.2, now + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + clinkDuration);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+
+  noise.start(now);
+  noise.stop(now + clinkDuration);
+
+  // Soft shimmer tail, same technique as playWinSound()'s held-note
+  // sparkle - a short, quiet high sine layered under the clatter's end so
+  // the landing doesn't just stop dead.
+  playNote(ctx, {
+    freq: clatterNotes[clatterNotes.length - 1] * 2,
+    start: now + 0.05,
+    duration: 0.35,
+    type: 'sine',
+    peakGain: 0.1,
+  });
+}
