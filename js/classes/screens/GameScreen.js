@@ -20,7 +20,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=2';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
@@ -798,6 +798,75 @@ const BASE_DOG_SIZE = 50;
 const BASE_POOP_WIDTH = 34;
 const BASE_POOP_HEIGHT = 26;
 
+// In-gameplay "doobers" (this game's term for a collectible drop,
+// borrowed from FrontierVille) — spawn on the board during a round,
+// separate from the round-completion coin reward (see
+// GameScreen.endGame()/kpground-api's submit_round). Collected by
+// whichever character the player controls, regardless of mode -
+// autonomous entities never pick these up, only the human-driven one
+// (see updateDoobers()). Every number below is independently tunable per
+// explicit direction - none of these are coupled to each other in code,
+// so any one can change without touching the others.
+const MAX_ACTIVE_DOOBERS = 1; // on the board at once
+const DOOBER_CATCH_DURATION = 10000; // ms a doober stays before vanishing uncaught
+const DOOBER_SPAWN_INTERVAL = 3000; // ms after one disappears before the next can appear
+const BASE_DOOBER_SIZE = 65; // footprint of the whole doober, not one coin
+// Drop-in animation: falls from DOOBER_DROP_HEIGHT above its resting spot
+// down to rest over DOOBER_DROP_DURATION, with a little bounce on landing
+// (see drawDoober()'s easeOutBounce) - not just fading/popping into place.
+const DOOBER_DROP_DURATION = 350; // ms
+const DOOBER_DROP_HEIGHT = 60; // px above rest position it falls from
+// Gentle idle bob once landed (visual only, not collision-relevant) so a
+// waiting doober still reads as "alive"/collectible rather than a flat decal.
+const DOOBER_BOB_AMPLITUDE = 3; // px
+const DOOBER_BOB_PERIOD = 900; // ms per full cycle
+// A big glowing arrow points down at every doober once it's landed,
+// regardless of type - the signature "look here!" visual FrontierVille's
+// own doobers use (modeled directly off a reference screenshot). Drawn
+// by the shared drawDoober(), on top of whatever DOOBER_TYPES[type].draw()
+// rendered, so every future doober type gets this for free. Bobs on its
+// own schedule (independent of the doober's own idle bob) so it reads as
+// actively beckoning rather than static.
+const DOOBER_ARROW_GAP = 6; // px between the arrow's tip and the doober's top
+const DOOBER_ARROW_BOB_AMPLITUDE = 5; // px
+const DOOBER_ARROW_BOB_PERIOD = 700; // ms per full cycle - quicker than the doober's own bob
+
+// Per explicit direction, the arrow is a one-time teaching cue per
+// doober type, not a permanent decoration - once a player has seen a
+// coin doober's arrow, later coin doobers don't need to keep pointing it
+// out. Module-level (not a GameScreen instance field) so it survives
+// "Play Again" (a fresh GameScreen each round) the same way audio.js's
+// mute flags do - only an actual page reload resets it. spawnDoober()
+// decides per-spawn whether *this* doober gets the arrow (recorded on
+// the doober itself as .showArrow) rather than drawDoober() deciding
+// live every frame, so the choice is made once and stays stable for
+// that doober's whole lifetime.
+const dooberArrowShownForType = new Set();
+
+// Coins are the only doober type today, but this project explicitly
+// wants the system ready for other, non-coin doober types later - so
+// every doober carries a `type`, and everything type-specific (what it
+// looks like, what collecting it does) is isolated to one entry here
+// rather than baked into spawn/expire/collision, which stay generic. A
+// future type is: add an entry, add its own draw*DooberContent() method,
+// done - no changes to spawnDoober()/updateDoobers()/drawDoober().
+const DOOBER_COIN_VALUE = 1; // coins credited per coin-doober collected
+const DOOBER_TYPES = {
+  coin: {
+    draw: (screen, centerX, centerY, baseRadius) =>
+      screen.drawCoinDooberContent(centerX, centerY, baseRadius),
+    onCollect: (screen) => {
+      screen.coinsCollectedThisRound += DOOBER_COIN_VALUE;
+      playDooberSound();
+    },
+  },
+};
+// Which type spawns - a plain pool for now (only 'coin' exists), picked
+// at random each spawn so adding a second type is just adding it here;
+// a weighted pool is the natural next step once some types should be
+// rarer than others.
+const DOOBER_SPAWNABLE_TYPES = ['coin'];
+
 // Wall clearance must cover the tallest thing placed on that wall, plus the
 // wall band itself — every module's back is flush against the wall band's
 // front face (see makeModule()/buildWallVertical() below), so the interior
@@ -924,6 +993,7 @@ function computeLayout(canvasWidth) {
     dogSizeApprox: BASE_DOG_SIZE * characterScale,
     poopWidth: BASE_POOP_WIDTH * scale,
     poopHeight: BASE_POOP_HEIGHT * scale,
+    dooberSize: BASE_DOOBER_SIZE * scale,
     stinkOrbitRadiusX: BASE_STINK_ORBIT_RADIUS_X * scale,
     topWallHeight,
     bottomWallHeight,
@@ -1056,6 +1126,16 @@ export default class GameScreen {
     // nullable field so a future loosening of that one-at-a-time rule
     // wouldn't need a shape change here too.
     this.poops = [];
+
+    // In-gameplay doobers (see updateDoobers()/spawnDoober() below) - kept
+    // as an array even though MAX_ACTIVE_DOOBERS is 1 today, same reasoning
+    // as this.poops above (a future change to that constant needs no shape
+    // change here). lastDooberSpawnTime starts at 0 so the very first
+    // update() tick's timestamp already exceeds DOOBER_SPAWN_INTERVAL,
+    // spawning one immediately rather than making the player wait.
+    this.doobers = [];
+    this.coinsCollectedThisRound = 0;
+    this.lastDooberSpawnTime = 0;
 
     this.running = false;
     this.catPaused = false;
@@ -1319,6 +1399,13 @@ export default class GameScreen {
     // out any poop from that earlier pass rather than carrying it into the
     // new layout.
     this.poops = [];
+    // Same reasoning as poops above - a second resetGameObjects() pass
+    // shouldn't carry doobers spawned against the previous layout.
+    // coinsCollectedThisRound/lastDooberSpawnTime deliberately aren't
+    // reset here (only in the constructor) - this can legitimately run
+    // again mid-round-setup, and a player shouldn't lose an already-
+    // ticking spawn timer or tally to that.
+    this.doobers = [];
 
     if (this.inputHandler) this.inputHandler.cleanup();
     // resetGameObjects() unconditionally reassigns this.dog below — called
@@ -1692,6 +1779,7 @@ export default class GameScreen {
     this.updateShelfBump(timestamp);
     this.updateTableBump(timestamp);
     this.updatePoops(timestamp);
+    this.updateDoobers(timestamp);
   }
 
   // Plant is passable (see NON_BLOCKING_FURNITURE_TYPES) — this is a
@@ -2008,6 +2096,81 @@ export default class GameScreen {
     this.catStunSource = 'poop';
     this.cat.startYuckReaction(timestamp);
     playCatStuckSound();
+  }
+
+  // Spawns a new doober at a random clear spot in the playable area,
+  // capped at MAX_ACTIVE_DOOBERS on the board at once. Reuses
+  // resolveClearSpawn() (see resetGameObjects()'s own use of it for
+  // character spawns) so a doober avoids landing under furniture and (if
+  // MAX_ACTIVE_DOOBERS is ever raised above 1) avoids stacking on top of
+  // another doober, the same guarantees character spawns already get.
+  spawnDoober(timestamp) {
+    if (this.doobers.length >= MAX_ACTIVE_DOOBERS) return;
+
+    const { dooberSize } = this.layout;
+    const { x: areaX, y: areaY, width: areaWidth, height: areaHeight } = this.playableArea;
+    const randomX = areaX + Math.random() * Math.max(0, areaWidth - dooberSize);
+    const randomY = areaY + Math.random() * Math.max(0, areaHeight - dooberSize);
+
+    const avoidExistingDoobers = this.doobers.map(d => ({ x: d.x, y: d.y, size: d.size }));
+    const { x, y } = this.resolveClearSpawn(
+      randomX,
+      randomY,
+      dooberSize,
+      avoidExistingDoobers,
+      dooberSize * 2
+    );
+
+    const type = DOOBER_SPAWNABLE_TYPES[Math.floor(Math.random() * DOOBER_SPAWNABLE_TYPES.length)];
+    // First doober of this type this whole page session gets the arrow;
+    // every later one of the same type doesn't (see dooberArrowShownForType
+    // above). Decided once here, not re-checked every frame in
+    // drawDoober(), so this doober's arrow visibility can't flicker.
+    const showArrow = !dooberArrowShownForType.has(type);
+    if (showArrow) dooberArrowShownForType.add(type);
+    this.doobers.push({ x, y, size: dooberSize, createdAt: timestamp, type, showArrow });
+  }
+
+  // Expires any doober that's sat uncaught past DOOBER_CATCH_DURATION
+  // (same shape as updatePoops()'s POOP_LIFETIME_MS filter), spawns a
+  // replacement once the board has room and DOOBER_SPAWN_INTERVAL has
+  // passed since the last spawn (see spawnDoober()), and checks whether
+  // the player-controlled character has walked over what's left -
+  // deliberately only the controlled character, regardless of mode
+  // (Cat/Mouse/Dog all wander autonomously when not player-driven, and
+  // autonomous entities never collect doobers). What collecting a doober
+  // actually does is dispatched through DOOBER_TYPES[doober.type].onCollect
+  // rather than hardcoded here, so this stays correct for any future
+  // non-coin doober type without changes.
+  updateDoobers(timestamp) {
+    this.doobers = this.doobers.filter(doober => timestamp - doober.createdAt < DOOBER_CATCH_DURATION);
+
+    if (timestamp - this.lastDooberSpawnTime >= DOOBER_SPAWN_INTERVAL) {
+      this.spawnDoober(timestamp);
+      this.lastDooberSpawnTime = timestamp;
+    }
+
+    if (this.doobers.length === 0) return;
+
+    const character = this[this.controlledEntity];
+    if (!character) return;
+
+    const dooberIndex = this.doobers.findIndex(doober =>
+      aabbOverlap(
+        character.x,
+        character.y,
+        character.displayWidth,
+        character.displayHeight,
+        doober.x,
+        doober.y,
+        doober.size,
+        doober.size
+      )
+    );
+    if (dooberIndex === -1) return;
+
+    const [doober] = this.doobers.splice(dooberIndex, 1);
+    DOOBER_TYPES[doober.type].onCollect(this);
   }
 
   moveCat() {
@@ -2536,14 +2699,15 @@ export default class GameScreen {
     this.stopDogBarkSound();
 
     // Fire-and-forget - a failed/slow submission shouldn't block or delay
-    // the game-over modal the player is already looking at. coins_collected
-    // is hardcoded to 0 for now: the in-gameplay coin-pickup mechanic
-    // itself isn't built yet (see kpground-api CLAUDE.md's Known gaps),
-    // only the round-outcome reward this call unlocks. Silently no-ops if
-    // never logged in (e.g. the API is unreachable, or this screen was
-    // reached some way other than through SetupScreen's auth buttons).
+    // the game-over modal the player is already looking at.
+    // coinsCollectedThisRound is this round's in-gameplay doober tally
+    // (see updateDoobers()), sent alongside the win/loss outcome
+    // reward rather than as its own network call per doober. Silently
+    // no-ops if never logged in (e.g. the API is unreachable, or this
+    // screen was reached some way other than through SetupScreen's auth
+    // buttons).
     if (isLoggedIn()) {
-      submitRound(this.controlledEntity, isWin ? 'win' : 'loss', 0)
+      submitRound(this.controlledEntity, isWin ? 'win' : 'loss', this.coinsCollectedThisRound)
         .then((wallet) => {
           this.wallet = wallet;
         })
@@ -2608,6 +2772,10 @@ export default class GameScreen {
     // the same convention every other ground-level thing in this sequence
     // already follows.
     this.drawPoops();
+    // Same ground-level-before-characters convention as escapes/poops
+    // above - a doober should visually sit under whoever walks over it,
+    // not on top.
+    this.drawDoobers();
     // Mouse draws before furniture so it visually ducks under furniture
     // it's overlapping, even though it isn't blocked by it (see updateMouse).
     // Skipped once it's escaped (see checkMouseEscaped()) so it doesn't
@@ -2888,6 +3056,183 @@ export default class GameScreen {
     if (popProgress >= 1) {
       this.drawStinkLines(centerX, bottomY - poop.height * 0.75, elapsed);
     }
+  }
+
+  drawDoobers() {
+    this.doobers.forEach(doober => this.drawDoober(doober));
+  }
+
+  // Shared drop-in/idle-bob animation for every doober type - falls in
+  // from above with a bounce landing (easeOutBounce() below, over
+  // DOOBER_DROP_DURATION/DOOBER_DROP_HEIGHT) rather than fading or
+  // popping straight into place, then gently idle-bobs once landed, then
+  // (once landed) draws the signature glowing down-arrow above it (see
+  // drawDooberArrow()). Collision always uses the doober's stored resting
+  // x/y regardless of animation state - this is purely visual, same as
+  // the poop pile's own pop-in never moves its hitbox. What actually gets
+  // drawn at the computed center is delegated to
+  // DOOBER_TYPES[doober.type].draw() - this method itself has no
+  // coin-specific knowledge at all, so a future non-coin doober type gets
+  // the same animation and arrow for free.
+  drawDoober(doober) {
+    const elapsed = performance.now() - doober.createdAt;
+
+    const dropProgress = Math.min(1, elapsed / DOOBER_DROP_DURATION);
+    const dropOffset = -DOOBER_DROP_HEIGHT * (1 - this.easeOutBounce(dropProgress));
+    const bobOffset =
+      dropProgress >= 1
+        ? Math.sin((elapsed / DOOBER_BOB_PERIOD) * Math.PI * 2) * DOOBER_BOB_AMPLITUDE
+        : 0;
+
+    const centerX = doober.x + doober.size / 2;
+    const centerY = doober.y + doober.size / 2 + dropOffset + bobOffset;
+    const baseRadius = doober.size / 2;
+
+    DOOBER_TYPES[doober.type].draw(this, centerX, centerY, baseRadius);
+
+    // Only once landed (an arrow pointing at a doober still mid-drop
+    // would be pointing at empty air) and only if this doober was the
+    // one that "won" the once-per-type-per-session arrow at spawn time
+    // (see spawnDoober()'s showArrow).
+    if (dropProgress >= 1 && doober.showArrow) {
+      this.drawDooberArrow(centerX, centerY - baseRadius, baseRadius, elapsed);
+    }
+  }
+
+  // The signature down-arrow every doober gets once landed, independent
+  // of its type/content - see DOOBER_ARROW_* above for why this lives in
+  // the shared drawDoober() rather than in a type's own draw(). A soft
+  // glow (shadowBlur) plus a bold dark outline, same "cartoon-bold, hard
+  // to miss" language the reference screenshot's own arrows use.
+  drawDooberArrow(centerX, topY, baseRadius, elapsed) {
+    const ctx = this.ctx;
+    const bob = Math.sin((elapsed / DOOBER_ARROW_BOB_PERIOD) * Math.PI * 2) * DOOBER_ARROW_BOB_AMPLITUDE;
+    const tipY = topY - DOOBER_ARROW_GAP + bob;
+
+    const width = baseRadius * 1.1;
+    const height = baseRadius * 1.3;
+    const shaftHalfWidth = width * 0.28;
+    const headHalfWidth = width * 0.5;
+    const headBaseY = tipY - height * 0.55;
+    const topEdgeY = tipY - height;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(255, 214, 64, 0.85)';
+    ctx.shadowBlur = baseRadius * 0.4;
+
+    ctx.beginPath();
+    ctx.moveTo(centerX - shaftHalfWidth, topEdgeY);
+    ctx.lineTo(centerX + shaftHalfWidth, topEdgeY);
+    ctx.lineTo(centerX + shaftHalfWidth, headBaseY);
+    ctx.lineTo(centerX + headHalfWidth, headBaseY);
+    ctx.lineTo(centerX, tipY);
+    ctx.lineTo(centerX - headHalfWidth, headBaseY);
+    ctx.lineTo(centerX - shaftHalfWidth, headBaseY);
+    ctx.closePath();
+
+    const gradient = ctx.createLinearGradient(centerX, topEdgeY, centerX, tipY);
+    gradient.addColorStop(0, '#fff59d');
+    gradient.addColorStop(1, '#ffca28');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.strokeStyle = '#8a5a00';
+    ctx.lineWidth = Math.max(1, baseRadius * 0.08);
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // The 'coin' doober type's content (see DOOBER_TYPES): a small pack of
+  // 3 overlapping gold coins, not one lone coin - per explicit direction
+  // ("look like a pack or at least a few stacked coins"). A bold green
+  // dollar sign on the back coin's own visible cap, plus each coin's own
+  // shine highlight, so the cluster reads clearly as coins/money at a
+  // glance from the top-down camera rather than just "gold blobs".
+  drawCoinDooberContent(centerX, centerY, baseRadius) {
+    // Three coins in a loose cluster, drawn back-to-front so the front
+    // two visually overlap the back one - reads as a small pile rather
+    // than a single coin at this size.
+    const backCoin = { dx: 0, dy: -baseRadius * 0.18, r: baseRadius * 0.62 };
+    const coins = [
+      backCoin,
+      { dx: -baseRadius * 0.42, dy: baseRadius * 0.28, r: baseRadius * 0.56 },
+      { dx: baseRadius * 0.42, dy: baseRadius * 0.22, r: baseRadius * 0.56 },
+    ];
+    coins.forEach(coin => this.drawGoldCoin(centerX + coin.dx, centerY + coin.dy, coin.r));
+
+    // $ sits on the back coin's own center, nudged up slightly so it
+    // stays clear of where the two front coins overlap its lower half.
+    const ctx = this.ctx;
+    const dollarX = centerX + backCoin.dx;
+    const dollarY = centerY + backCoin.dy - backCoin.r * 0.08;
+    ctx.save();
+    ctx.font = `900 ${Math.round(backCoin.r * 1.6)}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.lineWidth = Math.max(1, backCoin.r * 0.09);
+    ctx.strokeText('$', dollarX, dollarY);
+    ctx.fillStyle = '#1b8a3a';
+    ctx.fillText('$', dollarX, dollarY);
+    ctx.restore();
+  }
+
+  // One gold coin: radial gradient disc, darker rim stroke, and a bright
+  // crescent highlight for a bit of shine/dimension - same "gradient fill
+  // + highlight" language the rest of this game's UI chrome uses
+  // (drawAuthButton() on SetupScreen, the HUD's pill). Shared by
+  // drawCoinDooberContent()'s 3-coin cluster so all three stay visually
+  // identical.
+  drawGoldCoin(centerX, centerY, radius) {
+    const ctx = this.ctx;
+    const gradient = ctx.createRadialGradient(
+      centerX - radius * 0.3,
+      centerY - radius * 0.3,
+      radius * 0.1,
+      centerX,
+      centerY,
+      radius
+    );
+    gradient.addColorStop(0, '#fff3c4');
+    gradient.addColorStop(0.5, '#ffd54f');
+    gradient.addColorStop(1, '#f9a825');
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.strokeStyle = '#c67c00';
+    ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(
+      centerX - radius * 0.3,
+      centerY - radius * 0.3,
+      radius * 0.3,
+      radius * 0.15,
+      -Math.PI / 4,
+      0,
+      Math.PI * 2
+    );
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Standard easeOutBounce (x in [0,1] -> [0,1], overshoots into a
+  // couple of small bounces before settling at 1) - drives drawDoober()'s
+  // drop-in so a spawning doober reads as "dropped and bounced" rather
+  // than a flat linear fall or a fade-in.
+  easeOutBounce(x) {
+    const n1 = 7.5625;
+    const d1 = 2.75;
+    if (x < 1 / d1) return n1 * x * x;
+    if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
+    if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
+    return n1 * (x -= 2.625 / d1) * x + 0.984375;
   }
 
   // Small squiggly brown lines circling above a poop pile — same "bold,

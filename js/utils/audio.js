@@ -1,3 +1,14 @@
+// Every importer of this file uses '../../utils/audio.js?v=1' (or the
+// equivalent relative path), not a bare './audio.js' - this file has been
+// edited repeatedly since first written (new synthesized SFX added over
+// time) without ever picking up the module-level cache-busting convention
+// Cat.js/Dog.js/Mouse.js/scale.js already use (see CLAUDE.md's "Module-
+// level cache-busting"). Caught live: a stale cached copy missing a
+// just-added export threw a SyntaxError on import, breaking the whole
+// game silently for anyone still on the old cached copy - the same
+// symptom class documented for Dog.js. Bump the query string on every
+// future edit to this file, exactly like those other four.
+//
 // Two independent mute flags, not one — see the in-game settings menu
 // (js/utils/settingsMenu.js). Module-level state rather than per-GameScreen,
 // so it survives "Play Again" (a fresh GameScreen instance each round) and
@@ -395,4 +406,24 @@ export function playCatStuckSound() {
   lfo.start(now);
   osc.stop(now + duration + 0.05);
   lfo.stop(now + duration + 0.05);
+}
+
+// Doober pickup "ding" (a "doober" is this game's term for the
+// in-gameplay coin drop, borrowed from FrontierVille): a quick two-note
+// ascending chime (B5 into G6), the classic bright arcade-coin feel —
+// short on purpose (unlike playWinSound()'s fanfare) since only one
+// doober is ever on the board at a time (see GameScreen's
+// MAX_ACTIVE_DOOBERS), but a round can still collect several across its
+// lifetime. Synthesized via playNote() like every other one-shot here;
+// nothing in sounds/ fit. Triggered directly from
+// GameScreen.updateDoobers() the instant one is collected, same "call
+// directly, don't route through playSound()" pattern as every other
+// synthesized sound in this file.
+export function playDooberSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+  playNote(ctx, { freq: 987.77, start: now, duration: 0.08, type: 'triangle', peakGain: 0.25 });
+  playNote(ctx, { freq: 1567.98, start: now + 0.06, duration: 0.16, type: 'triangle', peakGain: 0.25 });
 }
