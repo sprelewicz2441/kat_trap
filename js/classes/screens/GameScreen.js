@@ -23,7 +23,8 @@ import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
-import { isLoggedIn, submitRound } from '../../utils/api.js';
+import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
+import { openStoreModal } from '../../utils/storeModal.js';
 
 // ==============================
 //  CONSTANTS
@@ -763,6 +764,24 @@ const MODAL_POP_IN_DURATION = 250; // ms
 
 const BASE_FLOOR_TILE_SIZE = 24;
 
+// Coin/level/XP HUD (see drawHud()) - top-left corner, live during
+// gameplay only (skipped entirely when this.wallet is null, i.e. never
+// logged in - see fetchWallet()). UI chrome, sized with uiScale like the
+// rest of this section.
+const BASE_HUD_MARGIN = 16;
+const BASE_HUD_PADDING = 12;
+const BASE_HUD_WIDTH = 150;
+const BASE_HUD_ROW_HEIGHT = 24;
+const BASE_HUD_RADIUS = 14;
+const BASE_HUD_FONT_SIZE = 16;
+const BASE_HUD_XP_BAR_HEIGHT = 6;
+
+// Store button, drawn just below the HUD box.
+const BASE_STORE_BUTTON_WIDTH = 96;
+const BASE_STORE_BUTTON_HEIGHT = 32;
+const BASE_STORE_BUTTON_RADIUS = 16;
+const BASE_STORE_BUTTON_FONT_SIZE = 15;
+
 // Rough approximations of the cat/mouse/dog's on-screen size, used only to
 // keep the freestanding dining set and furniture placement clear of where
 // they'll spawn — generateKitchenFurniture() runs before those instances
@@ -889,6 +908,17 @@ function computeLayout(canvasWidth) {
     modalButtonRadius: BASE_MODAL_BUTTON_RADIUS * uiScale,
     modalButtonFontSize: BASE_MODAL_BUTTON_FONT_SIZE * uiScale,
     floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
+    hudMargin: BASE_HUD_MARGIN * uiScale,
+    hudPadding: BASE_HUD_PADDING * uiScale,
+    hudWidth: BASE_HUD_WIDTH * uiScale,
+    hudRowHeight: BASE_HUD_ROW_HEIGHT * uiScale,
+    hudRadius: BASE_HUD_RADIUS * uiScale,
+    hudFontSize: BASE_HUD_FONT_SIZE * uiScale,
+    hudXpBarHeight: BASE_HUD_XP_BAR_HEIGHT * uiScale,
+    storeButtonWidth: BASE_STORE_BUTTON_WIDTH * uiScale,
+    storeButtonHeight: BASE_STORE_BUTTON_HEIGHT * uiScale,
+    storeButtonRadius: BASE_STORE_BUTTON_RADIUS * uiScale,
+    storeButtonFontSize: BASE_STORE_BUTTON_FONT_SIZE * uiScale,
     catSizeApprox: BASE_CAT_SIZE * characterScale,
     mouseSizeApprox: BASE_MOUSE_SIZE * characterScale,
     dogSizeApprox: BASE_DOG_SIZE * characterScale,
@@ -1114,6 +1144,16 @@ export default class GameScreen {
 
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
+    // The controlled character's own wallet (coins/level/xp/xp_to_next_level)
+    // - fetched once in init() if logged in, refreshed from submitRound()'s
+    // and purchaseItem()'s own responses afterward rather than re-fetched.
+    // Stays null (HUD/store button both skip drawing entirely) if never
+    // logged in - see fetchWallet().
+    this.wallet = null;
+    this.storeButtonArea = null;
+    // Mirrors wasRunningBeforeMenu's pattern for the settings menu - see
+    // storeModalToggleHandler in init().
+    this.wasRunningBeforeStore = null;
     this.cutsceneManager = new CutsceneManager(screenManager, canvas, ctx);
 
     this.floorPattern = null;
@@ -1195,6 +1235,32 @@ export default class GameScreen {
       }
     };
     document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
+
+    // Same pause/resume shape as settingsMenuToggleHandler above, for the
+    // store modal (js/utils/storeModal.js) instead - opening the store
+    // mid-round shouldn't let gameplay keep running underneath it.
+    this.storeModalToggleHandler = (e) => {
+      if (e.detail.open) {
+        this.wasRunningBeforeStore = this.running;
+        this.running = false;
+      } else if (this.wasRunningBeforeStore !== null) {
+        this.running = this.wasRunningBeforeStore;
+        this.wasRunningBeforeStore = null;
+      }
+    };
+    document.addEventListener('storemodaltoggle', this.storeModalToggleHandler);
+
+    // Fetches the controlled character's wallet once so the HUD has
+    // something to show from the very first frame - fire-and-forget since
+    // gameplay shouldn't wait on it, and this.wallet staying null just
+    // means drawHud()/the store button skip drawing entirely.
+    if (isLoggedIn()) {
+      getWallets()
+        .then((wallets) => {
+          this.wallet = wallets.find((w) => w.character === this.controlledEntity) || null;
+        })
+        .catch((err) => console.warn('Could not load wallet:', err.message));
+    }
 
     // Always add the click handler
     this.clickHandler = this.handleClick.bind(this);
@@ -1505,6 +1571,15 @@ export default class GameScreen {
   handleClick(event) {
     const { offsetX, offsetY } = event;
 
+    // Checked before the gameOver branch below, but naturally excluded
+    // from it anyway since drawHud() (see render()) never draws the store
+    // button once this.gameOver is true - the game-over modal's own scrim
+    // covers it regardless.
+    if (this.isClickInside(offsetX, offsetY, this.storeButtonArea)) {
+      this.openStore();
+      return;
+    }
+
     if (this.gameOver) {
         // Check if the click is within the "Play Again" button area
         if (this.isClickInside(offsetX, offsetY, this.playAgainButtonArea)) {
@@ -1552,6 +1627,7 @@ export default class GameScreen {
     document.removeEventListener('meow', this.meowHandler);
     document.removeEventListener('musicmutechange', this.musicMuteChangeHandler);
     document.removeEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
+    document.removeEventListener('storemodaltoggle', this.storeModalToggleHandler);
     this.canvas.removeEventListener('click', this.clickHandler);
     if (this.inputHandler) this.inputHandler.cleanup();
     if (this.dog) this.dog.cleanup();
@@ -2428,6 +2504,9 @@ export default class GameScreen {
   endGame(message, soundKey, isWin) {
     this.running = false;
     this.gameOver = true;
+    // render() stops calling drawHud() once gameOver is true (see render()),
+    // so this would otherwise be a stale hit area sitting under the modal.
+    this.storeButtonArea = null;
     this.message = message;
     this.gameOverIsWin = isWin;
     this.gameOverStartTime = performance.now();
@@ -2464,9 +2543,13 @@ export default class GameScreen {
     // never logged in (e.g. the API is unreachable, or this screen was
     // reached some way other than through SetupScreen's auth buttons).
     if (isLoggedIn()) {
-      submitRound(this.controlledEntity, isWin ? 'win' : 'loss', 0).catch((err) => {
-        console.warn('Round submission failed:', err.message);
-      });
+      submitRound(this.controlledEntity, isWin ? 'win' : 'loss', 0)
+        .then((wallet) => {
+          this.wallet = wallet;
+        })
+        .catch((err) => {
+          console.warn('Round submission failed:', err.message);
+        });
     }
   }
 
@@ -2537,9 +2620,128 @@ export default class GameScreen {
 
     if (this.gameOver) {
       this.displayGameOverModal();
-    } else if (this.message) {
-      this.displayMessage();
+    } else {
+      // Only live during active play - the game-over modal's own scrim
+      // covers this area anyway, and storeButtonArea is nulled out below
+      // so a click can't land on where the button used to be.
+      this.drawHud();
+      if (this.message) this.displayMessage();
     }
+  }
+
+  // Opens the store modal (js/utils/storeModal.js) for whichever
+  // character this round is played as - purchases spend/gate against
+  // that character's own wallet only (see kpground-api's per-character
+  // economy design). Passes this.wallet as the modal's starting state and
+  // a callback so a purchase's returned wallet flows straight back into
+  // the HUD without a redundant re-fetch.
+  openStore() {
+    if (!this.wallet) return;
+    openStoreModal(this.controlledEntity, this.wallet, (updatedWallet) => {
+      this.wallet = updatedWallet;
+    });
+  }
+
+  // Coin/level/XP HUD, top-left corner - skipped entirely if this.wallet
+  // hasn't loaded yet (still fetching, or never logged in). Same "dark
+  // translucent rounded box, white text" chrome language as
+  // displayMessage()'s pill banner, just a persistent corner readout
+  // instead of a transient centered one.
+  drawHud() {
+    if (!this.wallet) {
+      this.storeButtonArea = null;
+      return;
+    }
+
+    const { hudMargin, hudPadding, hudWidth, hudRowHeight, hudRadius, hudFontSize, hudXpBarHeight } =
+      this.layout;
+    const x = hudMargin;
+    const y = hudMargin;
+    const rows = 2; // coins row, level+XP-bar row
+    const height = hudPadding * 2 + rows * hudRowHeight;
+
+    this.ctx.save();
+    drawRoundedRect(this.ctx, x, y, hudWidth, height, hudRadius);
+    this.ctx.fillStyle = 'rgba(20, 10, 30, 0.6)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+
+    this.ctx.font = `bold ${Math.round(hudFontSize)}px Arial, sans-serif`;
+    this.ctx.textBaseline = 'middle';
+    this.ctx.textAlign = 'left';
+    this.ctx.fillStyle = '#ffffff';
+
+    const textX = x + hudPadding;
+    const coinsRowY = y + hudPadding + hudRowHeight / 2;
+    this.ctx.fillText(`\u{1FA99} ${this.wallet.coins}`, textX, coinsRowY);
+
+    const levelRowY = y + hudPadding + hudRowHeight * 1.5;
+    this.ctx.font = `600 ${Math.round(hudFontSize * 0.85)}px Arial, sans-serif`;
+    this.ctx.fillText(`Lvl ${this.wallet.level}`, textX, levelRowY - hudXpBarHeight);
+
+    // Small XP progress bar under the level number - xp_to_next_level
+    // comes from the backend (see kpground-api's CharacterWalletSerializer)
+    // rather than duplicating the XP_PER_LEVEL curve here.
+    const barX = textX;
+    const barY = levelRowY + hudXpBarHeight * 0.6;
+    const barWidth = hudWidth - hudPadding * 2;
+    const xpFraction = this.wallet.xp_to_next_level
+      ? Math.min(1, this.wallet.xp / this.wallet.xp_to_next_level)
+      : 0;
+
+    drawRoundedRect(this.ctx, barX, barY, barWidth, hudXpBarHeight, hudXpBarHeight / 2);
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    this.ctx.fill();
+    if (xpFraction > 0) {
+      drawRoundedRect(this.ctx, barX, barY, barWidth * xpFraction, hudXpBarHeight, hudXpBarHeight / 2);
+      this.ctx.fillStyle = '#ffb238';
+      this.ctx.fill();
+    }
+    this.ctx.restore();
+
+    // Store button, just below the HUD box.
+    const { storeButtonWidth, storeButtonHeight, storeButtonRadius, storeButtonFontSize } = this.layout;
+    this.storeButtonArea = {
+      x,
+      y: y + height + 8,
+      width: storeButtonWidth,
+      height: storeButtonHeight,
+    };
+
+    this.ctx.save();
+    drawRoundedRect(
+      this.ctx,
+      this.storeButtonArea.x,
+      this.storeButtonArea.y,
+      this.storeButtonArea.width,
+      this.storeButtonArea.height,
+      storeButtonRadius
+    );
+    const gradient = this.ctx.createLinearGradient(
+      this.storeButtonArea.x,
+      this.storeButtonArea.y,
+      this.storeButtonArea.x,
+      this.storeButtonArea.y + this.storeButtonArea.height
+    );
+    gradient.addColorStop(0, '#8a2be2');
+    gradient.addColorStop(1, '#6a1fc2');
+    this.ctx.fillStyle = gradient;
+    this.ctx.fill();
+
+    this.ctx.font = `bold ${Math.round(storeButtonFontSize)}px Arial, sans-serif`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    this.ctx.shadowBlur = 3;
+    this.ctx.fillText(
+      'Store',
+      this.storeButtonArea.x + this.storeButtonArea.width / 2,
+      this.storeButtonArea.y + this.storeButtonArea.height / 2 + 1
+    );
+    this.ctx.restore();
   }
 
   drawFloor() {

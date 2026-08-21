@@ -738,6 +738,152 @@ body.in-game #settingsMenu {
   transform: scale(0.92);
 }
 
+/* Store modal (see js/utils/storeModal.js) — opened from GameScreen's
+   canvas-drawn "Store" button mid-round. Same cream-card-plus-purple-accent
+   language as #creditsModal/#loginModal; taller and scrollable since the
+   item list is dynamic/unbounded rather than fixed content. */
+#storeModal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 20, 0.6);
+  padding: 24px;
+}
+
+#storeModal[hidden] {
+  display: none;
+}
+
+#storeCard {
+  position: relative;
+  width: min(380px, 100%);
+  max-height: min(520px, 80vh);
+  padding: 28px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fff8ee, #ffe9c7);
+  border: 3px solid rgba(138, 43, 226, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  animation: credits-pop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #storeCard {
+    animation: none;
+  }
+}
+
+#storeHeading {
+  margin: 0 0 4px;
+  font: 800 1.5rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+#storeWalletLine {
+  margin: 0 0 16px;
+  font: 700 0.85rem/1.3 Arial, sans-serif;
+  color: #5c4a72;
+}
+
+#storeItemsList {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.store-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 2px solid rgba(138, 43, 226, 0.18);
+}
+
+.store-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.store-item-info strong {
+  font: 700 0.95rem/1.3 Arial, sans-serif;
+  color: #2b1d3d;
+}
+
+.store-item-info span {
+  font: 500 0.78rem/1.3 Arial, sans-serif;
+  color: #5c4a72;
+}
+
+.store-item-buy {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ffb238, #fb8c00);
+  color: #fff;
+  font: 700 0.85rem/1.2 Arial, sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
+}
+
+.store-item-buy:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.store-item-buy:disabled {
+  background: rgba(138, 43, 226, 0.25);
+  color: rgba(43, 29, 61, 0.6);
+  cursor: default;
+}
+
+/* Currently-worn cosmetic - a distinct "active" look (green, not the
+   default purple/gold) so it reads differently from both "buyable" and
+   "owned but locked" states. Still clickable (unlike :disabled above) -
+   clicking it unequips. */
+.store-item-buy.store-item-equipped {
+  background: linear-gradient(135deg, #34c759, #248a3d);
+}
+
+#storeCloseBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(138, 43, 226, 0.15);
+  color: #6a1fc2;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+#storeCloseBtn:hover,
+#storeCloseBtn:active {
+  background: rgba(138, 43, 226, 0.3);
+  transform: scale(0.92);
+}
+
 /* iOS "Add to Home Screen" hint (see js/utils/homeScreenHint.js) — a slim
    banner pinned to the top of the viewport. Shown pre-game only: nothing
    else occupies the top of the screen before gameplay starts (the

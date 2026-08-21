@@ -1,4 +1,5 @@
 import { aabbOverlap, insetBox } from '../utils/collision.js';
+import { getSpriteSrc } from '../utils/outfits.js';
 
 // Poop-drop "squat and release" — a quick vertical squash timed to the
 // drop itself (see startPoopAnim()/draw() below), so the moment reads as
@@ -83,7 +84,9 @@ export default class Dog {
     // rebuilt — bump on every asset change, not just the first time (a real
     // gap hit mid-session: the file was rebuilt without bumping this,
     // silently reintroducing a stale-cache risk).
-    this.spriteSheet.src = './assets/dog_v2.png?v=4';
+    // Routed through getSpriteSrc() (js/utils/outfits.js) — see Cat.js's
+    // own comment on this same pattern.
+    this.spriteSheet.src = getSpriteSrc('dog');
 
     // BASE_FRAME_WIDTH/HEIGHT are the *logical* on-screen size this sprite
     // is drawn at — originally matched dog_medium.png's own 60x38 frame

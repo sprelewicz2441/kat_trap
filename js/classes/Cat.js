@@ -1,3 +1,5 @@
+import { getSpriteSrc } from '../utils/outfits.js';
+
 // cat.png is a symmetric, front-facing portrait (confirmed by looking at
 // the actual pixel art — matching ears/whiskers, centered face), not a
 // directional side-view sprite like Dog.js's — there's no left/right art to
@@ -58,9 +60,13 @@ export default class Cat {
     // direct 6-frame sprite-sheet replacement — see CLAUDE.md for the full
     // generation/verification history.
     this.spriteSheet = new Image();
+    // Routed through getSpriteSrc() (js/utils/outfits.js) rather than a
+    // hardcoded literal — always resolves to the same default today (no
+    // purchasable outfit art exists yet), but this is the one seam a
+    // future cosmetic-outfit feature needs to change, not this file.
     // ?v cache-busts the browser's cached copy of this file whenever it's
     // rebuilt — bump on every asset change, not just the first time.
-    this.spriteSheet.src = './assets/cat_v2.png?v=2';
+    this.spriteSheet.src = getSpriteSrc('cat');
     // BASE_FRAME_WIDTH/HEIGHT are the *logical* size this sprite has always
     // used for on-screen display (matches the original v1 cat.png's own
     // 118x150 frame) — displayWidth/displayHeight below are computed from

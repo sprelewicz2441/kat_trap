@@ -168,6 +168,21 @@
     </div>
   </div>
 
+  <!-- Store modal (see js/utils/storeModal.js) — opened from GameScreen's
+       canvas-drawn "Store" button. A real DOM list rather than canvas-drawn
+       cards, same reasoning as the login modal: this needs per-item buy
+       buttons and dynamic owned/locked/affordable states, which is much
+       simpler as DOM than as hand-rolled canvas hit-testing per row. Same
+       cream-card-plus-purple-accent language as #creditsModal/#loginModal. -->
+  <div id="storeModal" hidden>
+    <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
+      <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
+      <h2 id="storeHeading">Store</h2>
+      <p id="storeWalletLine"></p>
+      <div id="storeItemsList"></div>
+    </div>
+  </div>
+
   <!-- On-screen touch controls — only visible on touch devices during
        gameplay (see styles.css). D-pad (movement) on the left, action
        buttons (punch/toot/meow — the same keys as desktop, see

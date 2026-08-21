@@ -140,6 +140,29 @@ export function purchaseItem(character, itemSlug) {
   });
 }
 
+// Returns { [slot]: item } for whatever's currently equipped - an empty
+// object means every slot is at its default look. Only cosmetics can be
+// equipped; only 'outfit' exists as a slot today (see kpground-api's
+// ItemSlot), but every caller here already treats the response as a dict
+// keyed by slot, so a future second slot needs no frontend changes either.
+export function getEquipped(character) {
+  return apiFetch(`/api/kattrap/equipped/${character}/`);
+}
+
+export function equipItem(character, itemSlug) {
+  return apiFetch(`/api/kattrap/store/${character}/equip/`, {
+    method: 'POST',
+    body: JSON.stringify({ item_slug: itemSlug }),
+  });
+}
+
+export function unequipItem(character, slot) {
+  return apiFetch(`/api/kattrap/store/${character}/unequip/`, {
+    method: 'POST',
+    body: JSON.stringify({ slot }),
+  });
+}
+
 export function getDailyGiftStatus() {
   return apiFetch('/api/kattrap/daily-gift/status/');
 }

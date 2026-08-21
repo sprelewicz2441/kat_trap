@@ -5,6 +5,7 @@ import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchContr
 import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';
 import { setupHomeScreenHint } from './utils/homeScreenHint.js';
 import { setupLoginModal } from './utils/loginModal.js';
+import { setupStoreModal } from './utils/storeModal.js';
 import { isTouch } from './utils/scale.js?v=1';
 
 let gameCanvas, ctx, screenManager;
@@ -131,6 +132,7 @@ function init() {
   setupSettingsMenu();
   setupHomeScreenHint();
   setupLoginModal();
+  setupStoreModal();
 
   screenManager = new ScreenManager(ctx);
   const setupScreen = new SetupScreen(screenManager, gameCanvas, ctx);

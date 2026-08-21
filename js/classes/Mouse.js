@@ -1,3 +1,5 @@
+import { getSpriteSrc } from '../utils/outfits.js';
+
 export default class Mouse {
   // `scale` (see js/utils/scale.js) shrinks movement speed on a small
   // canvas. `sizeScale` (getCharacterScale() — defaults to `scale` if not
@@ -24,7 +26,9 @@ export default class Mouse {
     // 32x32 — frameWidth/frameHeight below are native source-slicing size
     // only; this.size (on-screen/collision size, above) is untouched so
     // gameplay feel doesn't change. v1 stays on disk, unreferenced.
-    this.spriteSheet.src = './assets/mouse_v2.png?v=1';
+    // Routed through getSpriteSrc() (js/utils/outfits.js) — see Cat.js's
+    // own comment on this same pattern.
+    this.spriteSheet.src = getSpriteSrc('mouse');
     this.frameWidth = 327;
     this.frameHeight = 327;
     this.currentFrame = 0;
