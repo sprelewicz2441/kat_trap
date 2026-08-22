@@ -515,35 +515,80 @@ body.in-game #settingsMenu {
    canvasShapes.js's drawCatEarCard makes for the character-select cards
    (an inset, curved pair of "ears" rather than a plain rounded rect), just
    built with CSS shapes instead of a canvas path since this modal is DOM.
-   Inset/width are the same 16%/22%-of-card percentages drawCatEarCard uses
-   (see earGeometry() there) so the proportions match at any card width —
-   and, not incidentally, so the ears stay clear of #creditsCloseBtn's
-   fixed 32px corner regardless of viewport size, rather than needing a
+   Inset/width are close to the 16%/22%-of-card percentages drawCatEarCard
+   uses (see earGeometry() there) so the proportions roughly match, and,
+   not incidentally, so the ears stay clear of #creditsCloseBtn's fixed
+   32px corner regardless of viewport size, rather than needing a
    separately-tuned pixel offset that could drift into it. Tilted a few
    degrees outward the way a real kitten's ears sit rather than standing
-   perfectly upright. */
+   perfectly upright.
+   THIRD attempt, using clip-path polygon() instead of border-radius —
+   border-radius can only ever produce a *curve*, never an actual point,
+   no matter how the horizontal/vertical radii are tuned (confirmed live:
+   the second attempt's aggressive vertical-radius dome still read as
+   round/square, not pointy, since a dome is round by definition). A
+   polygon can have a real single-vertex tip (the "50% 0%" point below).
+   FOURTH attempt: the third attempt's polygon still read as too soft/
+   rounded live, not "pointy" - it used a long, gradual multi-point curve
+   from the base all the way to the tip (0/58 -> 12/30 -> 30/10 -> 50/0),
+   which is closer to a dome traced in straight segments than an actual
+   taper. Sharpened by using mostly-straight sides (0/52 almost directly
+   to 42/6) with the curve-softening concentrated in a *short* stretch
+   right at the very tip only (42/6 -> 50/0 -> 58/6) - the classic
+   triangle-with-a-slightly-rounded-tip cat-ear silhouette, not a rounded
+   cone shape.
+   Three stacked layers, not a plain `border` — clip-path clips the
+   *entire* painted box (fill + border) to the path, and a rectangular
+   `border` clipped to a non-rectangular polygon doesn't redraw itself
+   along the new outline, it just shows whatever fragments of the old
+   rectangular border happen to still fall inside the clipped region
+   (effectively broken/invisible for a shape this different from a
+   rectangle). Same "layer flat shapes to fake a stroke" technique
+   drawCatEarInner already uses on the canvas side: .credits-ear itself
+   (purple fill, full size) is the outline color; ::before (inset 3px,
+   the card's own cream gradient — duplicated literally here since `background:
+   inherit` only reaches this pseudo-element's immediate parent, not the
+   card two levels up) is the ear's visible body, leaving a ~3px purple
+   ring showing around it; ::after (inset further, pink) is the inner-ear
+   highlight on top of that. All three share the same polygon points so
+   they stay concentric as the ear scales with the card. */
 .credits-ear {
   position: absolute;
-  top: -26px;
-  width: 22%;
-  height: 46px;
-  background: inherit;
-  border: 3px solid rgba(138, 43, 226, 0.55);
-  border-radius: 60% 60% 8% 8%;
+  top: -46px;
+  width: 17%;
+  height: 68px;
+  background: rgba(138, 43, 226, 0.55);
+  clip-path: polygon(
+    0% 100%, 0% 52%, 42% 6%, 50% 0%, 58% 6%, 100% 52%, 100% 100%
+  );
 }
 
+.credits-ear::before,
 .credits-ear::after {
   content: '';
   position: absolute;
-  inset: 9px 9px 16px;
+  clip-path: polygon(
+    0% 100%, 0% 52%, 42% 6%, 50% 0%, 58% 6%, 100% 52%, 100% 100%
+  );
+}
+
+.credits-ear::before {
+  /* The ear's visible cream body — bottom left un-inset (0, even slightly
+     negative) so it fully covers the purple base layer's own bottom edge
+     and the ear reads as growing seamlessly out of the card, rather than
+     showing a purple ring all the way around including the bottom seam. */
+  inset: 3px 3px -2px 3px;
+  background: linear-gradient(180deg, #fff8ee, #ffe9c7);
+}
+
+.credits-ear::after {
+  inset: 13px 10px -2px 10px;
   background: #ffc4d6;
-  border-radius: 60% 60% 8% 8%;
 }
 
 .credits-ear-left {
   left: 16%;
   transform: rotate(-18deg);
-  border-bottom: none;
 }
 
 .credits-ear-right {

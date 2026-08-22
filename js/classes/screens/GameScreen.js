@@ -763,10 +763,13 @@ const BASE_MODAL_BUTTON_FONT_SIZE = 24;
 // shown (this.roundRewardBreakdown truthy, i.e. the wallet loaded
 // successfully at round start). This is a fixed reservation, decided once
 // synchronously in endGame() before submitRound() resolves, not
-// recomputed per line-count once real numbers arrive - see
-// roundRewardBreakdown's own comment for why that matters (no layout jump
-// between the 'pending' placeholder and the real breakdown).
-const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 130;
+// recomputed once real numbers arrive - see roundRewardBreakdown's own
+// comment for why that matters (no layout jump between the 'pending'
+// placeholder and the real breakdown). Shrunk from 130 once
+// drawRewardsBreakdown() moved to a single row (coins left, level-up/XP
+// right) instead of stacking up to three lines - a single row needs much
+// less reserved height.
+const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 70;
 const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 22;
 const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 15;
 // How long the modal takes to pop/scale in once the round ends — a
@@ -3354,11 +3357,8 @@ export default class GameScreen {
   drawHudCoinStatText(centerX, y, text, fontSize = this.layout.hudFontSize) {
     const ctx = this.ctx;
     const image = this.dooberCoinImage;
-    const iconWidth = fontSize * 1.3;
+    const { iconWidth, gap, totalWidth } = this.measureHudCoinStatBlock(text, fontSize);
     const iconHeight = iconWidth * (image.naturalHeight / image.naturalWidth);
-    const gap = fontSize * 0.25;
-    const textWidth = ctx.measureText(text).width;
-    const totalWidth = iconWidth + gap + textWidth;
     const startX = centerX - totalWidth / 2;
 
     ctx.drawImage(image, startX, y - iconHeight / 2, iconWidth, iconHeight);
@@ -3367,6 +3367,20 @@ export default class GameScreen {
     ctx.textAlign = 'left';
     ctx.fillText(text, startX + iconWidth + gap, y);
     ctx.textAlign = prevAlign;
+  }
+
+  // Geometry drawHudCoinStatText() draws to - split out so a caller that
+  // needs to lay this icon+text block out relative to *other* content
+  // (drawRewardsBreakdown()'s one-row layout, which needs to know how wide
+  // this block will actually be before it can center a second block next
+  // to it) can measure it without duplicating the icon/gap sizing ratios
+  // and risking the two drifting apart. Assumes ctx.font is already set to
+  // whatever it'll actually be drawn in, same as drawHudCoinStatText().
+  measureHudCoinStatBlock(text, fontSize) {
+    const iconWidth = fontSize * 1.3;
+    const gap = fontSize * 0.25;
+    const textWidth = this.ctx.measureText(text).width;
+    return { iconWidth, gap, textWidth, totalWidth: iconWidth + gap + textWidth };
   }
 
   // Small popover under a hovered HUD stat chip explaining what the
@@ -4207,11 +4221,20 @@ export default class GameScreen {
       modalButtonWidth, modalButtonHeight, modalButtonRadius, modalButtonFontSize,
       modalRewardsExtraHeight,
     } = this.layout;
-    // baseModalHeight (the layout's own modalHeight) drives the title/
-    // subtitle's position exactly as before - the card itself grows taller
-    // by modalRewardsExtraHeight to fit the rewards section (see
-    // roundRewardBreakdown), but title/subtitle should stay put relative to
-    // center rather than drifting because a section below them exists.
+    // baseModalHeight is only used to derive title/subtitle/button offsets
+    // *from the card's own top edge* (modalY, below) - not from centerY.
+    // An earlier version measured them from centerY using this same
+    // fraction, which looked right for the un-grown card but left a
+    // growing gap of empty space above the title once modalHeight grew to
+    // fit the rewards section (see roundRewardBreakdown): modalY moves up
+    // as the card grows (still centered as a whole around centerY, which
+    // is correct), but a centerY-relative title position doesn't move up
+    // with it, so the distance from the card's actual top edge to the
+    // title kept increasing with every reward-shown round. Anchoring to
+    // modalY instead keeps that distance constant regardless of how tall
+    // the card grows - the extra room from a taller card shows up only
+    // where it's supposed to (around the rewards section), not as dead
+    // space above the headline.
     const baseModalHeight = this.layout.modalHeight;
     const showRewards = !!this.roundRewardBreakdown;
     const modalHeight = baseModalHeight + (showRewards ? modalRewardsExtraHeight : 0);
@@ -4266,7 +4289,11 @@ export default class GameScreen {
 
     ctx.textAlign = 'center';
     const title = this.gameOverIsWin ? 'You Win!' : 'You Lose!';
-    const titleY = centerY - baseModalHeight * 0.12;
+    // Offsets from modalY (the card's actual top edge, see baseModalHeight's
+    // own comment above) - the same fractions the old centerY-relative
+    // formulas worked out to when the card was its un-grown baseModalHeight,
+    // just re-anchored so they hold at any card height.
+    const titleY = modalY + baseModalHeight * 0.38;
     // 'Impact'/'Arial Black' aren't available on every OS — the bold
     // sans-serif fallback plus the outline stroke below keep it reading as
     // "big playful headline" either way, without loading an external font.
@@ -4277,7 +4304,7 @@ export default class GameScreen {
     ctx.fillStyle = COLORS.MODAL.TITLE_FILL;
     ctx.fillText(title, centerX, titleY);
 
-    const subtitleY = centerY + baseModalHeight * 0.06;
+    const subtitleY = modalY + baseModalHeight * 0.56;
     ctx.font = `bold ${modalSubtitleFontSize}px Arial`;
     ctx.fillStyle = COLORS.MODAL.SUBTITLE;
     ctx.fillText(this.message, centerX, subtitleY);
@@ -4285,11 +4312,13 @@ export default class GameScreen {
     const buttonX = centerX - modalButtonWidth / 2;
     // Rewards showing: bottom-anchored inside the grown card, leaving the
     // rewards section the rest of the room between the subtitle and here.
-    // Not showing: the original centerY-relative offset, untouched, so a
-    // logged-out player's modal is pixel-for-pixel what it always was.
+    // Not showing: the same modalY-relative offset the title/subtitle use,
+    // so a logged-out player's modal is still pixel-for-pixel what it
+    // always was (baseModalHeight*0.72 from modalY == the old
+    // centerY+baseModalHeight*0.22, when modalHeight is un-grown).
     const buttonY = showRewards
       ? modalY + modalHeight - modalRadius - modalButtonHeight
-      : centerY + baseModalHeight * 0.22;
+      : modalY + baseModalHeight * 0.72;
 
     if (showRewards) {
       this.drawRewardsBreakdown(centerX, subtitleY + modalSubtitleFontSize * 0.9, buttonY - 10 * scale, modalWidth);
@@ -4317,89 +4346,105 @@ export default class GameScreen {
   // "Here's everything you earned" section on the win/lose modal, between
   // the subtitle and the Play Again button - per explicit request the
   // modal should show the full reward breakdown, not just leave it implied
-  // by the HUD's coin count having changed. Content is vertically centered
-  // within [topY, bottomY] rather than stacked from a fixed top, since the
-  // number of lines varies (pending/error is one line; the ready state is
-  // 1-3 depending on whether doobers were collected and whether the player
-  // leveled up) while the reserved space itself (modalRewardsExtraHeight)
-  // stays fixed - see roundRewardBreakdown's own comment for why that
-  // matters (no layout jump when the real numbers arrive).
+  // by the HUD's coin count having changed, and (per a later explicit
+  // request) laid out as one row rather than several stacked lines: coins
+  // (with the round-vs-doobers split folded into the same string as a
+  // parenthetical) on the left, level-up/XP on the right. Content is
+  // vertically centered within [topY, bottomY], same reserved-space
+  // pattern as before even though there's now only ever one row to
+  // center - keeps 'pending'/'error's single centered line and the ready
+  // state's row sharing the same layout code path.
+  // Each reward item gets its *own* bordered box with real margin between
+  // them - per explicit "should be looking at separated boxes, like ice
+  // cubes in a tray" - not one shared box with loose text inside it (what
+  // an earlier version drew). Every box in this method uses the same
+  // fill/stroke so they read as one family of compartments.
+  drawRewardChipBox(x, y, width, height) {
+    const ctx = this.ctx;
+    drawRoundedRect(ctx, x, y, width, height, 10 * this.layout.scale);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = Math.max(1, 1.5 * this.layout.scale);
+    ctx.stroke();
+  }
+
   drawRewardsBreakdown(centerX, topY, bottomY, modalWidth) {
     const ctx = this.ctx;
     const { modalRewardsTitleFontSize: titleSize, modalRewardsLineFontSize: lineSize, scale } = this.layout;
     const breakdown = this.roundRewardBreakdown;
-    const boxHeight = bottomY - topY;
+    // Inset a few px off the reserved [topY, bottomY] region itself so
+    // every box below reads as floating with real margin, rather than a
+    // strip snapped edge-to-edge against the space around it.
+    const insetV = 6 * scale;
+    const boxTop = topY + insetV;
+    const boxHeight = bottomY - topY - insetV * 2;
+    const rowCenterY = boxTop + boxHeight / 2;
 
     ctx.save();
-    // A slightly darker inset panel so the section reads as its own block
-    // rather than floating text on the gradient card, same "content needs
-    // its own backdrop for legibility" lesson as displayMessage()'s pill.
-    drawRoundedRect(ctx, centerX - modalWidth * 0.42, topY, modalWidth * 0.84, boxHeight, 12 * scale);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    ctx.fill();
-
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
     if (breakdown.status === 'pending' || breakdown.status === 'error') {
       ctx.font = `italic ${Math.round(lineSize)}px Arial`;
+      const text = breakdown.status === 'pending' ? 'Tallying rewards…' : 'Rewards will show next round';
+      const textWidth = ctx.measureText(text).width;
+      const chipWidth = Math.min(modalWidth * 0.84, textWidth + 28 * scale);
+      this.drawRewardChipBox(centerX - chipWidth / 2, boxTop, chipWidth, boxHeight);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        breakdown.status === 'pending' ? 'Tallying rewards…' : 'Rewards will show next round',
-        centerX,
-        topY + boxHeight / 2
-      );
+      ctx.fillText(text, centerX, rowCenterY);
       ctx.restore();
       return;
     }
 
-    // Build the actual rows first so their combined height can be centered
-    // in the reserved box, rather than stacking from a fixed top and
-    // leaving uneven space depending on which rows apply.
-    const coinLineHeight = titleSize * 1.15;
-    const subLineHeight = lineSize * 1.3;
-    const rows = [{ type: 'coins', height: coinLineHeight }];
-    if (breakdown.dooberCoins > 0) {
-      rows.push({ type: 'coinsBreakdown', height: subLineHeight });
-    }
-    if (breakdown.leveledUp) {
-      rows.push({ type: 'levelUp', height: subLineHeight });
-    } else if (breakdown.xpGained) {
-      rows.push({ type: 'xp', height: subLineHeight });
-    }
+    // One chip per item, side by side with a real gap between them - laid
+    // out by measuring each chip's actual content width and centering the
+    // whole group, same reasoning as the icon+text centering in
+    // drawHudCoinStatText()/measureHudCoinStatBlock(): a fixed guessed
+    // width/position can't account for how wide any given string actually
+    // renders, and did overflow in an earlier version. Keeping coins short
+    // (dropping the doobers parenthetical) whenever a second chip is also
+    // showing is what keeps two variable-length chips fitting comfortably
+    // side by side - the full breakdown only appears when coins is the
+    // only chip on the row.
+    const secondText = breakdown.leveledUp
+      ? `⭐ Lvl ${breakdown.newLevel}!`
+      : breakdown.xpGained
+        ? `✨ +${breakdown.xpGained} XP`
+        : null;
+    const coinsText = (!secondText && breakdown.dooberCoins > 0)
+      ? `+${breakdown.totalCoinsGained} Coins (+${breakdown.dooberCoins} doobers)`
+      : `+${breakdown.totalCoinsGained} Coins`;
 
-    const totalHeight = rows.reduce((sum, row) => sum + row.height, 0);
-    let rowY = topY + (boxHeight - totalHeight) / 2;
+    const rowFontSize = secondText ? titleSize * 0.8 : titleSize;
+    const chipPaddingH = rowFontSize * 0.7;
 
-    rows.forEach((row) => {
-      const rowCenterY = rowY + row.height / 2;
-      if (row.type === 'coins') {
-        ctx.font = `bold ${Math.round(titleSize)}px Arial, sans-serif`;
-        ctx.fillStyle = '#ffffff';
-        ctx.textBaseline = 'middle';
-        this.drawHudCoinStatText(centerX, rowCenterY, `+${breakdown.totalCoinsGained} Coins`, titleSize);
-      } else if (row.type === 'coinsBreakdown') {
-        ctx.font = `${Math.round(lineSize)}px Arial`;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(
-          `Round +${breakdown.baseCoinsGained} · Doobers +${breakdown.dooberCoins}`,
-          centerX,
-          rowCenterY
-        );
-      } else if (row.type === 'levelUp') {
-        ctx.font = `bold ${Math.round(lineSize * 1.1)}px Arial`;
-        ctx.fillStyle = '#ffd54f';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`⭐ Level Up! → Lvl ${breakdown.newLevel}`, centerX, rowCenterY);
-      } else if (row.type === 'xp') {
-        ctx.font = `${Math.round(lineSize)}px Arial`;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`✨ +${breakdown.xpGained} XP`, centerX, rowCenterY);
-      }
-      rowY += row.height;
-    });
+    ctx.font = `bold ${Math.round(rowFontSize)}px Arial, sans-serif`;
+    const coinsBlock = this.measureHudCoinStatBlock(coinsText, rowFontSize);
+    const coinsChipWidth = coinsBlock.totalWidth + chipPaddingH * 2;
+
+    if (secondText) {
+      const secondTextWidth = ctx.measureText(secondText).width;
+      const secondChipWidth = secondTextWidth + chipPaddingH * 2;
+      const chipGap = 10 * scale;
+
+      const totalWidth = coinsChipWidth + chipGap + secondChipWidth;
+      const coinsChipX = centerX - totalWidth / 2;
+      const secondChipX = coinsChipX + coinsChipWidth + chipGap;
+
+      this.drawRewardChipBox(coinsChipX, boxTop, coinsChipWidth, boxHeight);
+      this.drawRewardChipBox(secondChipX, boxTop, secondChipWidth, boxHeight);
+
+      ctx.fillStyle = '#ffffff';
+      this.drawHudCoinStatText(coinsChipX + coinsChipWidth / 2, rowCenterY, coinsText, rowFontSize);
+
+      ctx.fillStyle = breakdown.leveledUp ? '#ffd54f' : 'rgba(255, 255, 255, 0.9)';
+      ctx.fillText(secondText, secondChipX + secondChipWidth / 2, rowCenterY);
+    } else {
+      this.drawRewardChipBox(centerX - coinsChipWidth / 2, boxTop, coinsChipWidth, boxHeight);
+      ctx.fillStyle = '#ffffff';
+      this.drawHudCoinStatText(centerX, rowCenterY, coinsText, rowFontSize);
+    }
 
     ctx.restore();
   }

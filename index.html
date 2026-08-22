@@ -33,7 +33,14 @@
   <meta name="theme-color" content="#fb8c00">
   <!-- Tailwind CSS -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css">
+  <!-- styles.css never had the project's own JS-module ?v= cache-busting
+       convention (see CLAUDE.md's Module-level cache-busting) since it's a
+       plain <link>, not an import - a real gap, caught live when a CSS-only
+       fix (the credits modal's cat-ear shape) didn't visibly change after
+       editing the file, matching the exact "stale cached copy" symptom that
+       convention exists to prevent elsewhere. Bump this on every future
+       edit to styles.css. -->
+  <link rel="stylesheet" href="./styles.css?v=3">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
