@@ -29,7 +29,7 @@ import {
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js';
+import { openStoreModal } from '../../utils/storeModal.js?v=1';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================

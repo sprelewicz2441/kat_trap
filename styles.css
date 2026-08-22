@@ -894,6 +894,56 @@ body.in-game #settingsMenu {
   filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.25));
 }
 
+/* Outfit-browsing arrows - flank the pedestal, vertically centered, so
+   they read as "flip through the rack" rather than being tucked into the
+   item list below (outfits no longer have their own list rows at all -
+   see storeModal.js's cycleOutfit()). Hidden entirely (not just disabled)
+   via the `hidden` attribute when a character has zero active cosmetics,
+   toggled from storeModal.js's updatePreview(). */
+#storePrevOutfitBtn,
+#storeNextOutfitBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.75);
+  color: #6a1fc2;
+  font-size: 1rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+#storePrevOutfitBtn {
+  left: 10px;
+}
+
+#storeNextOutfitBtn {
+  right: 10px;
+}
+
+#storePrevOutfitBtn:hover,
+#storeNextOutfitBtn:hover {
+  background: #ffffff;
+}
+
+#storePrevOutfitBtn:active,
+#storeNextOutfitBtn:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+#storePrevOutfitBtn[hidden],
+#storeNextOutfitBtn[hidden] {
+  display: none;
+}
+
 /* Perks aren't visible outfits - there's nothing new to draw on the
    character when one's previewed, so this sparkle (toggled via the
    .visible class from storeModal.js) is the "charm" stand-in that makes
@@ -915,22 +965,30 @@ body.in-game #settingsMenu {
   transform: scale(1) rotate(0deg);
 }
 
-#storePreviewCaption {
-  margin: 0 0 14px;
+/* Just the previewed item's name (see storeModal.js's updatePreview()) -
+   deliberately not also a description here, unlike the old per-row text -
+   this is a "what am I looking at" label under the pedestal, not a sales
+   pitch; a perk's fuller description still shows in its own list row. */
+#storePreviewName {
+  margin: 0 0 10px;
   text-align: center;
-  min-height: 2.4em;
-}
-
-#storePreviewCaption strong {
-  display: block;
-  font: 700 0.95rem/1.3 Arial, sans-serif;
+  min-height: 1.3em;
+  font: 700 1rem/1.3 Arial, sans-serif;
   color: #5c2e8a;
 }
 
-#storePreviewCaption span {
-  display: block;
-  font: 500 0.78rem/1.3 Arial, sans-serif;
-  color: #5c4a72;
+/* The single Buy/Equip/Owned action for whatever's currently previewed -
+   reuses .store-item-buy's own gradient/disabled/equipped styling (see
+   below) via that same class in the markup, just full-width and with its
+   own margin since it's a standalone button now, not nested in a row. */
+#storePedestalActionBtn {
+  width: 100%;
+  margin: 0 0 16px;
+  font-size: 0.95rem;
+}
+
+#storePedestalActionBtn[hidden] {
+  display: none;
 }
 
 #storeItemsList {
@@ -938,24 +996,6 @@ body.in-game #settingsMenu {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-/* Groups the flat item list into "Perks"/"Outfits" (see storeModal.js's
-   renderItems()) - only rendered when that section actually has items, so
-   a character with just perks (today, before any cosmetic goes active)
-   shows no empty "Outfits" heading. Margin-top (not margin-bottom) so it
-   hugs the section below it rather than floating in the gap left by
-   #storeItemsList's own flex `gap`. */
-.store-section-heading {
-  margin: 10px 0 0;
-  font: 700 0.7rem/1 Arial, sans-serif;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #8a2be2;
-}
-
-.store-section-heading:first-child {
-  margin-top: 0;
 }
 
 .store-item {
@@ -971,24 +1011,25 @@ body.in-game #settingsMenu {
 }
 
 /* Whichever row is currently shown on the pedestal (see storeModal.js's
-   previewedSlug) - a visibly distinct "selected" state, not just the
-   hover/press feedback every row already gets via its own buy button. */
+   previewedSlug) - a visibly distinct "selected" state, since a perk row
+   is otherwise just plain text (no button of its own to hover/press -
+   the actual action lives in #storePedestalActionBtn now). */
 .store-item.previewing {
   background: rgba(255, 255, 255, 0.9);
   border-color: rgba(138, 43, 226, 0.6);
   box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.15);
 }
 
-/* Cosmetic-only color dot (see storeModal.js's swatchColorFor()) - there's
-   no real per-color art yet, so this is what actually tells the 5 tutu
-   options apart in the list today. */
-.store-item-swatch {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+/* Plain informational badge (Owned / Lvl N / cost) on a perk's row - not
+   a button, since the actual purchase/equip action always happens via
+   #storePedestalActionBtn once that perk is previewed. */
+.store-item-status {
   flex-shrink: 0;
-  border: 2px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 0 0 1px rgba(138, 43, 226, 0.25);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(138, 43, 226, 0.12);
+  color: #5c2e8a;
+  font: 700 0.8rem/1.2 Arial, sans-serif;
 }
 
 .store-item-info {

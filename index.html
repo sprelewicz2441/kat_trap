@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="./styles.css?v=6">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -176,11 +176,11 @@
   </div>
 
   <!-- Store modal (see js/utils/storeModal.js) — opened from GameScreen's
-       canvas-drawn "Store" button. A real DOM list rather than canvas-drawn
-       cards, same reasoning as the login modal: this needs per-item buy
-       buttons and dynamic owned/locked/affordable states, which is much
-       simpler as DOM than as hand-rolled canvas hit-testing per row. Same
-       cream-card-plus-purple-accent language as #creditsModal/#loginModal.
+       canvas-drawn "Store" button. A real DOM modal rather than canvas-drawn
+       cards, same reasoning as the login modal: dynamic owned/locked/
+       affordable states are much simpler as DOM than as hand-rolled canvas
+       hit-testing per row. Same cream-card-plus-purple-accent language as
+       #creditsModal/#loginModal.
 
        Reframed as a "dressing room" per explicit direction (an actual
        fitting-room scene with a pedestal - a bride trying on dresses, not
@@ -188,22 +188,33 @@
        backdrop (currently a CSS placeholder standing in for real art, see
        styles.css - swapping in a real photo later only touches that one
        rule's background-image, nothing here or in storeModal.js), with a
-       small canvas compositing whichever character/item is currently
-       being previewed standing on it, same source-rect crop technique
-       CharacterSelectScreen's own character cards already use (see
-       js/utils/outfits.js's shared PORTRAITS). #storePreviewCaption shows
-       that item's name/description underneath, like a fitting-room mirror
-       caption. -->
+       small canvas compositing whichever item is currently being previewed
+       onto it, same source-rect crop technique CharacterSelectScreen's own
+       character cards already use (see js/utils/outfits.js's shared
+       PORTRAITS).
+
+       Outfits are browsed right on the pedestal, not as a separate list -
+       #storePrevOutfitBtn/#storeNextOutfitBtn cycle through the character's
+       cosmetic catalog, #storePreviewName names whichever one is showing
+       (just the item's own name, e.g. "Purple Tutu"), and
+       #storePedestalActionBtn is the single Buy/Equip/Owned action for
+       whatever's currently previewed - cosmetic or perk alike (perks are
+       still selected from #storeItemsList below, just without arrows,
+       since "browse by scrolling" is specifically an outfit-trying-on
+       gesture, not something that makes sense for an invisible effect). -->
   <div id="storeModal" hidden>
     <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
       <h2 id="storeHeading">Bloomingtails</h2>
       <p id="storeWalletLine"></p>
       <div id="storePedestalScene">
+        <button id="storePrevOutfitBtn" aria-label="Previous outfit" type="button">&#10094;</button>
         <canvas id="storePedestalCanvas" width="240" height="240"></canvas>
+        <button id="storeNextOutfitBtn" aria-label="Next outfit" type="button">&#10095;</button>
         <span id="storeCharmSparkle" aria-hidden="true">✨</span>
       </div>
-      <p id="storePreviewCaption"></p>
+      <p id="storePreviewName"></p>
+      <button id="storePedestalActionBtn" class="store-item-buy" type="button"></button>
       <div id="storeItemsList"></div>
     </div>
   </div>

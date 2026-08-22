@@ -7,12 +7,18 @@ import { getSpriteSrc, PORTRAITS } from './outfits.js';
 // callback shape loginModal.js uses for its own success callback.
 let onWalletUpdateCallback = null;
 
-// Which item's slug is currently shown on the dressing-room pedestal (see
-// updatePedestal()) - module-level so it survives renderItems() re-runs
-// (a purchase/equip shouldn't reset what's on display), reset only when
-// the modal is freshly opened (openStoreModal()) or the previewed item no
-// longer exists in a fresh fetch.
+// Which item's slug is currently shown on the dressing-room pedestal -
+// module-level so it survives a local re-render (arrow click, row click,
+// a purchase/equip) without needing a fresh network fetch every time.
+// Reset only when the modal is freshly opened (openStoreModal()).
 let previewedSlug = null;
+
+// The last real fetch's own (character, wallet, items) - arrow/row clicks
+// only need to change *which* item is previewed and redraw, not re-fetch
+// the whole catalog from the network. Only a purchase/equip (which
+// actually changes owned/equipped/wallet state) re-fetches via
+// renderItems(). null until the first successful renderItems() call.
+let currentState = null;
 
 export function setupStoreModal() {
   const modal = document.getElementById('storeModal');
@@ -37,32 +43,17 @@ export function setupStoreModal() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !modal.hidden) close();
   });
+
+  // Outfit-browsing arrows - only ever cycle the character's *cosmetic*
+  // catalog (see cycleOutfit()'s own comment for why perks aren't part of
+  // this), and are set up once here since the buttons themselves are
+  // static markup, not rebuilt per render like the list rows below.
+  document.getElementById('storePrevOutfitBtn').addEventListener('click', () => cycleOutfit(-1));
+  document.getElementById('storeNextOutfitBtn').addEventListener('click', () => cycleOutfit(1));
 }
 
 function walletLineText(wallet) {
   return `${wallet.coins} coins · Level ${wallet.level}`;
-}
-
-// Named-color lookup for a cosmetic's swatch dot (buildItemRow() below) -
-// there's no dedicated color field on StoreItem (sprite_src is a full
-// image path, not a color), so this just matches whichever known color
-// word appears in the item's own slug. Falls back to a neutral gray dot
-// for any cosmetic whose slug doesn't mention one of these - keeps every
-// cosmetic row visually consistent (a dot either way) rather than some
-// rows having one and others not. Add to this map as more cosmetic colors
-// ship; it's presentation only; won't affect purchase/equip logic
-// regardless of whether a slug matches.
-const SWATCH_COLORS = {
-  purple: '#8a2be2',
-  pink: '#ff69b4',
-  teal: '#29b6f6',
-  orange: '#fb8c00',
-  green: '#4caf50',
-};
-
-function swatchColorFor(item) {
-  const match = Object.keys(SWATCH_COLORS).find((color) => item.slug.includes(color));
-  return match ? SWATCH_COLORS[match] : '#9e9e9e';
 }
 
 // One Image per src, loaded once and reused - repeatedly previewing the
@@ -81,20 +72,17 @@ function getPortraitImage(src) {
   return portraitImageCache[src];
 }
 
-// Draws whichever character/item is currently being "tried on" onto the
-// dressing-room pedestal (#storePedestalCanvas) - same source-rect crop
-// technique CharacterSelectScreen's own character cards use (see
+// Draws whichever item is currently being "tried on" onto the dressing-
+// room pedestal (#storePedestalCanvas) - same source-rect crop technique
+// CharacterSelectScreen's own character cards use (see
 // js/utils/outfits.js's shared PORTRAITS), just drawn into a small canvas
-// inside this DOM modal instead of the character-select screen's own
-// canvas. `item` is whatever's currently selected in the list below, or
-// null for "nothing to preview yet" (an empty catalog, or a failed
-// fetch) - still draws the character's own default look either way, so
-// the pedestal never sits empty.
-function updatePedestal(character, item) {
+// inside this DOM modal instead of that screen's own canvas. `item` is
+// whatever's currently previewed, or null for "nothing to preview yet"
+// (an empty catalog, or a failed fetch) - still draws the character's own
+// default look either way, so the pedestal never sits empty.
+function drawPedestalPortrait(character, item) {
   const crop = PORTRAITS[character];
   const canvas = document.getElementById('storePedestalCanvas');
-  const sparkle = document.getElementById('storeCharmSparkle');
-  const caption = document.getElementById('storePreviewCaption');
   if (!canvas || !crop) return;
 
   // Only a cosmetic actually changes what's drawn - previewing a perk (or
@@ -120,47 +108,132 @@ function updatePedestal(character, item) {
   } else {
     img.onload = draw;
   }
+}
 
-  if (sparkle) sparkle.classList.toggle('visible', Boolean(item) && item.item_type === 'perk');
+// The single Buy/Equip/Owned/locked action for whatever's currently
+// previewed - replaces the old one-button-per-row design now that every
+// action routes through the pedestal instead. Shared by perks and
+// cosmetics alike so there's only ever one purchase/equip code path to
+// keep correct.
+function updateActionButton(character, wallet, item) {
+  const btn = document.getElementById('storePedestalActionBtn');
+  btn.onclick = null;
+  btn.classList.remove('store-item-equipped');
+  btn.hidden = !item;
+  if (!item) return;
 
-  caption.innerHTML = '';
-  if (item) {
-    const nameEl = document.createElement('strong');
-    nameEl.textContent = item.name;
-    caption.appendChild(nameEl);
-    if (item.description) {
-      const descEl = document.createElement('span');
-      descEl.textContent = item.description;
-      caption.appendChild(descEl);
-    }
+  if (item.owned && item.item_type === 'cosmetic') {
+    // Cosmetics stay actionable once owned - a toggle between wearing
+    // this look and reverting to the default, rather than a dead-end
+    // "Owned" label. Perks have nothing to toggle - owning one just
+    // makes its effect permanently active.
+    btn.disabled = false;
+    btn.textContent = item.equipped ? 'Equipped' : 'Equip';
+    btn.classList.toggle('store-item-equipped', item.equipped);
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        if (item.equipped) {
+          await unequipItem(character, item.slot);
+        } else {
+          await equipItem(character, item.slug);
+        }
+        await refreshAfterChange();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = err.message || 'Failed';
+      }
+    };
+  } else if (item.owned) {
+    btn.disabled = true;
+    btn.textContent = 'Owned';
+  } else if (wallet.level < item.min_level) {
+    btn.disabled = true;
+    btn.textContent = `Requires Lvl ${item.min_level}`;
+  } else {
+    btn.disabled = wallet.coins < item.cost;
+    btn.textContent = `Buy — ${item.cost} coins`;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Buying...';
+      try {
+        const updatedWallet = await purchaseItem(character, item.slug);
+        if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
+        await renderItems(character, updatedWallet);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = err.message || 'Purchase failed';
+      }
+    };
   }
 }
 
-// One item's row - shared by both the Perks and Outfits sections below so
-// the two can't drift into visually different item treatments. Clicking
-// anywhere on the row (not just the buy/equip button) previews it on the
-// pedestal - the button's own click bubbles up into this too, which is
-// fine: buying or equipping something you weren't already looking at
-// should also put it on display.
-function buildItemRow(character, wallet, item, onChanged, isPreviewed) {
-  const row = document.createElement('div');
-  row.className = 'store-item';
-  row.classList.toggle('previewing', isPreviewed);
-  row.addEventListener('click', () => {
-    document.querySelectorAll('#storeItemsList .store-item.previewing').forEach((el) => {
-      el.classList.remove('previewing');
-    });
-    row.classList.add('previewing');
-    previewedSlug = item.slug;
-    updatePedestal(character, item);
+// Re-draws the pedestal canvas, name label, action button, and (for
+// perks) which list row is highlighted - everything that depends on
+// `previewedSlug` - without re-fetching from the network. Called after
+// every local state change (arrow click, perk row click); renderItems()
+// itself calls this too once its fresh fetch lands, so both paths funnel
+// through the exact same drawing logic.
+function updatePreview() {
+  if (!currentState) return;
+  const { character, wallet, items } = currentState;
+  const item = items.find((i) => i.slug === previewedSlug) || null;
+
+  drawPedestalPortrait(character, item);
+  updateActionButton(character, wallet, item);
+
+  const sparkle = document.getElementById('storeCharmSparkle');
+  sparkle.classList.toggle('visible', Boolean(item) && item.item_type === 'perk');
+
+  const nameEl = document.getElementById('storePreviewName');
+  nameEl.textContent = item ? item.name : '';
+
+  document.querySelectorAll('#storeItemsList .store-item').forEach((row) => {
+    row.classList.toggle('previewing', row.dataset.slug === previewedSlug);
   });
 
-  if (item.item_type === 'cosmetic') {
-    const swatch = document.createElement('span');
-    swatch.className = 'store-item-swatch';
-    swatch.style.backgroundColor = swatchColorFor(item);
-    row.appendChild(swatch);
-  }
+  const cosmetics = items.filter((i) => i.item_type === 'cosmetic');
+  const hasOutfits = cosmetics.length > 0;
+  document.getElementById('storePrevOutfitBtn').hidden = !hasOutfits;
+  document.getElementById('storeNextOutfitBtn').hidden = !hasOutfits;
+}
+
+// Moves the pedestal preview to the next/previous item in the character's
+// *cosmetic* catalog only - perks are deliberately left out of this
+// cycle (selected by clicking their row in the list below instead) since
+// "scroll through and try one on" is specifically an outfit gesture, not
+// something that makes sense for an invisible gameplay effect. Wraps
+// around at either end rather than stopping, so there's no dead-end
+// arrow state to disable. If nothing previewed is currently a cosmetic
+// (a perk, or nothing at all), `direction` picks which end to land on
+// first rather than computing an offset from a nonexistent index.
+function cycleOutfit(direction) {
+  if (!currentState) return;
+  const cosmetics = currentState.items.filter((item) => item.item_type === 'cosmetic');
+  if (cosmetics.length === 0) return;
+
+  const currentIndex = cosmetics.findIndex((item) => item.slug === previewedSlug);
+  const nextIndex =
+    currentIndex === -1
+      ? (direction > 0 ? 0 : cosmetics.length - 1)
+      : (currentIndex + direction + cosmetics.length) % cosmetics.length;
+
+  previewedSlug = cosmetics[nextIndex].slug;
+  updatePreview();
+}
+
+// A perk's row in the list below - informational (name/description plus
+// a plain status badge, not a button) since the actual action always
+// happens via the single pedestal button now. Clicking anywhere on the
+// row previews it.
+function buildPerkRow(item, wallet) {
+  const row = document.createElement('div');
+  row.className = 'store-item';
+  row.dataset.slug = item.slug;
+  row.addEventListener('click', () => {
+    previewedSlug = item.slug;
+    updatePreview();
+  });
 
   const info = document.createElement('div');
   info.className = 'store-item-info';
@@ -174,63 +247,23 @@ function buildItemRow(character, wallet, item, onChanged, isPreviewed) {
   }
   row.appendChild(info);
 
-  const button = document.createElement('button');
-  button.className = 'store-item-buy';
-
-  if (item.owned && item.item_type === 'cosmetic') {
-    // Cosmetics stay actionable once owned - a toggle between wearing
-    // this look and reverting to the default, rather than a dead-end
-    // "Owned" label. Perks (below) have nothing to toggle - owning one
-    // just makes its effect permanently active.
-    button.textContent = item.equipped ? 'Equipped' : 'Equip';
-    button.classList.toggle('store-item-equipped', item.equipped);
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        if (item.equipped) {
-          await unequipItem(character, item.slot);
-        } else {
-          await equipItem(character, item.slug);
-        }
-        onChanged();
-      } catch (err) {
-        button.disabled = false;
-        button.textContent = err.message || 'Failed';
-      }
-    });
-  } else if (item.owned) {
-    button.textContent = 'Owned';
-    button.disabled = true;
+  const status = document.createElement('span');
+  status.className = 'store-item-status';
+  if (item.owned) {
+    status.textContent = 'Owned';
   } else if (wallet.level < item.min_level) {
-    button.textContent = `Lvl ${item.min_level}`;
-    button.disabled = true;
+    status.textContent = `Lvl ${item.min_level}`;
   } else {
-    button.textContent = `${item.cost} coins`;
-    button.disabled = wallet.coins < item.cost;
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      button.textContent = 'Buying...';
-      try {
-        const updatedWallet = await purchaseItem(character, item.slug);
-        if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
-        onChanged(updatedWallet);
-      } catch (err) {
-        button.disabled = false;
-        button.textContent = err.message || 'Purchase failed';
-      }
-    });
+    status.textContent = `${item.cost} coins`;
   }
+  row.appendChild(status);
 
-  row.appendChild(button);
   return row;
 }
 
-// Re-fetches and re-renders the item list in place - called on open and
-// again after a successful purchase/equip, so owned/affordable/locked
-// states stay accurate without closing and reopening the modal. Grouped
-// into "Perks" and "Outfits" sections (only rendered if that type has any
-// items) rather than one flat list, now that a character's catalog can mix
-// both - see kpground-api's StoreItem.item_type.
+// Re-fetches the catalog and rebuilds everything - called on open and
+// again after a purchase/equip actually changes owned/equipped/wallet
+// state (arrow/row clicks alone don't need this, see updatePreview()).
 async function renderItems(character, wallet) {
   const listEl = document.getElementById('storeItemsList');
   const walletLineEl = document.getElementById('storeWalletLine');
@@ -242,57 +275,41 @@ async function renderItems(character, wallet) {
     items = await getStore(character);
   } catch (err) {
     listEl.textContent = 'Could not load the store right now.';
-    // Still show the character on the pedestal even though the rack
-    // itself failed to load - a dressing room with a broken price tag
-    // shouldn't also hide the mirror.
-    updatePedestal(character, null);
+    currentState = { character, wallet, items: [] };
+    previewedSlug = null;
+    updatePreview();
     return;
+  }
+
+  currentState = { character, wallet, items };
+
+  // Keeps whatever was already previewed if it still exists; otherwise
+  // prefers the character's actually-equipped cosmetic (the "current
+  // outfit" is the natural thing to show first), falling back to the
+  // first perk, or nothing at all if the catalog is empty.
+  if (!items.some((item) => item.slug === previewedSlug)) {
+    const equippedCosmetic = items.find((item) => item.item_type === 'cosmetic' && item.equipped);
+    const firstPerk = items.find((item) => item.item_type === 'perk');
+    previewedSlug = (equippedCosmetic || firstPerk || null)?.slug ?? null;
   }
 
   listEl.innerHTML = '';
-
-  if (items.length === 0) {
-    listEl.textContent = 'Nothing in the store yet - check back soon!';
-    updatePedestal(character, null);
-    return;
+  const perks = items.filter((item) => item.item_type === 'perk');
+  perks.forEach((item) => listEl.appendChild(buildPerkRow(item, wallet)));
+  if (perks.length === 0) {
+    listEl.textContent = 'Nothing here yet - check back soon!';
   }
 
-  // Re-render from scratch on any change (purchase, equip, unequip) -
-  // simplest way to keep every row's owned/equipped/afford state correct
-  // relative to every other row (e.g. a purchase can drop coins below what
-  // a different still-unbought item needs), matching this function's own
-  // existing re-fetch-on-purchase behavior, just also covering equip now.
-  const rerender = (updatedWallet) => renderItems(character, updatedWallet || wallet);
+  updatePreview();
+}
 
-  // Keeps whatever was already being previewed across a re-render if it
-  // still exists; otherwise prefers the character's actually-equipped
-  // cosmetic (the "current outfit" is the natural thing to show first),
-  // falling back to just the first item in the catalog.
-  let previewedItem = items.find((item) => item.slug === previewedSlug);
-  if (!previewedItem) {
-    previewedItem = items.find((item) => item.item_type === 'cosmetic' && item.equipped) || items[0];
-  }
-  previewedSlug = previewedItem.slug;
-  updatePedestal(character, previewedItem);
-
-  const sections = [
-    { type: 'perk', heading: 'Perks' },
-    { type: 'cosmetic', heading: 'Outfits' },
-  ];
-
-  sections.forEach(({ type, heading }) => {
-    const sectionItems = items.filter((item) => item.item_type === type);
-    if (sectionItems.length === 0) return;
-
-    const headingEl = document.createElement('h3');
-    headingEl.className = 'store-section-heading';
-    headingEl.textContent = heading;
-    listEl.appendChild(headingEl);
-
-    sectionItems.forEach((item) => {
-      listEl.appendChild(buildItemRow(character, wallet, item, rerender, item.slug === previewedSlug));
-    });
-  });
+// Only a purchase/equip actually needs a fresh network fetch (owned/
+// equipped/coins all changed) - re-derives character/wallet from
+// currentState rather than threading them through every action-button
+// handler separately.
+function refreshAfterChange() {
+  if (!currentState) return Promise.resolve();
+  return renderItems(currentState.character, currentState.wallet);
 }
 
 // wallet: the character's current wallet (from GameScreen's this.wallet),
@@ -305,7 +322,7 @@ export function openStoreModal(character, wallet, onWalletUpdate) {
   onWalletUpdateCallback = onWalletUpdate;
   // A fresh open shouldn't remember what a *previous* character's store
   // session had on the pedestal - renderItems() below re-derives a real
-  // default (the equipped look, or the first item) for whichever
+  // default (the equipped look, or the first perk) for whichever
   // character this actually is.
   previewedSlug = null;
   modal.hidden = false;
