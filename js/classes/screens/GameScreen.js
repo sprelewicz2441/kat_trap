@@ -21,7 +21,12 @@ import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=3';
-import { drawRoundedRect } from '../../utils/canvasShapes.js';
+import {
+  drawRoundedRect,
+  drawCatEarCard, drawCatEarInner,
+  drawMouseEarCard, drawMouseEarInner,
+  drawDogEarCard, drawDogEarInner,
+} from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
 import { openStoreModal } from '../../utils/storeModal.js';
@@ -748,15 +753,19 @@ const BASE_MESSAGE_Y_OFFSET = 80;
 // the live board, which was sometimes hard to read depending on what was
 // underneath it. UI chrome, so sized with uiScale like the rest of this
 // section rather than the in-game scale.
-const BASE_MODAL_WIDTH = 420;
-const BASE_MODAL_HEIGHT = 280;
-const BASE_MODAL_RADIUS = 24;
-const BASE_MODAL_TITLE_FONT_SIZE = 52;
-const BASE_MODAL_SUBTITLE_FONT_SIZE = 22;
-const BASE_MODAL_BUTTON_WIDTH = 200;
-const BASE_MODAL_BUTTON_HEIGHT = 60;
-const BASE_MODAL_BUTTON_RADIUS = 16;
-const BASE_MODAL_BUTTON_FONT_SIZE = 24;
+// Bumped up a notch across the board (was 420x280) per explicit "make it
+// bigger" request — the modal is the single most important thing on
+// screen at the moment it's shown, and the old size read as timid next to
+// a full-canvas dimming scrim.
+const BASE_MODAL_WIDTH = 480;
+const BASE_MODAL_HEIGHT = 320;
+const BASE_MODAL_RADIUS = 26;
+const BASE_MODAL_TITLE_FONT_SIZE = 58;
+const BASE_MODAL_SUBTITLE_FONT_SIZE = 25;
+const BASE_MODAL_BUTTON_WIDTH = 220;
+const BASE_MODAL_BUTTON_HEIGHT = 66;
+const BASE_MODAL_BUTTON_RADIUS = 18;
+const BASE_MODAL_BUTTON_FONT_SIZE = 26;
 // Extra room the modal grows by to fit the "here's what you earned"
 // rewards section (see endGame()'s roundRewardBreakdown, displayGameOverModal()'s
 // drawRewardsBreakdown()) - only added when that section will actually be
@@ -769,13 +778,50 @@ const BASE_MODAL_BUTTON_FONT_SIZE = 24;
 // drawRewardsBreakdown() moved to a single row (coins left, level-up/XP
 // right) instead of stacking up to three lines - a single row needs much
 // less reserved height.
-const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 70;
-const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 22;
-const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 15;
+const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 78;
+const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 24;
+const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 16;
 // How long the modal takes to pop/scale in once the round ends — a
 // duration, not a size, so this doesn't scale with canvas size (same
 // reasoning as DOG_PAUSE_DURATION below).
 const MODAL_POP_IN_DURATION = 250; // ms
+
+// Absolute pixel floors for the modal's own size/text, applied on top of
+// the BASE_MODAL_* * uiScale numbers above in computeLayout() — uiScale
+// alone (a pure fraction of canvas *width*) tracks a normal mobile canvas
+// fine, but a narrow desktop browser window can push uiScale low enough
+// that the computed numbers stop being legible ("hard to read on some
+// sizes" — confirmed live). Same fixed-minimum-plus-computed shape
+// Cutscene.js already uses for its own pop-in text. modalWidth/modalHeight
+// get the same floor treatment so the card is actually big enough to hold
+// text drawn at its own floor size, not just the text alone.
+const MIN_MODAL_WIDTH = 320;
+const MIN_MODAL_HEIGHT = 240;
+const MIN_MODAL_TITLE_FONT_SIZE = 32;
+const MIN_MODAL_SUBTITLE_FONT_SIZE = 17;
+const MIN_MODAL_BUTTON_WIDTH = 170;
+const MIN_MODAL_BUTTON_HEIGHT = 50;
+const MIN_MODAL_BUTTON_FONT_SIZE = 18;
+const MIN_MODAL_REWARDS_EXTRA_HEIGHT = 60;
+const MIN_MODAL_REWARDS_TITLE_FONT_SIZE = 17;
+const MIN_MODAL_REWARDS_LINE_FONT_SIZE = 13;
+
+// Frames the modal in whichever character's ears the player is actually
+// controlling this round (this.controlledEntity) — same shapes and same
+// "outer card silhouette plus a two-tone inner accent" convention
+// CharacterSelectScreen's own EAR_SHAPES map already uses for its cards,
+// echoing the pick made there rather than the modal defaulting to one
+// specific animal regardless of who's playing.
+const MODAL_EAR_SHAPES = {
+  cat: { card: drawCatEarCard, inner: drawCatEarInner },
+  mouse: { card: drawMouseEarCard, inner: drawMouseEarInner },
+  dog: { card: drawDogEarCard, inner: drawDogEarInner },
+};
+// Same flat pale-pink inner-ear accent CharacterSelectScreen's cards use
+// regardless of the card's own color — real ears are two-toned, and using
+// one shared accent color keeps that read consistent between the two
+// screens instead of retuning it per palette.
+const MODAL_EAR_INNER_COLOR = '#ffd7d0';
 
 const BASE_FLOOR_TILE_SIZE = 24;
 
@@ -1034,6 +1080,30 @@ function computeLayout(canvasWidth) {
     FRIDGE_SPEC.height * FRIDGE_SCALE_MULTIPLIER
   ) * moduleScale);
 
+  // Game-over modal geometry, floored (see MIN_MODAL_* above) and then
+  // capped against the actual canvas so a floor kicking in on a tiny
+  // canvas can never push the card past its edges. Canvas height isn't a
+  // parameter here, but main.js's resizeCanvas() always locks it to a
+  // fixed 4:3 ratio off canvasWidth, so it's safe to derive rather than
+  // thread through as its own argument.
+  const canvasHeightApprox = canvasWidth * (3 / 4);
+  const modalWidth = Math.min(Math.max(BASE_MODAL_WIDTH * uiScale, MIN_MODAL_WIDTH), canvasWidth * 0.94);
+  const modalRewardsExtraHeight = Math.max(BASE_MODAL_REWARDS_EXTRA_HEIGHT * uiScale, MIN_MODAL_REWARDS_EXTRA_HEIGHT);
+  // The card can grow again on top of modalHeight to fit the rewards
+  // section (see displayGameOverModal()) — reserve room for that worst
+  // case up front so the floored/capped base height plus that extra can
+  // never together exceed the canvas, even though whether rewards will
+  // actually show isn't known yet at layout time.
+  // Capped a bit short of the canvas (0.84, not 0.92) to leave headroom
+  // above the card for the ears drawn poking up past its own top edge
+  // (see MODAL_EAR_SHAPES/displayGameOverModal()) — they can peak roughly
+  // 20% of modalHeight above modalY, the same proportion
+  // CharacterSelectScreen's own cards use.
+  const modalHeight = Math.min(
+    Math.max(BASE_MODAL_HEIGHT * uiScale, MIN_MODAL_HEIGHT),
+    canvasHeightApprox * 0.84 - modalRewardsExtraHeight
+  );
+
   return {
     scale,
     characterScale,
@@ -1058,18 +1128,18 @@ function computeLayout(canvasWidth) {
     dogCollisionStarSize: BASE_DOG_COLLISION_STAR_SIZE * scale,
     messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
-    modalWidth: BASE_MODAL_WIDTH * uiScale,
-    modalHeight: BASE_MODAL_HEIGHT * uiScale,
-    modalRewardsExtraHeight: BASE_MODAL_REWARDS_EXTRA_HEIGHT * uiScale,
-    modalRewardsTitleFontSize: BASE_MODAL_REWARDS_TITLE_FONT_SIZE * uiScale,
-    modalRewardsLineFontSize: BASE_MODAL_REWARDS_LINE_FONT_SIZE * uiScale,
+    modalWidth,
+    modalHeight,
+    modalRewardsExtraHeight,
+    modalRewardsTitleFontSize: Math.max(BASE_MODAL_REWARDS_TITLE_FONT_SIZE * uiScale, MIN_MODAL_REWARDS_TITLE_FONT_SIZE),
+    modalRewardsLineFontSize: Math.max(BASE_MODAL_REWARDS_LINE_FONT_SIZE * uiScale, MIN_MODAL_REWARDS_LINE_FONT_SIZE),
     modalRadius: BASE_MODAL_RADIUS * uiScale,
-    modalTitleFontSize: BASE_MODAL_TITLE_FONT_SIZE * uiScale,
-    modalSubtitleFontSize: BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale,
-    modalButtonWidth: BASE_MODAL_BUTTON_WIDTH * uiScale,
-    modalButtonHeight: BASE_MODAL_BUTTON_HEIGHT * uiScale,
+    modalTitleFontSize: Math.max(BASE_MODAL_TITLE_FONT_SIZE * uiScale, MIN_MODAL_TITLE_FONT_SIZE),
+    modalSubtitleFontSize: Math.max(BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale, MIN_MODAL_SUBTITLE_FONT_SIZE),
+    modalButtonWidth: Math.max(BASE_MODAL_BUTTON_WIDTH * uiScale, MIN_MODAL_BUTTON_WIDTH),
+    modalButtonHeight: Math.max(BASE_MODAL_BUTTON_HEIGHT * uiScale, MIN_MODAL_BUTTON_HEIGHT),
     modalButtonRadius: BASE_MODAL_BUTTON_RADIUS * uiScale,
-    modalButtonFontSize: BASE_MODAL_BUTTON_FONT_SIZE * uiScale,
+    modalButtonFontSize: Math.max(BASE_MODAL_BUTTON_FONT_SIZE * uiScale, MIN_MODAL_BUTTON_FONT_SIZE),
     floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
     hudMargin: BASE_HUD_MARGIN * uiScale,
     hudPadding: BASE_HUD_PADDING * uiScale,
@@ -4263,7 +4333,17 @@ export default class GameScreen {
     ctx.translate(-centerX, -centerY);
 
     const modalX = centerX - modalWidth / 2;
-    const modalY = centerY - modalHeight / 2;
+    // Clamped, not just centered — on an extremely small/narrow canvas
+    // (well past any real device this game targets, but reachable by
+    // hand-shrinking a desktop browser window) the ear-headroom cap in
+    // computeLayout() can still be squeezed tighter than the ears actually
+    // need, which would otherwise poke the card's ears (see
+    // MODAL_EAR_SHAPES) up past the canvas's own top edge. 0.22 is a
+    // deliberately generous upper bound on any of the three ear shapes'
+    // actual peak height (all ~0.2*modalHeight or less — see
+    // canvasShapes.js) so this holds regardless of which character's ears
+    // are drawn.
+    const modalY = Math.max(centerY - modalHeight / 2, modalHeight * 0.22 + 4 * scale);
 
     const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
     if (this.gameOverIsWin) {
@@ -4274,7 +4354,18 @@ export default class GameScreen {
       gradient.addColorStop(1, COLORS.MODAL.LOSE_GRADIENT_END);
     }
 
-    drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    // Framed in whichever character's ears the player is actually
+    // controlling this round (see MODAL_EAR_SHAPES) — same "ears poking up
+    // past the card's own top edge" language CharacterSelectScreen's cards
+    // use, so the modal echoes the pick made there instead of just being a
+    // plain rounded rect. Falls back to a plain rounded rect for any
+    // unrecognized controlledEntity, though every real value has a shape.
+    const earShapes = MODAL_EAR_SHAPES[this.controlledEntity];
+    if (earShapes) {
+      earShapes.card(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    } else {
+      drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    }
     ctx.fillStyle = gradient;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     ctx.shadowBlur = 24 * scale;
@@ -4286,6 +4377,15 @@ export default class GameScreen {
     ctx.lineWidth = Math.max(2, 4 * scale);
     ctx.strokeStyle = COLORS.MODAL.BORDER;
     ctx.stroke();
+
+    // Two-tone inner-ear accent, drawn after the card body/border so it
+    // sits on top — same pale-pink fill CharacterSelectScreen's cards use
+    // regardless of the card's own color (see MODAL_EAR_INNER_COLOR).
+    if (earShapes) {
+      earShapes.inner(ctx, modalX, modalY, modalWidth, modalHeight);
+      ctx.fillStyle = MODAL_EAR_INNER_COLOR;
+      ctx.fill();
+    }
 
     ctx.textAlign = 'center';
     const title = this.gameOverIsWin ? 'You Win!' : 'You Lose!';
@@ -4305,7 +4405,22 @@ export default class GameScreen {
     ctx.fillText(title, centerX, titleY);
 
     const subtitleY = modalY + baseModalHeight * 0.56;
-    ctx.font = `bold ${modalSubtitleFontSize}px Arial`;
+    // Shrink further (down to MIN_MODAL_SUBTITLE_FONT_SIZE) only if the
+    // message would actually overflow the card at its normal floored size
+    // — same "floor plus measure-and-shrink-if-needed" pattern
+    // Cutscene.js's own pop-in text uses, so a longer message (a custom
+    // character name, say) can't run past the card's edges.
+    let subtitleFontSize = modalSubtitleFontSize;
+    ctx.font = `bold ${subtitleFontSize}px Arial`;
+    const availableSubtitleWidth = modalWidth - 40 * scale;
+    const measuredSubtitleWidth = ctx.measureText(this.message).width;
+    if (measuredSubtitleWidth > availableSubtitleWidth) {
+      subtitleFontSize = Math.max(
+        MIN_MODAL_SUBTITLE_FONT_SIZE,
+        subtitleFontSize * (availableSubtitleWidth / measuredSubtitleWidth)
+      );
+      ctx.font = `bold ${subtitleFontSize}px Arial`;
+    }
     ctx.fillStyle = COLORS.MODAL.SUBTITLE;
     ctx.fillText(this.message, centerX, subtitleY);
 
