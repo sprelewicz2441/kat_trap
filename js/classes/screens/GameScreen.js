@@ -28,8 +28,9 @@ import {
   drawDogEarCard, drawDogEarInner,
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
-import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
+import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
 import { openStoreModal } from '../../utils/storeModal.js';
+import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
 //  CONSTANTS
@@ -587,6 +588,10 @@ const BASE_DOG_PLAYER_SPEED = 10;
 // stars just keep orbiting for however long catPaused stays true.
 const DOG_PAUSE_DURATION = 4000;
 const DOG_COLLISION_COOLDOWN = 1000; // ms
+// Dog's "Longer Cat Pause" perk (store slug 'longer-pause') - applied in
+// handleDogCollision() only when controlledEntity === 'dog' (Dog's own
+// wallet-gated purchase, see this.ownedPerkSlugs in init()).
+const LONGER_PAUSE_PERK_MULTIPLIER = 1.5;
 
 // Dog poop hazard — the dog can drop a pile that stuns the cat for
 // POOP_STUN_DURATION on contact, same catPaused/pauseEndTime/message
@@ -691,6 +696,12 @@ const CAT_WANDER_SPEED_MULTIPLIER = 0.5;
 const BASE_PUNCH_DISTANCE = 40;
 const PUNCH_SHOCKWAVE_DURATION = 200; // ms
 const BASE_PUNCH_SHOCKWAVE_MAX_RADIUS = 60;
+// Cat's "Bigger Punch Knockback" perk (store slug 'punch-knockback') -
+// applied in handlePunch() only when controlledEntity === 'cat', since
+// this is Cat's own wallet-gated purchase (see this.ownedPerkSlugs in
+// init()); punch is also usable in Mouse mode (see handlePunch()'s own
+// comment) but Poop never inherits an upgrade Mia paid for.
+const PUNCH_KNOCKBACK_PERK_MULTIPLIER = 1.5;
 
 // Toot's little wind/fart puff — purely cosmetic (unlike the shove
 // distance above, nothing here affects gameplay), triggered from
@@ -1429,6 +1440,22 @@ export default class GameScreen {
     this.walletAtRoundStart = null;
     this.roundRewardBreakdown = null;
     this.storeButtonArea = null;
+    // Perk slugs the *controlled* character's wallet owns (see init()'s
+    // getStore() fetch) - stays empty (every perk check below just no-ops)
+    // if never logged in or the fetch fails, same degrade-gracefully shape
+    // as this.wallet. Perks only ever apply to the character whose wallet
+    // paid for them - see PUNCH_KNOCKBACK_PERK_MULTIPLIER's own comment.
+    this.ownedPerkSlugs = new Set();
+    // Equipped 'outfit'-slot cosmetic per character (cat/mouse/dog), keyed
+    // by character regardless of controlledEntity - a purchased look is
+    // worn by that character whenever it's on screen, not just when it's
+    // the one being played. Populated by init()'s getEquipped() fetches
+    // (one per character) and re-applied by resetGameObjects() every time
+    // it (re)constructs an entity - resetGameObjects() runs a second time
+    // once cutscenes finish (see its own comment), which would otherwise
+    // silently discard a sprite swap already applied to the *first*
+    // Cat/Mouse/Dog instance the moment that fetch resolved before then.
+    this.equippedOutfits = {};
     // Mirrors wasRunningBeforeMenu's pattern for the settings menu - see
     // storeModalToggleHandler in init().
     this.wasRunningBeforeStore = null;
@@ -1547,6 +1574,31 @@ export default class GameScreen {
             : null;
         })
         .catch((err) => console.warn('Could not load wallet:', err.message));
+
+      // Perk ownership only ever needs the *controlled* character's own
+      // catalog (see this.ownedPerkSlugs's own comment) - getStore()
+      // already returns every item's .owned flag, so no separate
+      // endpoint is needed just for this.
+      getStore(this.controlledEntity)
+        .then((items) => {
+          this.ownedPerkSlugs = new Set(
+            items.filter((item) => item.item_type === 'perk' && item.owned).map((item) => item.slug)
+          );
+        })
+        .catch((err) => console.warn('Could not load perks:', err.message));
+
+      // Cosmetic equip state, one fetch per character (not just
+      // controlledEntity) - the dog's own tutu, say, should show whenever
+      // Dummy is on screen, regardless of who's actually being played
+      // this round. applyEquippedOutfit() both updates the live sprite
+      // immediately (covers the skip-cutscenes path, where
+      // resetGameObjects() never runs again) and records the pick on
+      // this.equippedOutfits (covers the normal path, where it does).
+      ['cat', 'mouse', 'dog'].forEach((character) => {
+        getEquipped(character)
+          .then((equipped) => this.applyEquippedOutfit(character, equipped.outfit))
+          .catch((err) => console.warn(`Could not load ${character}'s equipped outfit:`, err.message));
+      });
     }
 
     // Always add the click handler
@@ -1605,6 +1657,25 @@ export default class GameScreen {
       this.running = false;
       this.startCutscenes();
     }
+  }
+
+  // Records `outfitItem` (a StoreItem, or null/undefined for "no cosmetic
+  // equipped, default look") as `character`'s current pick, then - if that
+  // character's entity already exists - swaps its live spriteSheet.src
+  // right away via getSpriteSrc() (js/utils/outfits.js). Called from two
+  // places: once per character as each of init()'s getEquipped() fetches
+  // resolves (covers the skipCutscenes path, where resetGameObjects()
+  // never runs a second time), and again from inside resetGameObjects()
+  // itself every time it (re)constructs the three entities (covers the
+  // normal path, where cutscenes finishing calls resetGameObjects() a
+  // second time - see its own comment - which would otherwise reconstruct
+  // Cat/Mouse/Dog at their plain default look and silently discard
+  // whatever a fetch had already applied to the now-replaced instance).
+  applyEquippedOutfit(character, outfitItem) {
+    this.equippedOutfits[character] = outfitItem || null;
+    if (!outfitItem) return;
+    const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;
+    if (entity) entity.spriteSheet.src = getSpriteSrc(character, outfitItem);
   }
 
   resetGameObjects() {
@@ -1725,6 +1796,12 @@ export default class GameScreen {
       // the normal random range.
       this.dog.setNextPoop(true);
     }
+    // Re-applies whatever init()'s getEquipped() fetches have already
+    // resolved to (a no-op for any character whose fetch hasn't resolved
+    // yet, or that has nothing equipped) - see applyEquippedOutfit()'s own
+    // comment for why this has to happen here too, not just once at fetch
+    // time.
+    ['cat', 'mouse', 'dog'].forEach((character) => this.applyEquippedOutfit(character, this.equippedOutfits[character]));
 
     this.inputHandler = new InputHandler();
     // wallHitCallback is sound-only — see checkMouseEscapeOnWallHit()'s own
@@ -2240,7 +2317,8 @@ export default class GameScreen {
     };
 
     // Move dog away
-    const punchDistance = this.layout.punchDistance;
+    const hasPunchKnockbackPerk = this.controlledEntity === 'cat' && this.ownedPerkSlugs.has('punch-knockback');
+    const punchDistance = this.layout.punchDistance * (hasPunchKnockbackPerk ? PUNCH_KNOCKBACK_PERK_MULTIPLIER : 1);
     if (this.dog.x < this.cat.x) this.dog.x -= punchDistance;
     else this.dog.x += punchDistance;
     if (this.dog.y < this.cat.y) this.dog.y -= punchDistance;
@@ -3034,7 +3112,8 @@ export default class GameScreen {
 
   handleDogCollision() {
     this.catPaused = true;
-    this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
+    const hasLongerPausePerk = this.controlledEntity === 'dog' && this.ownedPerkSlugs.has('longer-pause');
+    this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION * (hasLongerPausePerk ? LONGER_PAUSE_PERK_MULTIPLIER : 1);
     this.message = MESSAGES.DOG_CAUGHT;
     this.catStunStartTime = performance.now();
     this.catStunSource = 'dog';
@@ -3198,6 +3277,9 @@ export default class GameScreen {
     this.drawFloor();
     this.drawWalls();
     this.escapes.forEach(escape => escape.draw(this.ctx));
+    if (this.controlledEntity === 'mouse' && this.ownedPerkSlugs.has('hole-radar')) {
+      this.drawEscapeRadar();
+    }
     // A floor-level hazard, same as the escapes above — drawn before the
     // mouse/furniture/characters so anything walking over it draws on top,
     // the same convention every other ground-level thing in this sequence
@@ -3723,8 +3805,25 @@ export default class GameScreen {
   // of its type/content - see DOOBER_ARROW_* above for why this lives in
   // the shared drawDoober() rather than in a type's own draw(). A soft
   // glow (shadowBlur) plus a bold dark outline, same "cartoon-bold, hard
-  // to miss" language the reference screenshot's own arrows use.
+  // to miss" language the reference screenshot's own arrows use. The
+  // actual shape/bob math is shared with drawEscapeRadar() (the
+  // "Mouse Hole Radar" perk, see below) via drawPointerArrow() - same
+  // "point at a fixed spot" widget, just recolored per caller so a coin
+  // callout and an escape-hole callout can't be confused for each other.
   drawDooberArrow(centerX, topY, baseRadius, elapsed) {
+    this.drawPointerArrow(centerX, topY, baseRadius, elapsed, {
+      glow: 'rgba(255, 214, 64, 0.85)',
+      gradientStart: '#fff59d',
+      gradientEnd: '#ffca28',
+      stroke: '#8a5a00',
+    });
+  }
+
+  // Shared "bobbing arrow pointing down at a fixed spot" shape - see
+  // drawDooberArrow() above (gold, the original use) and
+  // drawEscapeRadar() below (the "Mouse Hole Radar" perk's cool-blue
+  // recolor of the exact same widget).
+  drawPointerArrow(centerX, topY, baseRadius, elapsed, { glow, gradientStart, gradientEnd, stroke }) {
     const ctx = this.ctx;
     const bob = Math.sin((elapsed / DOOBER_ARROW_BOB_PERIOD) * Math.PI * 2) * DOOBER_ARROW_BOB_AMPLITUDE;
     const tipY = topY - DOOBER_ARROW_GAP + bob;
@@ -3737,7 +3836,7 @@ export default class GameScreen {
     const topEdgeY = tipY - height;
 
     ctx.save();
-    ctx.shadowColor = 'rgba(255, 214, 64, 0.85)';
+    ctx.shadowColor = glow;
     ctx.shadowBlur = baseRadius * 0.4;
 
     ctx.beginPath();
@@ -3751,15 +3850,51 @@ export default class GameScreen {
     ctx.closePath();
 
     const gradient = ctx.createLinearGradient(centerX, topEdgeY, centerX, tipY);
-    gradient.addColorStop(0, '#fff59d');
-    gradient.addColorStop(1, '#ffca28');
+    gradient.addColorStop(0, gradientStart);
+    gradient.addColorStop(1, gradientEnd);
     ctx.fillStyle = gradient;
     ctx.fill();
-    ctx.strokeStyle = '#8a5a00';
+    ctx.strokeStyle = stroke;
     ctx.lineWidth = Math.max(1, baseRadius * 0.08);
     ctx.lineJoin = 'round';
     ctx.stroke();
     ctx.restore();
+  }
+
+  // "Mouse Hole Radar" perk (slug 'hole-radar', see this.ownedPerkSlugs in
+  // init()) - highlights whichever escape is currently nearest the mouse,
+  // recomputed every frame (not just once) so the highlighted hole
+  // actually updates as the mouse moves around, the way a real radar
+  // would. Cool blue/white rather than the doober arrow's gold, so the
+  // two "look here" cues never read as the same kind of thing (one's a
+  // reward, one's an escape route).
+  drawEscapeRadar() {
+    if (!this.mouse || this.mouseEscaped || this.escapes.length === 0) return;
+
+    const mouseCenterX = this.mouse.x + this.mouse.size / 2;
+    const mouseCenterY = this.mouse.y + this.mouse.size / 2;
+
+    let nearest = this.escapes[0];
+    let nearestDistance = Infinity;
+    this.escapes.forEach((escape) => {
+      const escapeCenterX = escape.x + escape.width / 2;
+      const escapeCenterY = escape.y + escape.height / 2;
+      const distance = Math.hypot(mouseCenterX - escapeCenterX, mouseCenterY - escapeCenterY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = escape;
+      }
+    });
+
+    const centerX = nearest.x + nearest.width / 2;
+    const topY = nearest.y;
+    const baseRadius = Math.max(nearest.width, nearest.height) / 2;
+    this.drawPointerArrow(centerX, topY, baseRadius, performance.now(), {
+      glow: 'rgba(41, 182, 246, 0.85)',
+      gradientStart: '#e1f5fe',
+      gradientEnd: '#29b6f6',
+      stroke: '#01579b',
+    });
   }
 
   // The 'coin' doober type's content (see DOOBER_TYPES): a real generated

@@ -844,6 +844,24 @@ body.in-game #settingsMenu {
   gap: 10px;
 }
 
+/* Groups the flat item list into "Perks"/"Outfits" (see storeModal.js's
+   renderItems()) - only rendered when that section actually has items, so
+   a character with just perks (today, before any cosmetic goes active)
+   shows no empty "Outfits" heading. Margin-top (not margin-bottom) so it
+   hugs the section below it rather than floating in the gap left by
+   #storeItemsList's own flex `gap`. */
+.store-section-heading {
+  margin: 10px 0 0;
+  font: 700 0.7rem/1 Arial, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a2be2;
+}
+
+.store-section-heading:first-child {
+  margin-top: 0;
+}
+
 .store-item {
   display: flex;
   align-items: center;
@@ -855,11 +873,24 @@ body.in-game #settingsMenu {
   border: 2px solid rgba(138, 43, 226, 0.18);
 }
 
+/* Cosmetic-only color dot (see storeModal.js's swatchColorFor()) - there's
+   no real per-color art yet, so this is what actually tells the 5 tutu
+   options apart in the list today. */
+.store-item-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(138, 43, 226, 0.25);
+}
+
 .store-item-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
 .store-item-info strong {
