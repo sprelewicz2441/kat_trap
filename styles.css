@@ -879,10 +879,10 @@ body.in-game #settingsMenu {
      of its excess height from the top at this scene's own (wider than
      the source photo's) aspect ratio, and the pedestal/floor - the part
      that actually matters for lining up with #storePedestalCanvas below -
-     sits in the lower half of the source image. Tuned by eye from the
-     source image's own proportions, not yet confirmed live at every
-     canvas size - revisit if the character ever looks like it's floating
-     above or sunk into the pedestal once actually seen. */
+     sits in the lower half of the source image. Confirmed live at the
+     desktop reference size (canvas ~1280px wide) - not yet re-checked at
+     other canvas sizes, where a different `cover` crop could shift the
+     pedestal's own position within the visible frame slightly. */
   background-image: url('./assets/store_dressing_room.webp');
   background-size: cover;
   background-position: center 65%;
@@ -901,14 +901,15 @@ body.in-game #settingsMenu {
    already drawn. `bottom` lines the character up with the real photo's
    own marble pedestal (see #storePedestalScene's background-image) -
    there's no CSS pedestal shape drawn here anymore now that real art
-   has one baked in; this percentage is estimated from the source
-   photo's own proportions and its background-position crop bias, not
-   yet confirmed live - nudge it if the character looks like it's
-   floating above or sunk into the platform once actually seen. */
+   has one baked in; 15% was confirmed live (a first estimate of 20% left
+   the character visibly floating just above the marble surface) at the
+   desktop reference canvas size - may need another nudge at very
+   different canvas sizes, where `cover`'s crop shifts where the pedestal
+   itself lands in the visible frame. */
 #storePedestalCanvas {
   position: absolute;
   left: 50%;
-  bottom: 20%;
+  bottom: 15%;
   transform: translateX(-50%);
   filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.35));
 }
