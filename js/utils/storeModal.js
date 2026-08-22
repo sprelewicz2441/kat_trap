@@ -1,5 +1,6 @@
 import { equipItem, getStore, purchaseItem, unequipItem } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js';
+import { getUIScale } from './scale.js?v=1';
 
 // Registered by openStoreModal(), fired whenever a purchase changes the
 // wallet - GameScreen uses this to keep its own this.wallet (and the
@@ -20,6 +21,42 @@ let previewedSlug = null;
 // renderItems(). null until the first successful renderItems() call.
 let currentState = null;
 
+// Sizes #storeCard to match the intro cutscene's own modal footprint
+// (Cutscene.js: modalMargin = 50 * getUIScale(canvasWidth), modal fills
+// the rest of the canvas) per explicit direction that this modal should
+// read the same size as that one - a "big, immersive carousel," not a
+// small popup. This is a DOM overlay rather than something canvas-drawn,
+// so it doesn't sit inside the canvas the way Cutscene's own modal does;
+// this reads the canvas's actual on-screen box and matches the card to
+// it directly, using the exact same margin formula for a real (not just
+// approximate) size match. Also resizes #storePedestalCanvas's *CSS
+// display* size (not its width/height attributes, which would clear
+// whatever's already drawn) to fill most of the pedestal scene's own
+// actual rendered box - read via getBoundingClientRect() after layout,
+// since #storePedestalScene is a flex-grow region whose real height
+// depends on how much room the heading/wallet-line/name/button/list
+// around it are taking, not something computable from the modal's total
+// height alone. Called on open, again once the item list has actually
+// loaded (its content can shift the scene's available height slightly),
+// and on resize/orientationchange while the modal stays open.
+function applyModalSizing() {
+  const canvas = document.getElementById('gameCanvas');
+  const card = document.getElementById('storeCard');
+  const scene = document.getElementById('storePedestalScene');
+  const pedestalCanvas = document.getElementById('storePedestalCanvas');
+  if (!canvas || !card || !scene || !pedestalCanvas) return;
+
+  const uiScale = getUIScale(canvas.width);
+  const margin = 50 * uiScale;
+  card.style.width = `${Math.max(300, canvas.width - margin * 2)}px`;
+  card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
+
+  const sceneRect = scene.getBoundingClientRect();
+  const size = Math.max(80, Math.min(sceneRect.height * 0.62, sceneRect.width * 0.42));
+  pedestalCanvas.style.width = `${size}px`;
+  pedestalCanvas.style.height = `${size}px`;
+}
+
 export function setupStoreModal() {
   const modal = document.getElementById('storeModal');
   const closeBtn = document.getElementById('storeCloseBtn');
@@ -30,6 +67,8 @@ export function setupStoreModal() {
   // actual visible state.
   const close = () => {
     modal.hidden = true;
+    window.removeEventListener('resize', applyModalSizing);
+    window.removeEventListener('orientationchange', applyModalSizing);
     document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: false } }));
     onWalletUpdateCallback = null;
   };
@@ -301,6 +340,10 @@ async function renderItems(character, wallet) {
   }
 
   updatePreview();
+  // The list's real content (vs. the "Loading..." placeholder it had a
+  // moment ago) can shift how much height the flex-grow pedestal scene
+  // actually ends up with - re-measure now that it has settled.
+  applyModalSizing();
 }
 
 // Only a purchase/equip actually needs a fresh network fetch (owned/
@@ -326,6 +369,11 @@ export function openStoreModal(character, wallet, onWalletUpdate) {
   // character this actually is.
   previewedSlug = null;
   modal.hidden = false;
+  // Sized *after* unhiding, not before - a hidden element lays out at
+  // zero size, so measuring it any earlier would size everything wrong.
+  applyModalSizing();
+  window.addEventListener('resize', applyModalSizing);
+  window.addEventListener('orientationchange', applyModalSizing);
   document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: true } }));
   renderItems(character, wallet);
 }

@@ -804,12 +804,13 @@ body.in-game #settingsMenu {
 
 #storeCard {
   position: relative;
-  /* Grown from 380x520 to fit the dressing-room pedestal scene - per
-     explicit direction this is a genuine re-theme, not a small tweak, so
-     the card needed real room for a boutique scene above the item list,
-     not just the list itself. */
-  width: min(440px, 100%);
-  max-height: min(640px, 88vh);
+  /* width/height are set directly in JS (storeModal.js's
+     applyModalSizing()) to match the intro cutscene's own modal footprint
+     exactly, per explicit direction - a "big immersive carousel," not a
+     small popup. These are just the pre-JS fallback (briefly visible, if
+     at all, before applyModalSizing() runs on open). */
+  width: 90vw;
+  height: 80vh;
   padding: 28px;
   border-radius: 20px;
   background: linear-gradient(180deg, #fff8ee, #ffe9c7);
@@ -828,7 +829,7 @@ body.in-game #settingsMenu {
 
 #storeHeading {
   margin: 0 0 4px;
-  font: 800 1.5rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
   background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
   -webkit-background-clip: text;
   background-clip: text;
@@ -837,7 +838,7 @@ body.in-game #settingsMenu {
 
 #storeWalletLine {
   margin: 0 0 10px;
-  font: 700 0.85rem/1.3 Arial, sans-serif;
+  font: 700 1rem/1.3 Arial, sans-serif;
   color: #5c4a72;
 }
 
@@ -854,8 +855,17 @@ body.in-game #settingsMenu {
    character is standing on," not a placeholder that looks broken. */
 #storePedestalScene {
   position: relative;
-  height: 190px;
-  margin: 0 0 10px;
+  /* Grows to absorb the extra room the card gets from now matching the
+     cutscene modal's own footprint (see storeModal.js's
+     applyModalSizing()) - the "big preview" area of a console-game-style
+     carousel dominates the card, with the heading/wallet-line/name/
+     button/perk-list around it staying their own natural size instead of
+     also stretching. min-height: 0 is load-bearing on a flex child with
+     overflow content - without it this wouldn't actually shrink/grow
+     correctly and could blow out the card's own height. */
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 0 12px;
   border-radius: 16px;
   overflow: hidden;
   background:
@@ -870,27 +880,36 @@ body.in-game #settingsMenu {
 
 /* The pedestal itself - a squashed ellipse "step" the character stands
    on, given a wood-toned gradient so it reads as a physical object rather
-   than a flat shape. */
+   than a flat shape. Percentage-based (not fixed px) since the scene's
+   own height is now fluid (flex-grow, see above) rather than a fixed
+   190px - a percentage of the scene's own box keeps this proportionate
+   at any size instead of looking like a tiny step under a huge character
+   once the scene grows much taller than it used to be. */
 #storePedestalScene::after {
   content: '';
   position: absolute;
   left: 50%;
-  bottom: 16px;
-  width: 60%;
-  height: 24px;
+  bottom: 8%;
+  width: 55%;
+  height: 8%;
   transform: translateX(-50%);
   border-radius: 50%;
   background: radial-gradient(ellipse at center, #cda06c 0%, #a97c46 70%, #8a6238 100%);
   box-shadow: 0 8px 10px rgba(0, 0, 0, 0.25);
 }
 
+/* width/height are set directly in JS (storeModal.js's
+   applyModalSizing()) as CSS pixel sizes proportional to the scene's own
+   actual rendered box - not fixed here, for the same "the scene's height
+   is now fluid" reason the pedestal ellipse above is percentage-based.
+   Only the *display* size is set from JS; the canvas's width/height
+   attributes (its actual drawing-buffer resolution) stay untouched by
+   that so resizing never clears whatever's already drawn. */
 #storePedestalCanvas {
   position: absolute;
   left: 50%;
-  bottom: 22px;
+  bottom: 10%;
   transform: translateX(-50%);
-  width: 140px;
-  height: 140px;
   filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.25));
 }
 
@@ -905,8 +924,13 @@ body.in-game #settingsMenu {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
+  /* A comfortable fixed touch-target size regardless of the scene's own
+     (now fluid) dimensions - these are UI chrome, not something that
+     needs to scale with the character preview the way the pedestal/
+     canvas above do. Bumped from 34px now that the surrounding card
+     reads noticeably bigger overall. */
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -914,7 +938,7 @@ body.in-game #settingsMenu {
   border: none;
   background: rgba(255, 255, 255, 0.75);
   color: #6a1fc2;
-  font-size: 1rem;
+  font-size: 1.2rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
@@ -970,10 +994,10 @@ body.in-game #settingsMenu {
    this is a "what am I looking at" label under the pedestal, not a sales
    pitch; a perk's fuller description still shows in its own list row. */
 #storePreviewName {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   text-align: center;
-  min-height: 1.3em;
-  font: 700 1rem/1.3 Arial, sans-serif;
+  min-height: 1.5em;
+  font: 700 1.3rem/1.3 Arial, sans-serif;
   color: #5c2e8a;
 }
 
@@ -984,7 +1008,8 @@ body.in-game #settingsMenu {
 #storePedestalActionBtn {
   width: 100%;
   margin: 0 0 16px;
-  font-size: 0.95rem;
+  padding: 12px 16px;
+  font-size: 1.1rem;
 }
 
 #storePedestalActionBtn[hidden] {
