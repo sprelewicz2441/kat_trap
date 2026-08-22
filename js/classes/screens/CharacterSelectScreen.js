@@ -7,6 +7,7 @@ import {
   drawDogEarCard, drawDogEarInner,
 } from '../../utils/canvasShapes.js';
 import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js';
+import { isLoggedIn, getEquipped } from '../../utils/api.js';
 
 // Per-entity ear shape, keyed the same way THEMES/PORTRAITS below are —
 // cat keeps its original pointed ears (the shape this screen was built
@@ -68,9 +69,11 @@ const DISABLED_THEME = { start: '#6b7280', end: '#3f4653', glow: 'rgba(0, 0, 0, 
 // PORTRAITS (crop rect only, no src) is imported from outfits.js - shared
 // with storeModal.js's own dressing-room pedestal preview so the two
 // "here's what this character looks like" spots can't drift into
-// different crops. This screen always shows each character's *default*
-// look (getSpriteSrc(entity) with no equippedOutfit) - there's no equip
-// state to read here, and wouldn't be meaningful pre-login anyway.
+// different crops. Each portrait starts at getSpriteSrc(entity) with no
+// equippedOutfit (the default look) and is swapped to the real equipped
+// look once the constructor's own getEquipped() fetches resolve, below -
+// stays the default forever if never logged in, same degrade-gracefully
+// shape as every other economy touchpoint in this game.
 
 export default class CharacterSelectScreen {
   // `isReplay` is true when this screen was reached via GameScreen's "Play
@@ -98,6 +101,24 @@ export default class CharacterSelectScreen {
       img.src = getSpriteSrc(entity);
       this.portraitImages[entity] = img;
     });
+
+    // Shows whichever look is actually equipped, not just the default -
+    // same "one fetch per character, regardless of which you'll end up
+    // playing" reasoning GameScreen's own applyEquippedOutfit() uses,
+    // since a purchased look belongs to that character wherever it's
+    // shown, not just once you're in a round. Fire-and-forget; a portrait
+    // just stays at its already-loaded default if this fails or nothing's
+    // equipped, so a fetch failure here is invisible, not broken.
+    if (isLoggedIn()) {
+      Object.keys(PORTRAITS).forEach((entity) => {
+        getEquipped(entity)
+          .then((equipped) => {
+            if (!equipped.outfit) return;
+            this.portraitImages[entity].src = getSpriteSrc(entity, equipped.outfit);
+          })
+          .catch((err) => console.warn(`Could not load ${entity}'s equipped outfit:`, err.message));
+      });
+    }
   }
 
   init() {

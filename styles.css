@@ -868,49 +868,49 @@ body.in-game #settingsMenu {
   margin: 0 0 12px;
   border-radius: 16px;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 70% 60% at 50% 28%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 65%),
-    linear-gradient(90deg, rgba(216, 124, 161, 0.35), transparent 20%, transparent 80%, rgba(159, 110, 220, 0.35)),
-    linear-gradient(180deg, #f8e0ec 0%, #fbe9d3 55%, #f0d6ad 100%);
+  /* Real backdrop art (see assets/store_dressing_room.webp) - a
+     celebrity-home-dressing-room/Beverly-Hills-boutique scene, chosen
+     after two rounds of live art direction (first pass read as a
+     photorealistic retail interior rather than this game's own glossy
+     cartoon style; second pass overcorrected into full fairy-tale-castle
+     glitz). Replaces the earlier CSS-gradient placeholder outright now
+     that real art exists - `background-position`'s vertical anchor is
+     biased toward the bottom (65%, not center) since `cover` crops most
+     of its excess height from the top at this scene's own (wider than
+     the source photo's) aspect ratio, and the pedestal/floor - the part
+     that actually matters for lining up with #storePedestalCanvas below -
+     sits in the lower half of the source image. Tuned by eye from the
+     source image's own proportions, not yet confirmed live at every
+     canvas size - revisit if the character ever looks like it's floating
+     above or sunk into the pedestal once actually seen. */
+  background-image: url('./assets/store_dressing_room.webp');
+  background-size: cover;
+  background-position: center 65%;
   border: 2px solid rgba(138, 43, 226, 0.25);
   box-shadow:
     inset 0 -14px 22px rgba(120, 72, 40, 0.15),
     inset 0 2px 14px rgba(255, 255, 255, 0.7);
 }
 
-/* The pedestal itself - a squashed ellipse "step" the character stands
-   on, given a wood-toned gradient so it reads as a physical object rather
-   than a flat shape. Percentage-based (not fixed px) since the scene's
-   own height is now fluid (flex-grow, see above) rather than a fixed
-   190px - a percentage of the scene's own box keeps this proportionate
-   at any size instead of looking like a tiny step under a huge character
-   once the scene grows much taller than it used to be. */
-#storePedestalScene::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 8%;
-  width: 55%;
-  height: 8%;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, #cda06c 0%, #a97c46 70%, #8a6238 100%);
-  box-shadow: 0 8px 10px rgba(0, 0, 0, 0.25);
-}
-
 /* width/height are set directly in JS (storeModal.js's
    applyModalSizing()) as CSS pixel sizes proportional to the scene's own
-   actual rendered box - not fixed here, for the same "the scene's height
-   is now fluid" reason the pedestal ellipse above is percentage-based.
-   Only the *display* size is set from JS; the canvas's width/height
-   attributes (its actual drawing-buffer resolution) stay untouched by
-   that so resizing never clears whatever's already drawn. */
+   actual rendered box - not fixed here, since the scene's own height is
+   fluid (flex-grow, see above). Only the *display* size is set from JS;
+   the canvas's width/height attributes (its actual drawing-buffer
+   resolution) stay untouched by that so resizing never clears whatever's
+   already drawn. `bottom` lines the character up with the real photo's
+   own marble pedestal (see #storePedestalScene's background-image) -
+   there's no CSS pedestal shape drawn here anymore now that real art
+   has one baked in; this percentage is estimated from the source
+   photo's own proportions and its background-position crop bias, not
+   yet confirmed live - nudge it if the character looks like it's
+   floating above or sunk into the platform once actually seen. */
 #storePedestalCanvas {
   position: absolute;
   left: 50%;
-  bottom: 10%;
+  bottom: 20%;
   transform: translateX(-50%);
-  filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.35));
 }
 
 /* Outfit-browsing arrows - flank the pedestal, vertically centered, so
