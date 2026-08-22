@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=4">
+  <link rel="stylesheet" href="./styles.css?v=5">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -180,12 +180,30 @@
        cards, same reasoning as the login modal: this needs per-item buy
        buttons and dynamic owned/locked/affordable states, which is much
        simpler as DOM than as hand-rolled canvas hit-testing per row. Same
-       cream-card-plus-purple-accent language as #creditsModal/#loginModal. -->
+       cream-card-plus-purple-accent language as #creditsModal/#loginModal.
+
+       Reframed as a "dressing room" per explicit direction (an actual
+       fitting-room scene with a pedestal - a bride trying on dresses, not
+       a department-store rack) - #storePedestalScene is the boutique
+       backdrop (currently a CSS placeholder standing in for real art, see
+       styles.css - swapping in a real photo later only touches that one
+       rule's background-image, nothing here or in storeModal.js), with a
+       small canvas compositing whichever character/item is currently
+       being previewed standing on it, same source-rect crop technique
+       CharacterSelectScreen's own character cards already use (see
+       js/utils/outfits.js's shared PORTRAITS). #storePreviewCaption shows
+       that item's name/description underneath, like a fitting-room mirror
+       caption. -->
   <div id="storeModal" hidden>
     <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
-      <h2 id="storeHeading">Store</h2>
+      <h2 id="storeHeading">Dress-Up Studio</h2>
       <p id="storeWalletLine"></p>
+      <div id="storePedestalScene">
+        <canvas id="storePedestalCanvas" width="240" height="240"></canvas>
+        <span id="storeCharmSparkle" aria-hidden="true">✨</span>
+      </div>
+      <p id="storePreviewCaption"></p>
       <div id="storeItemsList"></div>
     </div>
   </div>

@@ -1,4 +1,4 @@
-import GameScreen from './GameScreen.js?v=18';
+import GameScreen from './GameScreen.js?v=21';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {
@@ -6,6 +6,7 @@ import {
   drawMouseEarCard, drawMouseEarInner,
   drawDogEarCard, drawDogEarInner,
 } from '../../utils/canvasShapes.js';
+import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js';
 
 // Per-entity ear shape, keyed the same way THEMES/PORTRAITS below are —
 // cat keeps its original pointed ears (the shape this screen was built
@@ -64,15 +65,12 @@ const THEMES = {
 };
 const DISABLED_THEME = { start: '#6b7280', end: '#3f4653', glow: 'rgba(0, 0, 0, 0)' };
 
-// Small crops straight out of each character's real sprite sheet, rather
-// than new art — a static preview of whichever frame reads best at rest.
-// Native (unscaled) source-rect coordinates; see Cat.js/Mouse.js/Dog.js for
-// how these same sheets get sliced during actual gameplay.
-const PORTRAITS = {
-  cat: { src: './assets/cat_v2.png?v=2', sx: 0, sy: 0, sw: 256, sh: 296 }, // v2 sprite — native pixel size (see Cat.js), not the logical 118×150 display size
-  mouse: { src: './assets/mouse_v2.png?v=1', sx: 327, sy: 654, sw: 327, sh: 327 }, // v2 sprite — native pixel size (see Mouse.js), south, frame 1
-  dog: { src: './assets/dog_v2.png?v=4', sx: 0, sy: 0, sw: 473, sh: 296 }, // v2 sprite — native pixel size (see Dog.js), not the logical 60×38 display size; ?v cache-busts asset updates
-};
+// PORTRAITS (crop rect only, no src) is imported from outfits.js - shared
+// with storeModal.js's own dressing-room pedestal preview so the two
+// "here's what this character looks like" spots can't drift into
+// different crops. This screen always shows each character's *default*
+// look (getSpriteSrc(entity) with no equippedOutfit) - there's no equip
+// state to read here, and wouldn't be meaningful pre-login anyway.
 
 export default class CharacterSelectScreen {
   // `isReplay` is true when this screen was reached via GameScreen's "Play
@@ -94,10 +92,10 @@ export default class CharacterSelectScreen {
     // these files are, but not guaranteed) pops in rather than staying
     // blank for the rest of the screen's life.
     this.portraitImages = {};
-    Object.entries(PORTRAITS).forEach(([entity, spec]) => {
+    Object.keys(PORTRAITS).forEach((entity) => {
       const img = new Image();
       img.onload = () => this.render();
-      img.src = spec.src;
+      img.src = getSpriteSrc(entity);
       this.portraitImages[entity] = img;
     });
   }

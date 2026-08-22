@@ -1,10 +1,18 @@
 import { equipItem, getStore, purchaseItem, unequipItem } from './api.js';
+import { getSpriteSrc, PORTRAITS } from './outfits.js';
 
 // Registered by openStoreModal(), fired whenever a purchase changes the
 // wallet - GameScreen uses this to keep its own this.wallet (and the
 // HUD it drives) in sync without a redundant re-fetch. Same one-shot-
 // callback shape loginModal.js uses for its own success callback.
 let onWalletUpdateCallback = null;
+
+// Which item's slug is currently shown on the dressing-room pedestal (see
+// updatePedestal()) - module-level so it survives renderItems() re-runs
+// (a purchase/equip shouldn't reset what's on display), reset only when
+// the modal is freshly opened (openStoreModal()) or the previewed item no
+// longer exists in a fresh fetch.
+let previewedSlug = null;
 
 export function setupStoreModal() {
   const modal = document.getElementById('storeModal');
@@ -57,11 +65,95 @@ function swatchColorFor(item) {
   return match ? SWATCH_COLORS[match] : '#9e9e9e';
 }
 
+// One Image per src, loaded once and reused - repeatedly previewing the
+// same look (very likely today, since every placeholder cosmetic still
+// points at the same default sprite_src - see kpground-api's seed_store)
+// shouldn't re-request/re-decode the image every click. Page-lifetime
+// cache, same "small assets, never evicted" reasoning as
+// CharacterSelectScreen's own portraitImages.
+const portraitImageCache = {};
+function getPortraitImage(src) {
+  if (!portraitImageCache[src]) {
+    const img = new Image();
+    img.src = src;
+    portraitImageCache[src] = img;
+  }
+  return portraitImageCache[src];
+}
+
+// Draws whichever character/item is currently being "tried on" onto the
+// dressing-room pedestal (#storePedestalCanvas) - same source-rect crop
+// technique CharacterSelectScreen's own character cards use (see
+// js/utils/outfits.js's shared PORTRAITS), just drawn into a small canvas
+// inside this DOM modal instead of the character-select screen's own
+// canvas. `item` is whatever's currently selected in the list below, or
+// null for "nothing to preview yet" (an empty catalog, or a failed
+// fetch) - still draws the character's own default look either way, so
+// the pedestal never sits empty.
+function updatePedestal(character, item) {
+  const crop = PORTRAITS[character];
+  const canvas = document.getElementById('storePedestalCanvas');
+  const sparkle = document.getElementById('storeCharmSparkle');
+  const caption = document.getElementById('storePreviewCaption');
+  if (!canvas || !crop) return;
+
+  // Only a cosmetic actually changes what's drawn - previewing a perk (or
+  // nothing) shows the character's plain default look, with the sparkle
+  // below standing in for "this is the effect you'd be trying on" instead.
+  const src = item && item.item_type === 'cosmetic' ? getSpriteSrc(character, item) : getSpriteSrc(character);
+  const img = getPortraitImage(src);
+  const ctx = canvas.getContext('2d');
+
+  const draw = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const scale = Math.min(canvas.width / crop.sw, canvas.height / crop.sh);
+    const dw = crop.sw * scale;
+    const dh = crop.sh * scale;
+    // Bottom-anchored, horizontally centered - "standing on the pedestal"
+    // rather than centered in the canvas, so the character's feet line up
+    // with the pedestal ellipse drawn in CSS just below this canvas.
+    ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, (canvas.width - dw) / 2, canvas.height - dh, dw, dh);
+  };
+
+  if (img.complete && img.naturalWidth > 0) {
+    draw();
+  } else {
+    img.onload = draw;
+  }
+
+  if (sparkle) sparkle.classList.toggle('visible', Boolean(item) && item.item_type === 'perk');
+
+  caption.innerHTML = '';
+  if (item) {
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = item.name;
+    caption.appendChild(nameEl);
+    if (item.description) {
+      const descEl = document.createElement('span');
+      descEl.textContent = item.description;
+      caption.appendChild(descEl);
+    }
+  }
+}
+
 // One item's row - shared by both the Perks and Outfits sections below so
-// the two can't drift into visually different item treatments.
-function buildItemRow(character, wallet, item, onChanged) {
+// the two can't drift into visually different item treatments. Clicking
+// anywhere on the row (not just the buy/equip button) previews it on the
+// pedestal - the button's own click bubbles up into this too, which is
+// fine: buying or equipping something you weren't already looking at
+// should also put it on display.
+function buildItemRow(character, wallet, item, onChanged, isPreviewed) {
   const row = document.createElement('div');
   row.className = 'store-item';
+  row.classList.toggle('previewing', isPreviewed);
+  row.addEventListener('click', () => {
+    document.querySelectorAll('#storeItemsList .store-item.previewing').forEach((el) => {
+      el.classList.remove('previewing');
+    });
+    row.classList.add('previewing');
+    previewedSlug = item.slug;
+    updatePedestal(character, item);
+  });
 
   if (item.item_type === 'cosmetic') {
     const swatch = document.createElement('span');
@@ -150,6 +242,10 @@ async function renderItems(character, wallet) {
     items = await getStore(character);
   } catch (err) {
     listEl.textContent = 'Could not load the store right now.';
+    // Still show the character on the pedestal even though the rack
+    // itself failed to load - a dressing room with a broken price tag
+    // shouldn't also hide the mirror.
+    updatePedestal(character, null);
     return;
   }
 
@@ -157,6 +253,7 @@ async function renderItems(character, wallet) {
 
   if (items.length === 0) {
     listEl.textContent = 'Nothing in the store yet - check back soon!';
+    updatePedestal(character, null);
     return;
   }
 
@@ -166,6 +263,17 @@ async function renderItems(character, wallet) {
   // a different still-unbought item needs), matching this function's own
   // existing re-fetch-on-purchase behavior, just also covering equip now.
   const rerender = (updatedWallet) => renderItems(character, updatedWallet || wallet);
+
+  // Keeps whatever was already being previewed across a re-render if it
+  // still exists; otherwise prefers the character's actually-equipped
+  // cosmetic (the "current outfit" is the natural thing to show first),
+  // falling back to just the first item in the catalog.
+  let previewedItem = items.find((item) => item.slug === previewedSlug);
+  if (!previewedItem) {
+    previewedItem = items.find((item) => item.item_type === 'cosmetic' && item.equipped) || items[0];
+  }
+  previewedSlug = previewedItem.slug;
+  updatePedestal(character, previewedItem);
 
   const sections = [
     { type: 'perk', heading: 'Perks' },
@@ -182,7 +290,7 @@ async function renderItems(character, wallet) {
     listEl.appendChild(headingEl);
 
     sectionItems.forEach((item) => {
-      listEl.appendChild(buildItemRow(character, wallet, item, rerender));
+      listEl.appendChild(buildItemRow(character, wallet, item, rerender, item.slug === previewedSlug));
     });
   });
 }
@@ -195,6 +303,11 @@ export function openStoreModal(character, wallet, onWalletUpdate) {
   const modal = document.getElementById('storeModal');
   if (!modal) return;
   onWalletUpdateCallback = onWalletUpdate;
+  // A fresh open shouldn't remember what a *previous* character's store
+  // session had on the pedestal - renderItems() below re-derives a real
+  // default (the equipped look, or the first item) for whichever
+  // character this actually is.
+  previewedSlug = null;
   modal.hidden = false;
   document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: true } }));
   renderItems(character, wallet);
