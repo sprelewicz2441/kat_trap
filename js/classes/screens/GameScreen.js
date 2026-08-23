@@ -10,7 +10,7 @@
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=6';
 import Mouse from '../Mouse.js?v=2';
-import Dog from '../Dog.js?v=6';
+import Dog from '../Dog.js?v=7';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
@@ -3087,10 +3087,16 @@ export default class GameScreen {
 
   movePlayerDog() {
     const direction = this.inputHandler.getDirection();
-    if (direction) {
-      this.tryMoveDog(direction);
+    if (!direction) {
+      this.dog.stand();
+      return;
     }
-    this.dog.updateAnimation();
+    const moved = this.tryMoveDog(direction);
+    if (moved) {
+      this.dog.updateAnimation();
+    } else {
+      this.dog.stand();
+    }
   }
 
   // Drives the power-LED-as-danger-meter in the viewport frame (see

@@ -357,6 +357,18 @@ export default class Dog {
     }
   }
 
+  // Called from GameScreen.movePlayerDog() whenever no direction key is
+  // held or the attempted move was blocked, so the walk-cycle snaps back
+  // to a resting pose instead of continuing to animate in place while the
+  // dog isn't actually going anywhere — mirrors Cat.js's own stand().
+  // Only used by the player-controlled path: the autonomous wander
+  // (update() above) is essentially always moving every tick, so it has
+  // no real idle state to snap back to.
+  stand() {
+    this.currentFrame = 0;
+    this.frameCounter = 0;
+  }
+
   // frameWidth/frameHeight are already the scaled on-screen size (see
   // constructor) — these just give Cutscene.js a name it can read the same
   // way across Cat/Dog/Mouse regardless of what each class calls its own
