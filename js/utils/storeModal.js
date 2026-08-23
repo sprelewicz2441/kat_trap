@@ -16,16 +16,27 @@ let onWalletUpdateCallback = null;
 // until a refresh re-ran init()'s getEquipped() fetch.
 let onOutfitChangeCallback = null;
 
-// Which item's slug is currently shown on the dressing-room pedestal -
-// module-level so it survives a local re-render (arrow click, row click,
-// a purchase/equip) without needing a fresh network fetch every time.
-// Reset only when the modal is freshly opened (openStoreModal()).
+// Which storefront panel is showing - 'bloomingtails' (cosmetics, the
+// dressing room) or 'pawgreens' (perks, a plain shopping list). Split per
+// explicit direction ("remove the non-clothes items from this store, we
+// will create a new store for those things called Pawgreens") - both
+// panels share one modal shell and one network fetch (see currentState
+// below), just filtered client-side by item_type. Reset to
+// 'bloomingtails' every time the modal is freshly opened.
+let currentTab = 'bloomingtails';
+
+// Which cosmetic is currently shown on the Bloomingtails pedestal -
+// module-level so it survives a local re-render (arrow click, a
+// purchase/equip) without needing a fresh network fetch every time.
+// Pawgreens has no equivalent - every perk row is self-contained (see
+// buildPawgreensRow()), there's nothing to "preview" the way trying on an
+// outfit means something. Reset only when the modal is freshly opened.
 let previewedSlug = null;
 
-// The last real fetch's own (character, wallet, items) - arrow/row clicks
-// only need to change *which* item is previewed and redraw, not re-fetch
-// the whole catalog from the network. Only a purchase/equip (which
-// actually changes owned/equipped/wallet state) re-fetches via
+// The last real fetch's own (character, wallet, items) - arrow clicks
+// only need to change *which* cosmetic is previewed and redraw, not
+// re-fetch the whole catalog from the network. Only a purchase/equip
+// (which actually changes owned/equipped/coins) re-fetches via
 // renderItems(). null until the first successful renderItems() call.
 let currentState = null;
 
@@ -40,13 +51,10 @@ let currentState = null;
 // approximate) size match. Also resizes #storePedestalCanvas's *CSS
 // display* size (not its width/height attributes, which would clear
 // whatever's already drawn) to fill most of the pedestal scene's own
-// actual rendered box - read via getBoundingClientRect() after layout,
-// since #storePedestalScene is a flex-grow region whose real height
-// depends on how much room the heading/wallet-line/name/button/list
-// around it are taking, not something computable from the modal's total
-// height alone. Called on open, again once the item list has actually
-// loaded (its content can shift the scene's available height slightly),
-// and on resize/orientationchange while the modal stays open.
+// actual rendered box - read via getBoundingClientRect() after layout.
+// Called on open, again once the item list has actually loaded (its
+// content can shift the scene's available height slightly), on tab
+// switch, and on resize/orientationchange while the modal stays open.
 function applyModalSizing() {
   const canvas = document.getElementById('gameCanvas');
   const card = document.getElementById('storeCard');
@@ -59,11 +67,17 @@ function applyModalSizing() {
   card.style.width = `${Math.max(300, canvas.width - margin * 2)}px`;
   card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
 
+  // Only meaningful while Bloomingtails is the visible panel - the scene
+  // lays out at zero size while its panel is [hidden], so skip measuring
+  // it then rather than sizing the canvas off a bogus zero-height rect.
+  if (currentTab !== 'bloomingtails') return;
   const sceneRect = scene.getBoundingClientRect();
-  // 0.93/0.63 (was 0.62/0.42) - character requested ~50% bigger on the
-  // pedestal, confirmed live against the dressing-room backdrop's own
-  // proportions so the character doesn't overrun the mirror frame.
-  const size = Math.max(80, Math.min(sceneRect.height * 0.93, sceneRect.width * 0.63));
+  // The backdrop now fills the whole card (see styles.css - "make the
+  // dressing room bigger... the full background") rather than a smaller
+  // inset box with its own heading/name/button stacked around it, so
+  // this same fraction-of-scene formula naturally yields a bigger
+  // character than the previous layout did without needing its own bump.
+  const size = Math.max(80, Math.min(sceneRect.height * 0.72, sceneRect.width * 0.5));
   pedestalCanvas.style.width = `${size}px`;
   pedestalCanvas.style.height = `${size}px`;
 }
@@ -95,12 +109,36 @@ export function setupStoreModal() {
     if (e.key === 'Escape' && !modal.hidden) close();
   });
 
-  // Outfit-browsing arrows - only ever cycle the character's *cosmetic*
-  // catalog (see cycleOutfit()'s own comment for why perks aren't part of
-  // this), and are set up once here since the buttons themselves are
-  // static markup, not rebuilt per render like the list rows below.
+  // Outfit-browsing arrows - only ever cycle Bloomingtails' own cosmetic
+  // catalog (see cycleOutfit()'s own comment for why perks were never
+  // part of this, even before Pawgreens split them into their own store).
   document.getElementById('storePrevOutfitBtn').addEventListener('click', () => cycleOutfit(-1));
   document.getElementById('storeNextOutfitBtn').addEventListener('click', () => cycleOutfit(1));
+
+  document.getElementById('storeTabBloomingtails').addEventListener('click', () => switchTab('bloomingtails'));
+  document.getElementById('storeTabPawgreens').addEventListener('click', () => switchTab('pawgreens'));
+}
+
+// Swaps which panel is visible without re-fetching - both panels already
+// share the one currentState fetch (see openStoreModal()/renderItems()),
+// so switching tabs is purely a local redraw.
+function switchTab(tab) {
+  if (tab === currentTab) return;
+  currentTab = tab;
+
+  document.getElementById('bloomingtailsPanel').hidden = tab !== 'bloomingtails';
+  document.getElementById('pawgreensPanel').hidden = tab !== 'pawgreens';
+  document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', String(tab === 'bloomingtails'));
+  document.getElementById('storeTabPawgreens').setAttribute('aria-selected', String(tab === 'pawgreens'));
+
+  if (tab === 'bloomingtails') {
+    updateBloomingtailsPreview();
+  } else {
+    renderPawgreensList();
+  }
+  // The scene's real box only exists once its panel is actually visible -
+  // re-measure now that the flip above has taken effect.
+  applyModalSizing();
 }
 
 function walletLineText(wallet) {
@@ -121,23 +159,20 @@ function getPortraitImage(src) {
   return portraitImageCache[src];
 }
 
-// Draws whichever item is currently being "tried on" onto the dressing-
-// room pedestal (#storePedestalCanvas) - same source-rect crop technique
-// CharacterSelectScreen's own character cards use (see
+// Draws whichever cosmetic is currently being "tried on" onto the
+// dressing-room pedestal (#storePedestalCanvas) - same source-rect crop
+// technique CharacterSelectScreen's own character cards use (see
 // js/utils/outfits.js's shared PORTRAITS), just drawn into a small canvas
 // inside this DOM modal instead of that screen's own canvas. `item` is
-// whatever's currently previewed, or null for "nothing to preview yet"
-// (an empty catalog, or a failed fetch) - still draws the character's own
-// default look either way, so the pedestal never sits empty.
+// whatever's currently previewed, or null (an empty cosmetic catalog, or
+// a failed fetch) - still draws the character's own default look either
+// way, so the pedestal never sits empty.
 function drawPedestalPortrait(character, item) {
   const crop = PORTRAITS[character];
   const canvas = document.getElementById('storePedestalCanvas');
   if (!canvas || !crop) return;
 
-  // Only a cosmetic actually changes what's drawn - previewing a perk (or
-  // nothing) shows the character's plain default look, with the sparkle
-  // below standing in for "this is the effect you'd be trying on" instead.
-  const src = item && item.item_type === 'cosmetic' ? getSpriteSrc(character, item) : getSpriteSrc(character);
+  const src = getSpriteSrc(character, item);
   const img = getPortraitImage(src);
   const ctx = canvas.getContext('2d');
 
@@ -148,7 +183,7 @@ function drawPedestalPortrait(character, item) {
     const dh = crop.sh * scale;
     // Bottom-anchored, horizontally centered - "standing on the pedestal"
     // rather than centered in the canvas, so the character's feet line up
-    // with the pedestal ellipse drawn in CSS just below this canvas.
+    // with the pedestal in the backdrop photo.
     ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, (canvas.width - dw) / 2, canvas.height - dh, dw, dh);
   };
 
@@ -159,23 +194,21 @@ function drawPedestalPortrait(character, item) {
   }
 }
 
-// The single Buy/Equip/Owned/locked action for whatever's currently
-// previewed - replaces the old one-button-per-row design now that every
-// action routes through the pedestal instead. Shared by perks and
-// cosmetics alike so there's only ever one purchase/equip code path to
-// keep correct.
-function updateActionButton(character, wallet, item) {
-  const btn = document.getElementById('storePedestalActionBtn');
+// Shared Buy/Equip/Owned/locked logic for a single item - both
+// Bloomingtails' one pedestal button and each of Pawgreens' own per-row
+// buttons funnel through this so there's only one purchase/equip/state
+// code path to keep correct, even though the two stores wire it up to
+// different DOM shapes (one shared button vs. one button per row).
+// Mutates `btn` directly and returns nothing - callers just build the
+// button element differently around it.
+function wireItemButton(btn, character, wallet, item) {
   btn.onclick = null;
   btn.classList.remove('store-item-equipped');
-  btn.hidden = !item;
-  if (!item) return;
 
   if (item.owned && item.item_type === 'cosmetic') {
     // Cosmetics stay actionable once owned - a toggle between wearing
     // this look and reverting to the default, rather than a dead-end
-    // "Owned" label. Perks have nothing to toggle - owning one just
-    // makes its effect permanently active.
+    // "Owned" label.
     btn.disabled = false;
     btn.textContent = item.equipped ? 'Equipped' : 'Equip';
     btn.classList.toggle('store-item-equipped', item.equipped);
@@ -196,6 +229,8 @@ function updateActionButton(character, wallet, item) {
       }
     };
   } else if (item.owned) {
+    // Perks have nothing to toggle - owning one just makes its effect
+    // permanently active.
     btn.disabled = true;
     btn.textContent = 'Owned';
   } else if (wallet.level < item.min_level) {
@@ -210,7 +245,7 @@ function updateActionButton(character, wallet, item) {
       try {
         const updatedWallet = await purchaseItem(character, item.slug);
         if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
-        await renderItems(character, updatedWallet);
+        await refreshAfterChange();
       } catch (err) {
         btn.disabled = false;
         btn.textContent = err.message || 'Purchase failed';
@@ -219,45 +254,35 @@ function updateActionButton(character, wallet, item) {
   }
 }
 
-// Re-draws the pedestal canvas, name label, action button, and (for
-// perks) which list row is highlighted - everything that depends on
-// `previewedSlug` - without re-fetching from the network. Called after
-// every local state change (arrow click, perk row click); renderItems()
-// itself calls this too once its fresh fetch lands, so both paths funnel
-// through the exact same drawing logic.
-function updatePreview() {
+// Re-draws the Bloomingtails pedestal canvas, name label, and action
+// button for whatever `previewedSlug` currently points at - without
+// re-fetching from the network. Called after every local state change
+// (arrow click, a purchase/equip) and once whenever the tab switches back
+// to Bloomingtails; renderItems() calls this too once its fresh fetch
+// lands.
+function updateBloomingtailsPreview() {
   if (!currentState) return;
   const { character, wallet, items } = currentState;
-  const item = items.find((i) => i.slug === previewedSlug) || null;
+  const cosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  const item = cosmetics.find((i) => i.slug === previewedSlug) || null;
 
   drawPedestalPortrait(character, item);
-  updateActionButton(character, wallet, item);
 
-  const sparkle = document.getElementById('storeCharmSparkle');
-  sparkle.classList.toggle('visible', Boolean(item) && item.item_type === 'perk');
+  const btn = document.getElementById('storePedestalActionBtn');
+  btn.hidden = !item;
+  if (item) wireItemButton(btn, character, wallet, item);
 
   const nameEl = document.getElementById('storePreviewName');
   nameEl.textContent = item ? item.name : '';
 
-  document.querySelectorAll('#storeItemsList .store-item').forEach((row) => {
-    row.classList.toggle('previewing', row.dataset.slug === previewedSlug);
-  });
-
-  const cosmetics = items.filter((i) => i.item_type === 'cosmetic');
   const hasOutfits = cosmetics.length > 0;
   document.getElementById('storePrevOutfitBtn').hidden = !hasOutfits;
   document.getElementById('storeNextOutfitBtn').hidden = !hasOutfits;
 }
 
-// Moves the pedestal preview to the next/previous item in the character's
-// *cosmetic* catalog only - perks are deliberately left out of this
-// cycle (selected by clicking their row in the list below instead) since
-// "scroll through and try one on" is specifically an outfit gesture, not
-// something that makes sense for an invisible gameplay effect. Wraps
-// around at either end rather than stopping, so there's no dead-end
-// arrow state to disable. If nothing previewed is currently a cosmetic
-// (a perk, or nothing at all), `direction` picks which end to land on
-// first rather than computing an offset from a nonexistent index.
+// Moves the pedestal preview to the next/previous cosmetic. Wraps around
+// at either end rather than stopping, so there's no dead-end arrow state
+// to disable.
 function cycleOutfit(direction) {
   if (!currentState) return;
   const cosmetics = currentState.items.filter((item) => item.item_type === 'cosmetic');
@@ -270,24 +295,20 @@ function cycleOutfit(direction) {
       : (currentIndex + direction + cosmetics.length) % cosmetics.length;
 
   previewedSlug = cosmetics[nextIndex].slug;
-  updatePreview();
+  updateBloomingtailsPreview();
 }
 
-// A perk's row in the list below - informational (name/description plus
-// a plain status badge, not a button) since the actual action always
-// happens via the single pedestal button now. Clicking anywhere on the
-// row previews it.
-function buildPerkRow(item, wallet) {
+// A perk's row in the Pawgreens list - self-contained (name, description,
+// and its own working Buy/Owned/locked button) since there's no character
+// preview to focus a single shared action button's target on the way
+// Bloomingtails has. Reuses wireItemButton() for the actual state/click
+// logic so purchase behavior can't drift between the two stores.
+function buildPawgreensRow(item, character, wallet) {
   const row = document.createElement('div');
-  row.className = 'store-item';
-  row.dataset.slug = item.slug;
-  row.addEventListener('click', () => {
-    previewedSlug = item.slug;
-    updatePreview();
-  });
+  row.className = 'pawgreens-item';
 
   const info = document.createElement('div');
-  info.className = 'store-item-info';
+  info.className = 'pawgreens-item-info';
   const nameEl = document.createElement('strong');
   nameEl.textContent = item.name;
   info.appendChild(nameEl);
@@ -298,63 +319,76 @@ function buildPerkRow(item, wallet) {
   }
   row.appendChild(info);
 
-  const status = document.createElement('span');
-  status.className = 'store-item-status';
-  if (item.owned) {
-    status.textContent = 'Owned';
-  } else if (wallet.level < item.min_level) {
-    status.textContent = `Lvl ${item.min_level}`;
-  } else {
-    status.textContent = `${item.cost} coins`;
-  }
-  row.appendChild(status);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'store-item-buy';
+  wireItemButton(btn, character, wallet, item);
+  row.appendChild(btn);
 
   return row;
 }
 
-// Re-fetches the catalog and rebuilds everything - called on open and
-// again after a purchase/equip actually changes owned/equipped/wallet
-// state (arrow/row clicks alone don't need this, see updatePreview()).
-async function renderItems(character, wallet) {
-  const listEl = document.getElementById('storeItemsList');
-  const walletLineEl = document.getElementById('storeWalletLine');
+// Rebuilds the Pawgreens list from currentState - called once whenever
+// the tab switches to Pawgreens and again after any purchase (via
+// refreshAfterChange()'s fresh fetch), same "local redraw vs. real
+// re-fetch" split Bloomingtails' own updateBloomingtailsPreview() uses.
+function renderPawgreensList() {
+  if (!currentState) return;
+  const { character, wallet, items } = currentState;
+  const listEl = document.getElementById('pawgreensItemsList');
+  const walletLineEl = document.getElementById('pawgreensWalletLine');
   walletLineEl.textContent = walletLineText(wallet);
-  listEl.textContent = 'Loading...';
+
+  const perks = items.filter((item) => item.item_type === 'perk');
+  listEl.innerHTML = '';
+  if (perks.length === 0) {
+    listEl.textContent = 'Nothing here yet - check back soon!';
+    return;
+  }
+  perks.forEach((item) => listEl.appendChild(buildPawgreensRow(item, character, wallet)));
+}
+
+// Re-fetches the catalog and rebuilds both panels' data - called on open
+// and again after a purchase/equip actually changes owned/equipped/
+// wallet state (arrow clicks alone don't need this). Only the *visible*
+// panel actually redraws its DOM; the other picks up the fresh
+// currentState next time its tab is switched to.
+async function renderItems(character, wallet) {
+  document.getElementById('storeWalletLine').textContent = walletLineText(wallet);
 
   let items;
   try {
     items = await getStore(character);
   } catch (err) {
-    listEl.textContent = 'Could not load the store right now.';
     currentState = { character, wallet, items: [] };
     previewedSlug = null;
-    updatePreview();
+    if (currentTab === 'bloomingtails') {
+      updateBloomingtailsPreview();
+    } else {
+      document.getElementById('pawgreensItemsList').textContent = 'Could not load the store right now.';
+    }
     return;
   }
 
   currentState = { character, wallet, items };
 
-  // Keeps whatever was already previewed if it still exists; otherwise
-  // prefers the character's actually-equipped cosmetic (the "current
-  // outfit" is the natural thing to show first), falling back to the
-  // first perk, or nothing at all if the catalog is empty.
-  if (!items.some((item) => item.slug === previewedSlug)) {
-    const equippedCosmetic = items.find((item) => item.item_type === 'cosmetic' && item.equipped);
-    const firstPerk = items.find((item) => item.item_type === 'perk');
-    previewedSlug = (equippedCosmetic || firstPerk || null)?.slug ?? null;
+  // Keeps whatever cosmetic was already previewed if it still exists;
+  // otherwise prefers the character's actually-equipped look (the
+  // "current outfit" is the natural thing to show first), falling back
+  // to the first cosmetic, or nothing at all if there are none.
+  const cosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  if (!cosmetics.some((item) => item.slug === previewedSlug)) {
+    const equipped = cosmetics.find((item) => item.equipped);
+    previewedSlug = (equipped || cosmetics[0] || null)?.slug ?? null;
   }
 
-  listEl.innerHTML = '';
-  const perks = items.filter((item) => item.item_type === 'perk');
-  perks.forEach((item) => listEl.appendChild(buildPerkRow(item, wallet)));
-  if (perks.length === 0) {
-    listEl.textContent = 'Nothing here yet - check back soon!';
+  if (currentTab === 'bloomingtails') {
+    updateBloomingtailsPreview();
+  } else {
+    renderPawgreensList();
   }
-
-  updatePreview();
-  // The list's real content (vs. the "Loading..." placeholder it had a
-  // moment ago) can shift how much height the flex-grow pedestal scene
-  // actually ends up with - re-measure now that it has settled.
+  // Content settling (list height, "Nothing here yet" text) can shift how
+  // much room the flex-grow pedestal scene ends up with - re-measure now.
   applyModalSizing();
 }
 
@@ -380,10 +414,14 @@ export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange
   onWalletUpdateCallback = onWalletUpdate;
   onOutfitChangeCallback = onOutfitChange;
   // A fresh open shouldn't remember what a *previous* character's store
-  // session had on the pedestal - renderItems() below re-derives a real
-  // default (the equipped look, or the first perk) for whichever
-  // character this actually is.
+  // session had on the pedestal, or which tab they'd wandered to last.
   previewedSlug = null;
+  currentTab = 'bloomingtails';
+  document.getElementById('bloomingtailsPanel').hidden = false;
+  document.getElementById('pawgreensPanel').hidden = true;
+  document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', 'true');
+  document.getElementById('storeTabPawgreens').setAttribute('aria-selected', 'false');
+
   modal.hidden = false;
   // Sized *after* unhiding, not before - a hidden element lays out at
   // zero size, so measuring it any earlier would size everything wrong.

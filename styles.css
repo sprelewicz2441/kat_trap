@@ -784,9 +784,11 @@ body.in-game #settingsMenu {
 }
 
 /* Store modal (see js/utils/storeModal.js) — opened from GameScreen's
-   canvas-drawn "Store" button mid-round. Same cream-card-plus-purple-accent
-   language as #creditsModal/#loginModal; taller and scrollable since the
-   item list is dynamic/unbounded rather than fixed content. */
+   canvas-drawn "Store" button mid-round. Two storefronts (Bloomingtails,
+   the cosmetics dressing room; Pawgreens, a plain perks list) sharing one
+   modal shell, switched via #storeTabs - split per explicit direction
+   ("remove the non-clothes items from this store, we will create a new
+   store for those things called Pawgreens"). */
 #storeModal {
   position: fixed;
   inset: 0;
@@ -808,10 +810,17 @@ body.in-game #settingsMenu {
      applyModalSizing()) to match the intro cutscene's own modal footprint
      exactly, per explicit direction - a "big immersive carousel," not a
      small popup. These are just the pre-JS fallback (briefly visible, if
-     at all, before applyModalSizing() runs on open). */
+     at all, before applyModalSizing() runs on open). Padding is 0, not a
+     fixed inset, now that Bloomingtails' backdrop fills the card
+     edge-to-edge (see #storePedestalScene below) - each panel/the tab bar
+     apply their own padding instead of relying on one shared value that
+     would leave an unwanted cream margin around a full-bleed photo.
+     overflow: hidden is what actually clips that photo to the card's own
+     rounded corners. */
   width: 90vw;
   height: 80vh;
-  padding: 28px;
+  padding: 0;
+  overflow: hidden;
   border-radius: 20px;
   background: linear-gradient(180deg, #fff8ee, #ffe9c7);
   border: 3px solid rgba(138, 43, 226, 0.55);
@@ -827,6 +836,116 @@ body.in-game #settingsMenu {
   }
 }
 
+/* Persistent header bar above whichever panel is showing - the one piece
+   of chrome common to both storefronts. Sits on the card's own cream
+   background (not overlaid on Bloomingtails' photo), so it reads as a
+   category-switcher strip above the immersive art, not part of the art
+   itself. Right padding clears #storeCloseBtn, which stays
+   absolutely-positioned in the card's corner regardless of tab. */
+#storeTabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  padding: 16px 56px 12px 20px;
+}
+
+.store-tab {
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(138, 43, 226, 0.25);
+  background: rgba(255, 255, 255, 0.55);
+  color: #5c2e8a;
+  font: 700 0.9rem/1.2 Arial, sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.store-tab:active {
+  transform: scale(0.96);
+}
+
+/* Bloomingtails keeps its established purple/pink boutique gradient;
+   Pawgreens gets its own fresh green identity (a hint toward the
+   eventual convenience-store-checkout theme) so the two storefronts read
+   as distinct places, not just two tabs of the same list. */
+#storeTabBloomingtails[aria-selected="true"] {
+  background: linear-gradient(135deg, #8a2be2, #ff8fb1);
+  border-color: transparent;
+  color: #fff;
+}
+
+#storeTabPawgreens[aria-selected="true"] {
+  background: linear-gradient(135deg, #2e8b57, #7fd858);
+  border-color: transparent;
+  color: #fff;
+}
+
+.store-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.store-panel[hidden] {
+  display: none;
+}
+
+/* Boutique fitting-room backdrop. Per explicit direction ("make the
+   dressing room bigger, if not the full background... like you may see
+   in a console game"), this now fills the *entire* panel edge-to-edge -
+   #storeCard's own overflow:hidden clips it to the card's corners - with
+   every other element (heading/wallet-line/arrows/name/button)
+   overlaid directly on top via #storeOverlayTop/#storeOverlayBottom's
+   gradient scrims, rather than the photo being one inset box among
+   several stacked elements above/below it. */
+#storePedestalScene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Real backdrop art (see assets/store_dressing_room.webp) - a
+     celebrity-home-dressing-room/Beverly-Hills-boutique scene, chosen
+     after two rounds of live art direction (first pass read as a
+     photorealistic retail interior rather than this game's own glossy
+     cartoon style; second pass overcorrected into full fairy-tale-castle
+     glitz). `background-position`'s vertical anchor is biased toward the
+     bottom (65%, not center) since `cover` crops most of its excess
+     height from the top at this scene's own aspect ratio, and the
+     pedestal/floor - the part that actually matters for lining up with
+     #storePedestalCanvas below - sits in the lower half of the source
+     image. Re-confirm live after any further layout change - the scene's
+     own aspect ratio (now the *whole card*, not a smaller inset box)
+     changed materially with this "full background" pass, which can shift
+     where `cover`'s crop lands the pedestal in the visible frame. */
+  background-image: url('./assets/store_dressing_room.webp');
+  background-size: cover;
+  background-position: center 65%;
+}
+
+/* Gradient scrims behind the overlaid text/UI - the console-game
+   convention for legible chrome over busy art, rather than a flat panel
+   that would hide most of the photo. Anchored to the scene's own top/
+   bottom edges, full width. */
+#storeOverlayTop,
+#storeOverlayBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 14px 24px;
+  text-align: center;
+}
+
+#storeOverlayTop {
+  top: 0;
+  background: linear-gradient(180deg, rgba(20, 10, 30, 0.6), rgba(20, 10, 30, 0));
+}
+
+#storeOverlayBottom {
+  bottom: 0;
+  padding-top: 28px;
+  background: linear-gradient(0deg, rgba(20, 10, 30, 0.68), rgba(20, 10, 30, 0));
+}
+
 #storeHeading {
   margin: 0 0 4px;
   font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
@@ -834,78 +953,31 @@ body.in-game #settingsMenu {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* The gradient-clipped text has no color of its own to read against a
+     photo backdrop the way it did on the old flat cream card, so a dark
+     drop-shadow (not a text-shadow, which a clipped-to-transparent fill
+     can't show) stands in for one - same "outline via shadow" idea this
+     project already uses for canvas-drawn UI text (e.g. GameScreen's
+     stun-moment banner). */
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
 }
 
 #storeWalletLine {
-  margin: 0 0 10px;
+  margin: 0;
   font: 700 1rem/1.3 Arial, sans-serif;
-  color: #5c4a72;
-}
-
-/* Boutique fitting-room backdrop - a CSS placeholder standing in for a
-   real illustrated scene (soft spotlight, a pedestal, a hint of curtain
-   color at the edges) until real art exists. Swapping in the real photo
-   later is a single `background` change on this one rule - nothing else
-   here, in the canvas sizing below, or in storeModal.js needs to change
-   for that swap, same "art drops in independently of code" precedent as
-   every other asset in this game (see CLAUDE.md's Cat_v2/Dog_v2 history).
-   The radial-gradient "spotlight" plus the ::after pedestal ellipse are
-   deliberately soft/generic rather than trying to hand-draw a convincing
-   mirror/curtain in pure CSS - good enough to read as "a stage the
-   character is standing on," not a placeholder that looks broken. */
-#storePedestalScene {
-  position: relative;
-  /* Grows to absorb the extra room the card gets from now matching the
-     cutscene modal's own footprint (see storeModal.js's
-     applyModalSizing()) - the "big preview" area of a console-game-style
-     carousel dominates the card, with the heading/wallet-line/name/
-     button/perk-list around it staying their own natural size instead of
-     also stretching. min-height: 0 is load-bearing on a flex child with
-     overflow content - without it this wouldn't actually shrink/grow
-     correctly and could blow out the card's own height. */
-  flex: 1 1 auto;
-  min-height: 0;
-  margin: 0 0 12px;
-  border-radius: 16px;
-  overflow: hidden;
-  /* Real backdrop art (see assets/store_dressing_room.webp) - a
-     celebrity-home-dressing-room/Beverly-Hills-boutique scene, chosen
-     after two rounds of live art direction (first pass read as a
-     photorealistic retail interior rather than this game's own glossy
-     cartoon style; second pass overcorrected into full fairy-tale-castle
-     glitz). Replaces the earlier CSS-gradient placeholder outright now
-     that real art exists - `background-position`'s vertical anchor is
-     biased toward the bottom (65%, not center) since `cover` crops most
-     of its excess height from the top at this scene's own (wider than
-     the source photo's) aspect ratio, and the pedestal/floor - the part
-     that actually matters for lining up with #storePedestalCanvas below -
-     sits in the lower half of the source image. Confirmed live at the
-     desktop reference size (canvas ~1280px wide) - not yet re-checked at
-     other canvas sizes, where a different `cover` crop could shift the
-     pedestal's own position within the visible frame slightly. */
-  background-image: url('./assets/store_dressing_room.webp');
-  background-size: cover;
-  background-position: center 65%;
-  border: 2px solid rgba(138, 43, 226, 0.25);
-  box-shadow:
-    inset 0 -14px 22px rgba(120, 72, 40, 0.15),
-    inset 0 2px 14px rgba(255, 255, 255, 0.7);
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 /* width/height are set directly in JS (storeModal.js's
    applyModalSizing()) as CSS pixel sizes proportional to the scene's own
-   actual rendered box - not fixed here, since the scene's own height is
-   fluid (flex-grow, see above). Only the *display* size is set from JS;
-   the canvas's width/height attributes (its actual drawing-buffer
+   actual rendered box. Only the *display* size is set from JS; the
+   canvas's width/height attributes (its actual drawing-buffer
    resolution) stay untouched by that so resizing never clears whatever's
    already drawn. `bottom` lines the character up with the real photo's
-   own marble pedestal (see #storePedestalScene's background-image) -
-   there's no CSS pedestal shape drawn here anymore now that real art
-   has one baked in; 15% was confirmed live (a first estimate of 20% left
-   the character visibly floating just above the marble surface) at the
-   desktop reference canvas size - may need another nudge at very
-   different canvas sizes, where `cover`'s crop shifts where the pedestal
-   itself lands in the visible frame. */
+   own marble pedestal - re-tune live after the "full background" layout
+   change above, which shifts the scene's own aspect ratio and therefore
+   where `cover`'s crop lands the pedestal in the visible frame. */
 #storePedestalCanvas {
   position: absolute;
   left: 50%;
@@ -915,21 +987,14 @@ body.in-game #settingsMenu {
 }
 
 /* Outfit-browsing arrows - flank the pedestal, vertically centered, so
-   they read as "flip through the rack" rather than being tucked into the
-   item list below (outfits no longer have their own list rows at all -
-   see storeModal.js's cycleOutfit()). Hidden entirely (not just disabled)
-   via the `hidden` attribute when a character has zero active cosmetics,
-   toggled from storeModal.js's updatePreview(). */
+   they read as "flip through the rack." Hidden entirely (not just
+   disabled) via the `hidden` attribute when a character has zero active
+   cosmetics, toggled from storeModal.js's updateBloomingtailsPreview(). */
 #storePrevOutfitBtn,
 #storeNextOutfitBtn {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  /* A comfortable fixed touch-target size regardless of the scene's own
-     (now fluid) dimensions - these are UI chrome, not something that
-     needs to scale with the character preview the way the pedestal/
-     canvas above do. Bumped from 34px now that the surrounding card
-     reads noticeably bigger overall. */
   width: 44px;
   height: 44px;
   display: flex;
@@ -969,46 +1034,25 @@ body.in-game #settingsMenu {
   display: none;
 }
 
-/* Perks aren't visible outfits - there's nothing new to draw on the
-   character when one's previewed, so this sparkle (toggled via the
-   .visible class from storeModal.js) is the "charm" stand-in that makes
-   picking a perk feel like part of the same dressing-room moment instead
-   of just... nothing happening on the pedestal. */
-#storeCharmSparkle {
-  position: absolute;
-  top: 20px;
-  right: 24%;
-  font-size: 1.6rem;
-  opacity: 0;
-  transform: scale(0.6) rotate(-12deg);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  pointer-events: none;
-}
-
-#storeCharmSparkle.visible {
-  opacity: 1;
-  transform: scale(1) rotate(0deg);
-}
-
-/* Just the previewed item's name (see storeModal.js's updatePreview()) -
-   deliberately not also a description here, unlike the old per-row text -
-   this is a "what am I looking at" label under the pedestal, not a sales
-   pitch; a perk's fuller description still shows in its own list row. */
+/* Just the previewed cosmetic's name - this is a "what am I looking at"
+   label over the pedestal, not a sales pitch. */
 #storePreviewName {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   text-align: center;
   min-height: 1.5em;
   font: 700 1.3rem/1.3 Arial, sans-serif;
-  color: #5c2e8a;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 /* The single Buy/Equip/Owned action for whatever's currently previewed -
    reuses .store-item-buy's own gradient/disabled/equipped styling (see
-   below) via that same class in the markup, just full-width and with its
-   own margin since it's a standalone button now, not nested in a row. */
+   below) via that same class in the markup, just full-width. */
 #storePedestalActionBtn {
+  display: block;
   width: 100%;
-  margin: 0 0 16px;
+  max-width: 340px;
+  margin: 0 auto;
   padding: 12px 16px;
   font-size: 1.1rem;
 }
@@ -1017,48 +1061,69 @@ body.in-game #settingsMenu {
   display: none;
 }
 
-#storeItemsList {
+/* Pawgreens - a plain shopping list, deliberately not another pedestal
+   (see index.html's own comment on #pawgreensPanel for why). Its own flex
+   column so the backdrop banner stays fixed-height and the list scrolls
+   independently below it. `:not([hidden])` rather than a bare
+   `#pawgreensPanel` selector - an ID selector's specificity otherwise
+   beats `.store-panel[hidden] { display: none }` above, which kept both
+   panels visibly stacked (each splitting the card's height) regardless
+   of which tab was actually selected, confirmed live. */
+#pawgreensPanel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Simple placeholder for now, matching Bloomingtails' own pre-real-art
+   history - eventual real art is meant to read like a convenience-store
+   checkout counter (per explicit direction), deferred until the
+   Bloomingtails/Pawgreens split itself is solid. Green-tinted to match
+   the tab's own accent color rather than reusing Bloomingtails' purple. */
+#pawgreensBackdrop {
+  flex-shrink: 0;
+  padding: 8px 24px 18px;
+  text-align: center;
+  background: linear-gradient(180deg, #eafff0, #d9f7e3);
+  border-bottom: 2px solid rgba(46, 139, 87, 0.2);
+}
+
+#pawgreensHeading {
+  margin: 0 0 4px;
+  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #2e8b57, #7fd858);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+#pawgreensWalletLine {
+  margin: 0;
+  font: 700 1rem/1.3 Arial, sans-serif;
+  color: #2f6b46;
+}
+
+#pawgreensItemsList {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  padding: 14px 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.store-item {
+.pawgreens-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 2px solid rgba(138, 43, 226, 0.18);
-  cursor: pointer;
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px solid rgba(46, 139, 87, 0.18);
 }
 
-/* Whichever row is currently shown on the pedestal (see storeModal.js's
-   previewedSlug) - a visibly distinct "selected" state, since a perk row
-   is otherwise just plain text (no button of its own to hover/press -
-   the actual action lives in #storePedestalActionBtn now). */
-.store-item.previewing {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(138, 43, 226, 0.6);
-  box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.15);
-}
-
-/* Plain informational badge (Owned / Lvl N / cost) on a perk's row - not
-   a button, since the actual purchase/equip action always happens via
-   #storePedestalActionBtn once that perk is previewed. */
-.store-item-status {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: rgba(138, 43, 226, 0.12);
-  color: #5c2e8a;
-  font: 700 0.8rem/1.2 Arial, sans-serif;
-}
-
-.store-item-info {
+.pawgreens-item-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1066,12 +1131,12 @@ body.in-game #settingsMenu {
   flex: 1;
 }
 
-.store-item-info strong {
+.pawgreens-item-info strong {
   font: 700 0.95rem/1.3 Arial, sans-serif;
   color: #2b1d3d;
 }
 
-.store-item-info span {
+.pawgreens-item-info span {
   font: 500 0.78rem/1.3 Arial, sans-serif;
   color: #5c4a72;
 }
@@ -1111,6 +1176,7 @@ body.in-game #settingsMenu {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 1;
   width: 32px;
   height: 32px;
   display: flex;
@@ -1118,18 +1184,19 @@ body.in-game #settingsMenu {
   justify-content: center;
   border-radius: 50%;
   border: none;
-  background: rgba(138, 43, 226, 0.15);
+  background: rgba(255, 255, 255, 0.85);
   color: #6a1fc2;
   font-size: 1.3rem;
   line-height: 1;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   transition: background 0.12s ease, transform 0.12s ease;
 }
 
 #storeCloseBtn:hover,
 #storeCloseBtn:active {
-  background: rgba(138, 43, 226, 0.3);
+  background: #ffffff;
   transform: scale(0.92);
 }
 
