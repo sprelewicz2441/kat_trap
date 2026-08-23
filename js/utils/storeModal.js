@@ -95,11 +95,9 @@ function walletLineText(wallet) {
   return `${wallet.coins} coins · Level ${wallet.level}`;
 }
 
-// One Image per src, loaded once and reused - repeatedly previewing the
-// same look (very likely today, since every placeholder cosmetic still
-// points at the same default sprite_src - see kpground-api's seed_store)
-// shouldn't re-request/re-decode the image every click. Page-lifetime
-// cache, same "small assets, never evicted" reasoning as
+// One Image per src, loaded once and reused - cycling back to a look
+// already viewed this session shouldn't re-request/re-decode the image.
+// Page-lifetime cache, same "small assets, never evicted" reasoning as
 // CharacterSelectScreen's own portraitImages.
 const portraitImageCache = {};
 function getPortraitImage(src) {
