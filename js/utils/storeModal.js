@@ -141,8 +141,19 @@ function switchTab(tab) {
   applyModalSizing();
 }
 
-function walletLineText(wallet) {
-  return `${wallet.coins} coins · Level ${wallet.level}`;
+// The real doober-coin art (same asset the in-game HUD/doober pickups
+// use - see GameScreen.js's drawHudCoinStatText()) stands in for the
+// word "coins" everywhere in the store, matching that existing
+// icon-not-text convention rather than introducing a second one here.
+// Icon-then-value order also matches the HUD's own drawing order.
+const COIN_ICON_HTML = '<img src="./assets/doober_coin.png" class="coin-icon" alt="coins">';
+
+// Sets element.innerHTML rather than .textContent, since these are the
+// only two spots in the store that need to embed the coin icon inline
+// with text - safe here since every interpolated value is a number the
+// server returned, never raw user input.
+function walletLineHtml(wallet) {
+  return `${COIN_ICON_HTML}${wallet.coins} · Level ${wallet.level}`;
 }
 
 // One Image per src, loaded once and reused - cycling back to a look
@@ -238,7 +249,7 @@ function wireItemButton(btn, character, wallet, item) {
     btn.textContent = `Requires Lvl ${item.min_level}`;
   } else {
     btn.disabled = wallet.coins < item.cost;
-    btn.textContent = `Buy — ${item.cost} coins`;
+    btn.innerHTML = `Buy — ${COIN_ICON_HTML}${item.cost}`;
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Buying...';
@@ -337,7 +348,7 @@ function renderPawgreensList() {
   const { character, wallet, items } = currentState;
   const listEl = document.getElementById('pawgreensItemsList');
   const walletLineEl = document.getElementById('pawgreensWalletLine');
-  walletLineEl.textContent = walletLineText(wallet);
+  walletLineEl.innerHTML = walletLineHtml(wallet);
 
   const perks = items.filter((item) => item.item_type === 'perk');
   listEl.innerHTML = '';
@@ -354,7 +365,7 @@ function renderPawgreensList() {
 // panel actually redraws its DOM; the other picks up the fresh
 // currentState next time its tab is switched to.
 async function renderItems(character, wallet) {
-  document.getElementById('storeWalletLine').textContent = walletLineText(wallet);
+  document.getElementById('storeWalletLine').innerHTML = walletLineHtml(wallet);
 
   let items;
   try {

@@ -29,7 +29,7 @@ import {
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=6';
+import { openStoreModal } from '../../utils/storeModal.js?v=7';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
@@ -4685,9 +4685,13 @@ export default class GameScreen {
       : breakdown.xpGained
         ? `✨ +${breakdown.xpGained} XP`
         : null;
+    // drawHudCoinStatText() below already draws the real doober-coin icon
+    // ahead of this text - the word "Coins" would just repeat what the
+    // icon already says, per the same "icon in place of the word" rule
+    // the store's own wallet line/buy button follow.
     const coinsText = (!secondText && breakdown.dooberCoins > 0)
-      ? `+${breakdown.totalCoinsGained} Coins (+${breakdown.dooberCoins} doobers)`
-      : `+${breakdown.totalCoinsGained} Coins`;
+      ? `+${breakdown.totalCoinsGained} (+${breakdown.dooberCoins} doobers)`
+      : `+${breakdown.totalCoinsGained}`;
 
     const rowFontSize = secondText ? titleSize * 0.8 : titleSize;
     const chipPaddingH = rowFontSize * 0.7;

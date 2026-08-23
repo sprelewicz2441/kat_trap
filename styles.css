@@ -937,7 +937,18 @@ body.in-game #settingsMenu {
 
 #storeOverlayTop {
   top: 0;
-  background: linear-gradient(180deg, rgba(20, 10, 30, 0.6), rgba(20, 10, 30, 0));
+  padding-bottom: 20px;
+  /* Stronger + slower fade than a plain two-stop gradient (was
+     rgba(...0.6) -> rgba(...0)) - a two-stop fade cleared to fully
+     transparent by the *bottom* of this box, right behind the wallet
+     line, which is exactly the text that most needed the scrim's help.
+     The middle stop keeps real coverage most of the way down instead. */
+  background: linear-gradient(
+    180deg,
+    rgba(20, 10, 30, 0.8) 0%,
+    rgba(20, 10, 30, 0.5) 65%,
+    rgba(20, 10, 30, 0) 100%
+  );
 }
 
 #storeOverlayBottom {
@@ -946,20 +957,44 @@ body.in-game #settingsMenu {
   background: linear-gradient(0deg, rgba(20, 10, 30, 0.68), rgba(20, 10, 30, 0));
 }
 
+/* A real cartoon "logo" treatment per explicit direction ("branded in a
+   fun cartoony kind of logo, disneyfied") rather than the plain
+   gradient-clipped text this used to be - keeps that same gradient fill
+   (still reads as this store's own brand color) but adds a thick
+   contrasting outline via -webkit-text-stroke, the actual fix for
+   legibility against a busy photo backdrop that a drop-shadow alone
+   couldn't reliably provide (a shadow only darkens one side/direction; a
+   stroke outlines the whole glyph). The extra offset text-shadow layer
+   underneath is a flat "extrusion" - the classic bubble-logo look of a
+   solid color block sitting just behind the main fill, like a title-card
+   wordmark - with a second, blurred shadow on top of that for depth/lift
+   off the photo. */
 #storeHeading {
   margin: 0 0 4px;
-  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  font: 900 2.3rem/1.1 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  letter-spacing: 0.5px;
   background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  /* The gradient-clipped text has no color of its own to read against a
-     photo backdrop the way it did on the old flat cream card, so a dark
-     drop-shadow (not a text-shadow, which a clipped-to-transparent fill
-     can't show) stands in for one - same "outline via shadow" idea this
-     project already uses for canvas-drawn UI text (e.g. GameScreen's
-     stun-moment banner). */
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+  /* -webkit-text-stroke alone is what actually gives this its cartoon-
+     logo outline without swallowing the gradient fill - two other
+     combinations were tried live and both failed: text-stroke *plus*
+     `paint-order: stroke fill` still rendered as a near-solid dark
+     silhouette, and a dense 8-direction ring of offset text-shadows
+     (meant to fake a stroke without touching -webkit-text-stroke at all)
+     fared even worse, since the shadow copies overlapped heavily enough
+     on this bold a font to read as a solid block behind the glyphs
+     rather than a thin edge. Isolating each layer live (temporarily
+     zeroing text-shadow, then testing stroke alone) is what found that
+     -webkit-text-stroke by itself, with no text-shadow at all in the mix,
+     renders exactly right - gradient fully visible, outline clean. The
+     one text-shadow kept here afterward is a soft blur only (no solid
+     offset layer) for lift off the photo, confirmed not to muddy the
+     stroke+gradient combination the way the earlier layered attempts
+     did. */
+  -webkit-text-stroke: 1.5px #3d1259;
+  text-shadow: 0 6px 10px rgba(0, 0, 0, 0.5);
 }
 
 #storeWalletLine {
@@ -967,6 +1002,25 @@ body.in-game #settingsMenu {
   font: 700 1rem/1.3 Arial, sans-serif;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* The real doober-coin icon standing in for the word "coins" - see
+   storeModal.js's COIN_ICON_HTML - sized/aligned to sit inline with
+   whatever text surrounds it (a wallet line or a buy button) rather than
+   at a fixed pixel size that would look right in only one of those two
+   contexts. */
+.coin-icon {
+  /* Explicit inline-block, not the default `inline` an <img> would
+     normally get - Tailwind's preflight reset sets a bare `img` to
+     `display: block`, which pulled this icon clean out of the inline
+     text flow (it rendered off to the side of its wallet-line/button
+     text instead of inline before it) until this rule won the cascade
+     back. */
+  display: inline-block;
+  height: 1em;
+  width: 1em;
+  vertical-align: -0.15em;
+  margin-right: 0.15em;
 }
 
 /* width/height are set directly in JS (storeModal.js's
@@ -981,7 +1035,12 @@ body.in-game #settingsMenu {
 #storePedestalCanvas {
   position: absolute;
   left: 50%;
-  bottom: 15%;
+  /* 20% (was 15%) - the "full background" layout change moved the
+     visible pedestal surface higher in the frame than the old smaller
+     inset scene did, and the character needs to sit further up to
+     actually land on it rather than in front of/below it - confirm live
+     after any further layout change, same as the original 15% was. */
+  bottom: 20%;
   transform: translateX(-50%);
   filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.35));
 }
