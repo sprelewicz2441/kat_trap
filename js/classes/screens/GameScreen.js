@@ -10,7 +10,7 @@
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=6';
 import Mouse from '../Mouse.js?v=2';
-import Dog from '../Dog.js?v=7';
+import Dog from '../Dog.js?v=8';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
@@ -3093,7 +3093,7 @@ export default class GameScreen {
     }
     const moved = this.tryMoveDog(direction);
     if (moved) {
-      this.dog.updateAnimation();
+      this.dog.updateAnimation(this.dog.playerFrameSpeed);
     } else {
       this.dog.stand();
     }
