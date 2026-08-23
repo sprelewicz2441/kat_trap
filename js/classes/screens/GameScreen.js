@@ -9,7 +9,7 @@
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=6';
-import Mouse from '../Mouse.js?v=2';
+import Mouse from '../Mouse.js?v=3';
 import Dog from '../Dog.js?v=8';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
@@ -2992,20 +2992,26 @@ export default class GameScreen {
         (direction === 'left' && atLeft) ||
         (direction === 'right' && atRight);
       if (enteringWall) this.checkMouseEscapeOnWallHit();
-    } else if (performance.now() - this.mouseLastMovedAt >= MOUSE_STOP_DEBOUNCE_MS) {
-      // No movement key held this tick, *and* it's been long enough since
-      // one last was — see MOUSE_STOP_DEBOUNCE_MS's own comment for why the
-      // debounce is needed (a single idle tick isn't reliably "the player
-      // stopped," a tapped key produces those too). Safe to call every
-      // tick this condition holds, not just the first: gated by
-      // checkMouseEscapeOnWallHit()'s own mouseEscaped/gameOver guard, and
-      // hasMouseEntered()'s own geometry already requires the mouse to be
-      // resting at a wall for it to ever return true, so this is a correct
-      // no-op whenever the mouse stopped out in the open floor instead.
-      this.checkMouseEscapeOnWallHit();
-    }
 
-    this.mouse.updateAnimations();
+      this.mouse.updateAnimations();
+    } else {
+      if (performance.now() - this.mouseLastMovedAt >= MOUSE_STOP_DEBOUNCE_MS) {
+        // No movement key held this tick, *and* it's been long enough since
+        // one last was — see MOUSE_STOP_DEBOUNCE_MS's own comment for why the
+        // debounce is needed (a single idle tick isn't reliably "the player
+        // stopped," a tapped key produces those too). Safe to call every
+        // tick this condition holds, not just the first: gated by
+        // checkMouseEscapeOnWallHit()'s own mouseEscaped/gameOver guard, and
+        // hasMouseEntered()'s own geometry already requires the mouse to be
+        // resting at a wall for it to ever return true, so this is a correct
+        // no-op whenever the mouse stopped out in the open floor instead.
+        this.checkMouseEscapeOnWallHit();
+      }
+      // No direction held this tick — snap to a resting pose rather than
+      // continuing to cycle the walk-cycle frames in place (same bug class
+      // as movePlayerDog()'s own stand() fix).
+      this.mouse.stand();
+    }
   }
 
   // Dog-controlled mode only: reads arrow-key input directly, same per-tick
