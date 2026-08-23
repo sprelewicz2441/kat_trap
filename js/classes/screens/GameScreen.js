@@ -29,7 +29,7 @@ import {
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=2';
+import { openStoreModal } from '../../utils/storeModal.js?v=5';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
@@ -1662,18 +1662,24 @@ export default class GameScreen {
   // Records `outfitItem` (a StoreItem, or null/undefined for "no cosmetic
   // equipped, default look") as `character`'s current pick, then - if that
   // character's entity already exists - swaps its live spriteSheet.src
-  // right away via getSpriteSrc() (js/utils/outfits.js). Called from two
-  // places: once per character as each of init()'s getEquipped() fetches
-  // resolves (covers the skipCutscenes path, where resetGameObjects()
-  // never runs a second time), and again from inside resetGameObjects()
-  // itself every time it (re)constructs the three entities (covers the
-  // normal path, where cutscenes finishing calls resetGameObjects() a
-  // second time - see its own comment - which would otherwise reconstruct
-  // Cat/Mouse/Dog at their plain default look and silently discard
-  // whatever a fetch had already applied to the now-replaced instance).
+  // right away via getSpriteSrc() (js/utils/outfits.js), which falls back
+  // to that character's default look when outfitItem is null - unequipping
+  // needs the live sprite to revert just as much as equipping needs it to
+  // change, so this always reassigns rather than early-returning on a
+  // falsy outfitItem. Called from three places: once per character as each
+  // of init()'s getEquipped() fetches resolves (covers the skipCutscenes
+  // path, where resetGameObjects() never runs a second time), again from
+  // inside resetGameObjects() itself every time it (re)constructs the
+  // three entities (covers the normal path, where cutscenes finishing
+  // calls resetGameObjects() a second time - see its own comment - which
+  // would otherwise reconstruct Cat/Mouse/Dog at their plain default look
+  // and silently discard whatever a fetch had already applied to the
+  // now-replaced instance), and from openStore()'s onOutfitChange callback
+  // whenever an equip/unequip happens while already in a round (without
+  // this, the store's own DB state changed but the on-screen character
+  // stayed stale until the next reload re-ran getEquipped()).
   applyEquippedOutfit(character, outfitItem) {
     this.equippedOutfits[character] = outfitItem || null;
-    if (!outfitItem) return;
     const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;
     if (entity) entity.spriteSheet.src = getSpriteSrc(character, outfitItem);
   }
@@ -3324,9 +3330,14 @@ export default class GameScreen {
   // the HUD without a redundant re-fetch.
   openStore() {
     if (!this.wallet) return;
-    openStoreModal(this.controlledEntity, this.wallet, (updatedWallet) => {
-      this.wallet = updatedWallet;
-    });
+    openStoreModal(
+      this.controlledEntity,
+      this.wallet,
+      (updatedWallet) => {
+        this.wallet = updatedWallet;
+      },
+      (character, outfitItem) => this.applyEquippedOutfit(character, outfitItem)
+    );
   }
 
   // Shared geometry for the HUD box (top-center, wide) and its

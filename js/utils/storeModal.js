@@ -8,6 +8,14 @@ import { getUIScale } from './scale.js?v=1';
 // callback shape loginModal.js uses for its own success callback.
 let onWalletUpdateCallback = null;
 
+// Called with (character, outfitItem|null) whenever an equip/unequip
+// actually succeeds, so GameScreen can swap the live in-game sprite right
+// away (GameScreen.applyEquippedOutfit) instead of only picking up the
+// new look on next reload - equipping used to only update this modal's
+// own pedestal/DB state, leaving the actual on-screen character stale
+// until a refresh re-ran init()'s getEquipped() fetch.
+let onOutfitChangeCallback = null;
+
 // Which item's slug is currently shown on the dressing-room pedestal -
 // module-level so it survives a local re-render (arrow click, row click,
 // a purchase/equip) without needing a fresh network fetch every time.
@@ -52,7 +60,10 @@ function applyModalSizing() {
   card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
 
   const sceneRect = scene.getBoundingClientRect();
-  const size = Math.max(80, Math.min(sceneRect.height * 0.62, sceneRect.width * 0.42));
+  // 0.93/0.63 (was 0.62/0.42) - character requested ~50% bigger on the
+  // pedestal, confirmed live against the dressing-room backdrop's own
+  // proportions so the character doesn't overrun the mirror frame.
+  const size = Math.max(80, Math.min(sceneRect.height * 0.93, sceneRect.width * 0.63));
   pedestalCanvas.style.width = `${size}px`;
   pedestalCanvas.style.height = `${size}px`;
 }
@@ -71,6 +82,7 @@ export function setupStoreModal() {
     window.removeEventListener('orientationchange', applyModalSizing);
     document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: false } }));
     onWalletUpdateCallback = null;
+    onOutfitChangeCallback = null;
   };
 
   closeBtn.addEventListener('click', close);
@@ -172,8 +184,10 @@ function updateActionButton(character, wallet, item) {
       try {
         if (item.equipped) {
           await unequipItem(character, item.slot);
+          if (onOutfitChangeCallback) onOutfitChangeCallback(character, null);
         } else {
           await equipItem(character, item.slug);
+          if (onOutfitChangeCallback) onOutfitChangeCallback(character, item);
         }
         await refreshAfterChange();
       } catch (err) {
@@ -357,10 +371,14 @@ function refreshAfterChange() {
 // used as the modal's starting state so it doesn't need its own fetch
 // before first paint. onWalletUpdate: called with the fresh wallet after
 // any purchase, so the caller's own wallet display stays in sync.
-export function openStoreModal(character, wallet, onWalletUpdate) {
+// onOutfitChange: called with (character, outfitItem|null) after a
+// successful equip/unequip, so the caller can update the live in-game
+// sprite immediately (see onOutfitChangeCallback's own comment above).
+export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange) {
   const modal = document.getElementById('storeModal');
   if (!modal) return;
   onWalletUpdateCallback = onWalletUpdate;
+  onOutfitChangeCallback = onOutfitChange;
   // A fresh open shouldn't remember what a *previous* character's store
   // session had on the pedestal - renderItems() below re-derives a real
   // default (the equipped look, or the first perk) for whichever
