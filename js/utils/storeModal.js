@@ -324,7 +324,7 @@ function wireItemButton(btn, character, wallet, item) {
       try {
         const updatedWallet = await purchaseItem(character, item.slug);
         if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
-        await refreshAfterChange();
+        await refreshAfterChange(updatedWallet);
       } catch (err) {
         btn.disabled = false;
         btn.textContent = err.message || 'Purchase failed';
@@ -399,7 +399,7 @@ function wireSellButton(sellBtn, character, item) {
       // position is still the real one the popup should float up from.
       spawnCoinPopup(sellBtn, sellPriceFor(item));
       playSellChaChingSound();
-      await refreshAfterChange();
+      await refreshAfterChange(updatedWallet);
     } catch (err) {
       sellBtn.disabled = false;
       sellBtn.textContent = err.message || 'Sell failed';
@@ -560,12 +560,19 @@ async function renderItems(character, wallet) {
 }
 
 // Only a purchase/equip actually needs a fresh network fetch (owned/
-// equipped/coins all changed) - re-derives character/wallet from
-// currentState rather than threading them through every action-button
-// handler separately.
-function refreshAfterChange() {
+// equipped/coins all changed) - re-derives character from currentState
+// rather than threading it through every action-button handler separately.
+// freshWallet: the wallet a purchase/sell call just returned, if any -
+// equip/unequip don't touch coins so they have none to pass. Without this,
+// a purchase's own updated wallet only ever reached GameScreen's HUD (via
+// onWalletUpdateCallback); this modal's own currentState.wallet - which
+// #storeWalletLine and every item's affordability/lock check read from -
+// kept showing the pre-purchase coin count for the rest of the session,
+// making a second buy look wrongly affordable or wrongly locked until the
+// store was closed and reopened.
+function refreshAfterChange(freshWallet) {
   if (!currentState) return Promise.resolve();
-  return renderItems(currentState.character, currentState.wallet);
+  return renderItems(currentState.character, freshWallet || currentState.wallet);
 }
 
 // wallet: the character's current wallet (from GameScreen's this.wallet),

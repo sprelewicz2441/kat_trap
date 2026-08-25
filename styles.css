@@ -1345,9 +1345,18 @@ body.in-game #settingsMenu {
   transform: scale(0.95);
 }
 
+/* Opaque, not a translucent wash - Pawgreens' own white card background
+   made rgba(138, 43, 226, 0.25) read fine there, but #storePedestalActionBtn
+   uses this same class directly over Bloomingtails' dark dressing-room
+   photo (no opaque backing under it - see index.html), where that same
+   translucent purple composited into a muddy, near-invisible pink smear
+   with barely-readable text (confirmed live: reported as "buttons hard to
+   see," and a disabled Buy button that a player can't tell is disabled
+   reads as "doesn't work" when clicked). An opaque near-white pill stays
+   legible over any backdrop this button ever sits on. */
 .store-item-buy:disabled {
-  background: rgba(138, 43, 226, 0.25);
-  color: rgba(43, 29, 61, 0.6);
+  background: rgba(245, 240, 250, 0.95);
+  color: rgba(43, 29, 61, 0.85);
   cursor: default;
 }
 
