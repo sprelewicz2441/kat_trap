@@ -11,15 +11,20 @@ import { openLoginModal } from '../../utils/loginModal.js';
 // nothing else needs to change.
 const SHOW_LOGIN_BUTTON = false;
 
-// Generous enough to usually survive kpground-api's free-tier Render
-// instance cold-starting from a spin-down (~50s worst case per Render's
-// own dashboard warning) without giving up on a login that would have
-// succeeded moments later - but not indefinite, since a backend outage
-// should never be fatal to the front end (see the "shouldn't be fatal"
-// note in kpground-api's own CLAUDE.md history). On timeout or any other
-// failure, play proceeds without a token; GameScreen retries the login in
-// the background and syncs any queued round results once it succeeds.
-const QUICK_LOGIN_TIMEOUT_MS = 20000;
+// Short deliberately - a real cold-start on kpground-api's free-tier
+// Render instance (~50s worst case per Render's own dashboard warning)
+// will usually still miss this window, but waiting long enough to
+// reliably survive one made "Connecting..." feel broken on every normal,
+// already-warm login too. A backend outage should never be fatal to the
+// front end (see the "shouldn't be fatal" note in kpground-api's own
+// CLAUDE.md history): on timeout or any other failure, play proceeds
+// without a token, and GameScreen retries the login in the background and
+// syncs any queued round results once it succeeds.
+const QUICK_LOGIN_TIMEOUT_MS = 8000;
+
+// One full spin per this many ms - drives drawConnectingIndicator()'s
+// rotation. Purely cosmetic, tuned by eye.
+const SPINNER_PERIOD_MS = 900;
 
 function withTimeout(promise, ms) {
   return Promise.race([
@@ -134,19 +139,49 @@ export default class SetupScreen {
     }
 
     if (this.loggingIn) {
-      this.ctx.save();
-      this.ctx.font = `bold ${Math.round(imgHeight * 0.035)}px Arial, sans-serif`;
-      this.ctx.textAlign = 'center';
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-      this.ctx.shadowBlur = 4;
-      this.ctx.fillText(
-        'Connecting...',
+      this.drawConnectingIndicator(
         buttonX + buttonWidth / 2,
-        buttonY + buttonHeight + imgHeight * 0.05
+        buttonY + buttonHeight + imgHeight * 0.05,
+        Math.round(imgHeight * 0.035)
       );
-      this.ctx.restore();
     }
+  }
+
+  // Spinning arc + "Connecting..." label, drawn as one centered group (see
+  // Lessons re: not guessing a fixed-fraction split for side-by-side
+  // content - the spinner's own width has to be measured against the
+  // text's, not assumed). animateBackground()'s rAF loop already calls
+  // render() every frame regardless of loggingIn, so this repaints on its
+  // own with no separate timer - the rotation angle is just derived from
+  // the current clock time via SPINNER_PERIOD_MS.
+  drawConnectingIndicator(centerX, centerY, fontSize) {
+    const text = 'Connecting...';
+
+    this.ctx.save();
+    this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+    const textWidth = this.ctx.measureText(text).width;
+
+    const spinnerRadius = fontSize * 0.4;
+    const gap = fontSize * 0.35;
+    const groupWidth = spinnerRadius * 2 + gap + textWidth;
+    const spinnerCenterX = centerX - groupWidth / 2 + spinnerRadius;
+
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    this.ctx.shadowBlur = 4;
+
+    const angle = ((performance.now() % SPINNER_PERIOD_MS) / SPINNER_PERIOD_MS) * Math.PI * 2;
+    this.ctx.beginPath();
+    this.ctx.arc(spinnerCenterX, centerY, spinnerRadius, angle, angle + Math.PI * 1.5);
+    this.ctx.strokeStyle = '#ffffff';
+    this.ctx.lineWidth = Math.max(2, fontSize * 0.14);
+    this.ctx.lineCap = 'round';
+    this.ctx.stroke();
+
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillText(text, spinnerCenterX + spinnerRadius + gap, centerY);
+    this.ctx.restore();
   }
 
   // Pill-shaped gradient button with white, drop-shadowed text - same
