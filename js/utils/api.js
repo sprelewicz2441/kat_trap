@@ -197,3 +197,56 @@ export function submitRound(character, result, coinsCollected = 0) {
     body: JSON.stringify({ character, result, coins_collected: coinsCollected }),
   });
 }
+
+const PENDING_ROUNDS_KEY = 'kattrap_pendingRounds';
+// A sanity ceiling, not a real history feature - same philosophy as
+// kpground-api's own MAX_COINS_COLLECTED_PER_ROUND. Drops the oldest
+// queued round first; losing one very old unsynced round after a long
+// outage is a fine tradeoff against unbounded localStorage growth.
+const MAX_PENDING_ROUNDS = 20;
+
+function getPendingRounds() {
+  try {
+    return JSON.parse(storageGet(PENDING_ROUNDS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function setPendingRounds(rounds) {
+  storageSet(PENDING_ROUNDS_KEY, JSON.stringify(rounds));
+}
+
+// Called instead of submitRound() whenever a round finishes with no live
+// connection (offline quick-login, or submitRound() itself failing
+// mid-flight) - see SetupScreen.js and GameScreen.js's endGame() - so the
+// result isn't just lost. flushPendingRounds() replays these later, in
+// the same session or a future one.
+export function queuePendingRound(character, result, coinsCollected) {
+  const rounds = getPendingRounds();
+  rounds.push({ character, result, coinsCollected });
+  if (rounds.length > MAX_PENDING_ROUNDS) rounds.shift();
+  setPendingRounds(rounds);
+}
+
+// Replays queued rounds against the real endpoint in order, stopping at
+// the first failure so nothing's skipped or reordered - whatever's left
+// just stays queued for next time. Returns the wallet from the last round
+// that submitted successfully (or null if none did or the queue was
+// empty) - that's the only state a caller actually needs, since it's the
+// up-to-date wallet after every queued round has been applied.
+export async function flushPendingRounds() {
+  const rounds = getPendingRounds();
+  let lastWallet = null;
+  while (rounds.length > 0) {
+    const round = rounds[0];
+    try {
+      lastWallet = await submitRound(round.character, round.result, round.coinsCollected);
+      rounds.shift();
+      setPendingRounds(rounds);
+    } catch {
+      break;
+    }
+  }
+  return lastWallet;
+}

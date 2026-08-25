@@ -11,6 +11,23 @@ import { openLoginModal } from '../../utils/loginModal.js';
 // nothing else needs to change.
 const SHOW_LOGIN_BUTTON = false;
 
+// Generous enough to usually survive kpground-api's free-tier Render
+// instance cold-starting from a spin-down (~50s worst case per Render's
+// own dashboard warning) without giving up on a login that would have
+// succeeded moments later - but not indefinite, since a backend outage
+// should never be fatal to the front end (see the "shouldn't be fatal"
+// note in kpground-api's own CLAUDE.md history). On timeout or any other
+// failure, play proceeds without a token; GameScreen retries the login in
+// the background and syncs any queued round results once it succeeds.
+const QUICK_LOGIN_TIMEOUT_MS = 20000;
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timed out.')), ms)),
+  ]);
+}
+
 export default class SetupScreen {
   constructor(screenManager, canvas) {
     this.screenManager = screenManager;
@@ -27,8 +44,11 @@ export default class SetupScreen {
     this.loginButtonArea = null;
     // Set while kathrynQuickLogin()'s request is in flight, so a second
     // click can't fire a duplicate request before the first resolves.
+    // Drives the "Connecting..." message in render() - there's no
+    // persistent error state anymore, since a failed/timed-out login just
+    // proceeds offline instead of stranding the player here (see
+    // QUICK_LOGIN_TIMEOUT_MS's comment).
     this.loggingIn = false;
-    this.errorMessage = null;
     this.animationOffset = 0;
     // Lets animateBackground()'s self-perpetuating rAF loop stop once this
     // screen is no longer active (see cleanup()) — previously nothing ever
@@ -113,15 +133,15 @@ export default class SetupScreen {
       this.drawAuthButton(this.loginButtonArea, 'Login', ['#8a2be2', '#6a1fc2']);
     }
 
-    if (this.loggingIn || this.errorMessage) {
+    if (this.loggingIn) {
       this.ctx.save();
       this.ctx.font = `bold ${Math.round(imgHeight * 0.035)}px Arial, sans-serif`;
       this.ctx.textAlign = 'center';
-      this.ctx.fillStyle = this.errorMessage ? '#ffcdd2' : '#ffffff';
+      this.ctx.fillStyle = '#ffffff';
       this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
       this.ctx.shadowBlur = 4;
       this.ctx.fillText(
-        this.errorMessage || 'Logging in...',
+        'Connecting...',
         buttonX + buttonWidth / 2,
         buttonY + buttonHeight + imgHeight * 0.05
       );
@@ -231,13 +251,18 @@ export default class SetupScreen {
       if (this.isInsideArea(this.kathrynButtonArea, offsetX, offsetY)) {
         if (this.loggingIn) return;
         this.requestFullscreenIfTouch();
-        this.errorMessage = null;
         this.loggingIn = true;
-        kathrynQuickLogin()
+        withTimeout(kathrynQuickLogin(), QUICK_LOGIN_TIMEOUT_MS)
           .then(() => this.proceedToCharacterSelect())
           .catch((err) => {
+            // Unreachable (or too slow) shouldn't block play - every other
+            // economy touchpoint already degrades to "no economy UI" when
+            // logged out, this follows the same rule rather than
+            // stranding the player on the title screen. See
+            // QUICK_LOGIN_TIMEOUT_MS's own comment for the retry/sync story.
+            console.warn('Kathryn quick-login unavailable, continuing offline:', err.message);
             this.loggingIn = false;
-            this.errorMessage = err.message || 'Could not log in as Kathryn.';
+            this.proceedToCharacterSelect();
           });
       } else if (this.isInsideArea(this.loginButtonArea, offsetX, offsetY)) {
         this.requestFullscreenIfTouch();

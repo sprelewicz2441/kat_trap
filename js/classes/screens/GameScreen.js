@@ -28,7 +28,16 @@ import {
   drawDogEarCard, drawDogEarInner,
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
-import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
+import {
+  isLoggedIn,
+  getWallets,
+  getStore,
+  getEquipped,
+  submitRound,
+  kathrynQuickLogin,
+  queuePendingRound,
+  flushPendingRounds,
+} from '../../utils/api.js';
 import { openStoreModal } from '../../utils/storeModal.js?v=13';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
@@ -1527,50 +1536,29 @@ export default class GameScreen {
     };
     document.addEventListener('storemodaltoggle', this.storeModalToggleHandler);
 
-    // Fetches the controlled character's wallet once so the HUD has
-    // something to show from the very first frame - fire-and-forget since
-    // gameplay shouldn't wait on it, and this.wallet staying null just
-    // means drawHud()/the store button skip drawing entirely.
+    // Fire-and-forget since gameplay shouldn't wait on any of this - see
+    // loadEconomyData()'s own comment for what it fetches and why.
     if (isLoggedIn()) {
-      getWallets()
-        .then((wallets) => {
-          this.wallet = wallets.find((w) => w.character === this.controlledEntity) || null;
-          // A snapshot of coins/xp/level as they stood the moment this
-          // round started - see endGame()'s reward breakdown, which diffs
-          // the post-submitRound() wallet against this rather than trying
-          // to duplicate the backend's own WIN_COINS/LOSS_XP/etc reward
-          // constants client-side (see kattrap/services.py's submit_round
-          // in kpground-api) to guess what changed and why.
-          this.walletAtRoundStart = this.wallet
-            ? { coins: this.wallet.coins, xp: this.wallet.xp, level: this.wallet.level }
-            : null;
-        })
-        .catch((err) => console.warn('Could not load wallet:', err.message));
-
-      // Perk ownership only ever needs the *controlled* character's own
-      // catalog (see this.ownedPerkSlugs's own comment) - getStore()
-      // already returns every item's .owned flag, so no separate
-      // endpoint is needed just for this.
-      getStore(this.controlledEntity)
-        .then((items) => {
-          this.ownedPerkSlugs = new Set(
-            items.filter((item) => item.item_type === 'perk' && item.owned).map((item) => item.slug)
-          );
-        })
-        .catch((err) => console.warn('Could not load perks:', err.message));
-
-      // Cosmetic equip state, one fetch per character (not just
-      // controlledEntity) - the dog's own tutu, say, should show whenever
-      // Dummy is on screen, regardless of who's actually being played
-      // this round. applyEquippedOutfit() both updates the live sprite
-      // immediately (covers the skip-cutscenes path, where
-      // resetGameObjects() never runs again) and records the pick on
-      // this.equippedOutfits (covers the normal path, where it does).
-      ['cat', 'mouse', 'dog'].forEach((character) => {
-        getEquipped(character)
-          .then((equipped) => this.applyEquippedOutfit(character, equipped.outfit))
-          .catch((err) => console.warn(`Could not load ${character}'s equipped outfit:`, err.message));
-      });
+      // Replays anything queued from a past offline session before
+      // reading the wallet, so this.wallet already reflects those rounds
+      // rather than the store having to reconcile a stale snapshot later.
+      // No-ops immediately if the queue's empty.
+      flushPendingRounds()
+        .catch(() => {})
+        .finally(() => this.loadEconomyData());
+    } else {
+      // SetupScreen's quick-login already tried once and gave up rather
+      // than block gameplay (see its own QUICK_LOGIN_TIMEOUT_MS comment) -
+      // retry once more here in the background. If the API was just cold-
+      // starting (kpground-api's free-tier Render instance can take 50s+
+      // to wake from a spin-down) this often succeeds well after the
+      // title screen already moved on. A second failure just stays
+      // offline, same as today - endGame() queues this round's result
+      // either way for the next successful connection to pick up.
+      kathrynQuickLogin()
+        .then(() => flushPendingRounds().catch(() => {}))
+        .then(() => this.loadEconomyData())
+        .catch((err) => console.warn('Still offline, will retry next round/session:', err.message));
     }
 
     // Always add the click handler
@@ -1629,6 +1617,56 @@ export default class GameScreen {
       this.running = false;
       this.startCutscenes();
     }
+  }
+
+  // Fetches the controlled character's wallet, that character's owned
+  // perks, and every character's equipped cosmetic - shared by init()'s
+  // normal logged-in-at-startup path and its background reconnect retry
+  // (see the isLoggedIn()/kathrynQuickLogin() branch above), so the two
+  // can't drift into fetching different things.
+  loadEconomyData() {
+    // Fetches the controlled character's wallet so the HUD has something
+    // to show - this.wallet staying null just means drawHud()/the store
+    // button skip drawing entirely.
+    getWallets()
+      .then((wallets) => {
+        this.wallet = wallets.find((w) => w.character === this.controlledEntity) || null;
+        // A snapshot of coins/xp/level as they stood the moment this
+        // round started - see endGame()'s reward breakdown, which diffs
+        // the post-submitRound() wallet against this rather than trying
+        // to duplicate the backend's own WIN_COINS/LOSS_XP/etc reward
+        // constants client-side (see kattrap/services.py's submit_round
+        // in kpground-api) to guess what changed and why.
+        this.walletAtRoundStart = this.wallet
+          ? { coins: this.wallet.coins, xp: this.wallet.xp, level: this.wallet.level }
+          : null;
+      })
+      .catch((err) => console.warn('Could not load wallet:', err.message));
+
+    // Perk ownership only ever needs the *controlled* character's own
+    // catalog (see this.ownedPerkSlugs's own comment) - getStore()
+    // already returns every item's .owned flag, so no separate
+    // endpoint is needed just for this.
+    getStore(this.controlledEntity)
+      .then((items) => {
+        this.ownedPerkSlugs = new Set(
+          items.filter((item) => item.item_type === 'perk' && item.owned).map((item) => item.slug)
+        );
+      })
+      .catch((err) => console.warn('Could not load perks:', err.message));
+
+    // Cosmetic equip state, one fetch per character (not just
+    // controlledEntity) - the dog's own tutu, say, should show whenever
+    // Dummy is on screen, regardless of who's actually being played
+    // this round. applyEquippedOutfit() both updates the live sprite
+    // immediately (covers the skip-cutscenes path, where
+    // resetGameObjects() never runs again) and records the pick on
+    // this.equippedOutfits (covers the normal path, where it does).
+    ['cat', 'mouse', 'dog'].forEach((character) => {
+      getEquipped(character)
+        .then((equipped) => this.applyEquippedOutfit(character, equipped.outfit))
+        .catch((err) => console.warn(`Could not load ${character}'s equipped outfit:`, err.message));
+    });
   }
 
   // Records `outfitItem` (a StoreItem, or null/undefined for "no cosmetic
@@ -3156,11 +3194,13 @@ export default class GameScreen {
     // Fire-and-forget - a failed/slow submission shouldn't block or delay
     // the game-over modal the player is already looking at.
     // coinsCollectedThisRound is this round's in-gameplay doober tally
-    // (see updateDoobers()), sent alongside the win/loss outcome
-    // reward rather than as its own network call per doober. Silently
-    // no-ops if never logged in (e.g. the API is unreachable, or this
-    // screen was reached some way other than through SetupScreen's auth
-    // buttons).
+    // (see updateDoobers()), sent alongside the win/loss outcome reward
+    // rather than as its own network call per doober. If never logged in
+    // (the API was unreachable at both the title screen and GameScreen's
+    // own background retry - see init()) or submitRound() itself fails
+    // mid-flight, the result is queued via queuePendingRound() instead of
+    // being lost - flushPendingRounds() (init()) replays it once a future
+    // connection succeeds, same session or a later one.
     //
     // roundRewardBreakdown drives displayGameOverModal()'s "here's what you
     // earned" section (per explicit request the win/lose modal should show
@@ -3211,9 +3251,12 @@ export default class GameScreen {
           }
         })
         .catch((err) => {
-          console.warn('Round submission failed:', err.message);
+          console.warn('Round submission failed, queuing for retry:', err.message);
+          queuePendingRound(this.controlledEntity, isWin ? 'win' : 'loss', this.coinsCollectedThisRound);
           if (this.roundRewardBreakdown) this.roundRewardBreakdown = { status: 'error' };
         });
+    } else {
+      queuePendingRound(this.controlledEntity, isWin ? 'win' : 'loss', this.coinsCollectedThisRound);
     }
   }
 
