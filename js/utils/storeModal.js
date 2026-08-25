@@ -1,7 +1,7 @@
 import { equipItem, getStore, purchaseItem, sellItem, unequipItem } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
-import { playStoreWhooshSound } from './audio.js?v=4';
+import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 
 // Registered by openStoreModal(), fired whenever a purchase changes the
 // wallet - GameScreen uses this to keep its own this.wallet (and the
@@ -344,6 +344,28 @@ function sellPriceFor(item) {
   return Math.round(item.cost * SELL_REFUND_FRACTION);
 }
 
+// A "+N" coin popup for a successful sell, floating up from wherever the
+// sell button that triggered it actually sits (the Bloomingtails pedestal
+// button and each Pawgreens row's own button are in different places, so
+// this positions itself off the real element rather than one fixed spot).
+// A plain document.body child, not scoped inside #storeCard, so it isn't
+// clipped by the card's own overflow:hidden. Cleanup is a fixed
+// setTimeout rather than waiting on 'animationend' - this is purely
+// decorative, so there's no need to risk the same "event never fires"
+// failure mode #storeCard's own close animation had to add a fallback
+// for (see setupStoreModal()'s close()) - simpler to just always use a
+// timeout here since nothing depends on the popup actually finishing.
+function spawnCoinPopup(anchorEl, amount) {
+  const rect = anchorEl.getBoundingClientRect();
+  const popup = document.createElement('div');
+  popup.className = 'store-coin-popup';
+  popup.style.left = `${rect.left + rect.width / 2}px`;
+  popup.style.top = `${rect.top}px`;
+  popup.innerHTML = `+${amount} ${COIN_ICON_HTML}`;
+  document.body.appendChild(popup);
+  setTimeout(() => popup.remove(), 950);
+}
+
 // A second, independent button next to whatever wireItemButton() above
 // is driving (the Bloomingtails pedestal's single action button, or a
 // Pawgreens row's own buy button) - selling is orthogonal to that
@@ -372,6 +394,11 @@ function wireSellButton(sellBtn, character, item) {
       // unequip, so the live in-game sprite reverts immediately instead
       // of only picking up the change on next reload.
       if (item.equipped && onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+      // Popup + sound fire before refreshAfterChange() redraws the panel
+      // (which can hide/replace this exact button), while sellBtn's
+      // position is still the real one the popup should float up from.
+      spawnCoinPopup(sellBtn, sellPriceFor(item));
+      playSellChaChingSound();
       await refreshAfterChange();
     } catch (err) {
       sellBtn.disabled = false;

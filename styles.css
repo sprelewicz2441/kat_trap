@@ -1410,6 +1410,52 @@ body.in-game #settingsMenu {
   display: none;
 }
 
+/* "+N" coin popup for a successful sell (storeModal.js's spawnCoinPopup())
+   - a plain fixed-position body child positioned off the real sell
+   button's own rect, not a child of #storeCard, so #storeCard's own
+   overflow:hidden (needed to clip the dressing-room photo to its rounded
+   corners) can't clip this too. z-index above #storeModal's own 90 so it
+   reads on top of the card regardless of where it spawns. */
+.store-coin-popup {
+  position: fixed;
+  z-index: 200;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: 800 1.3rem/1 Arial, sans-serif;
+  color: #ffd76a;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: store-coin-popup-float 0.9s ease-out forwards;
+}
+
+.store-coin-popup img {
+  width: 1em;
+  height: 1em;
+}
+
+@keyframes store-coin-popup-float {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0) scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-6px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-46px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .store-coin-popup {
+    animation: none;
+  }
+}
+
 #storeCloseBtn {
   position: absolute;
   top: 12px;

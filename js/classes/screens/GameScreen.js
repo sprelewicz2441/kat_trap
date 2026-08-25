@@ -20,7 +20,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=4';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=5';
 import {
   drawRoundedRect,
   drawCatEarCard, drawCatEarInner,
@@ -29,7 +29,7 @@ import {
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=12';
+import { openStoreModal } from '../../utils/storeModal.js?v=13';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
