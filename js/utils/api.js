@@ -3,11 +3,15 @@
 // tokens, not cookies - chosen backend-side so it keeps working once this
 // game moves to its own top-level domain, see that repo's CLAUDE.md for why.
 
-// The API isn't deployed anywhere yet (see kpground-api's own "Known
-// gaps") - this is the intended production target once it is. Local dev
-// always means the Django dev server on 127.0.0.1:8000 (its default port).
+// Deployed as a Render Web Service on the free tier (see kpground-api's
+// CLAUDE.md Deploy section) - no custom domain yet, so this points at the
+// raw onrender.com URL rather than an api.kpground.com CNAME (that would
+// be a 3rd custom domain on Render's free workspace tier, a real cost -
+// see ../kpground/CLAUDE.md's cost note). Revisit if that tradeoff changes.
+// Local dev always means the Django dev server on 127.0.0.1:8000 (its
+// default port).
 const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-export const API_BASE_URL = isLocalHost ? 'http://127.0.0.1:8000' : 'https://api.kpground.com';
+export const API_BASE_URL = isLocalHost ? 'http://127.0.0.1:8000' : 'https://kpground-api.onrender.com';
 
 // Must match the client_id django-oauth-toolkit's Application record was
 // seeded with (kpground-api's accounts/constants.py + seed_kathryn command).
