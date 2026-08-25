@@ -38,7 +38,7 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=14';
+import { openStoreModal } from '../../utils/storeModal.js?v=15';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================

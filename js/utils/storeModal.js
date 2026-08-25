@@ -315,9 +315,20 @@ function wireItemButton(btn, character, wallet, item) {
   } else if (wallet.level < item.min_level) {
     btn.disabled = true;
     btn.textContent = `Requires Lvl ${item.min_level}`;
+  } else if (wallet.coins < item.cost) {
+    // Same disabled state as the owned/level-locked branches above (no
+    // onclick - a disabled button doesn't fire clicks anyway, but this
+    // matches their style of not wiring one at all rather than relying on
+    // the disabled attribute alone). Labeled "Need", not "Buy" - showing
+    // the same "Buy" text whether or not the player could actually afford
+    // it (previously true even once the disabled style was legible) gave
+    // no reason a click did nothing, which read as the button being
+    // broken rather than correctly gated on funds.
+    btn.disabled = true;
+    btn.innerHTML = `Need ${COIN_ICON_HTML}${item.cost}`;
   } else {
-    btn.disabled = wallet.coins < item.cost;
-    btn.innerHTML = `Buy — ${COIN_ICON_HTML}${item.cost}`;
+    btn.disabled = false;
+    btn.innerHTML = `Buy ${COIN_ICON_HTML}${item.cost}`;
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Buying...';
