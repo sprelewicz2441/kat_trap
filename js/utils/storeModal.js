@@ -1,4 +1,4 @@
-import { equipItem, getStore, purchaseItem, unequipItem } from './api.js';
+import { equipItem, getStore, purchaseItem, sellItem, unequipItem } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playStoreWhooshSound } from './audio.js?v=4';
@@ -333,6 +333,53 @@ function wireItemButton(btn, character, wallet, item) {
   }
 }
 
+// Matches kpground-api's economy.py SELL_REFUND_FRACTION - duplicated
+// here (not fetched) because the sell button has to show its price
+// before the player ever clicks it, the same reason "Buy — {cost}" above
+// already needs the item's cost client-side rather than round-tripping
+// for it first.
+const SELL_REFUND_FRACTION = 0.2;
+
+function sellPriceFor(item) {
+  return Math.round(item.cost * SELL_REFUND_FRACTION);
+}
+
+// A second, independent button next to whatever wireItemButton() above
+// is driving (the Bloomingtails pedestal's single action button, or a
+// Pawgreens row's own buy button) - selling is orthogonal to that
+// button's own owned/equip/locked state, so it's simpler as its own
+// small always-present-but-usually-hidden button than another branch
+// inside wireItemButton() itself. Hidden whenever the item isn't owned,
+// since there's nothing to sell back.
+function wireSellButton(sellBtn, character, item) {
+  if (!item.owned) {
+    sellBtn.hidden = true;
+    sellBtn.onclick = null;
+    return;
+  }
+  sellBtn.hidden = false;
+  sellBtn.disabled = false;
+  sellBtn.innerHTML = `Sell — ${COIN_ICON_HTML}${sellPriceFor(item)}`;
+  sellBtn.onclick = async () => {
+    sellBtn.disabled = true;
+    sellBtn.textContent = 'Selling...';
+    try {
+      const updatedWallet = await sellItem(character, item.slug);
+      if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
+      // Selling an equipped cosmetic reverts it to the default look on
+      // the backend too (see sell_item()) - mirrors the equip-toggle
+      // button's own onOutfitChangeCallback(character, null) call for
+      // unequip, so the live in-game sprite reverts immediately instead
+      // of only picking up the change on next reload.
+      if (item.equipped && onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+      await refreshAfterChange();
+    } catch (err) {
+      sellBtn.disabled = false;
+      sellBtn.textContent = err.message || 'Sell failed';
+    }
+  };
+}
+
 // Re-draws the Bloomingtails pedestal canvas, name label, and action
 // button for whatever `previewedSlug` currently points at - without
 // re-fetching from the network. Called after every local state change
@@ -349,7 +396,13 @@ function updateBloomingtailsPreview() {
 
   const btn = document.getElementById('storePedestalActionBtn');
   btn.hidden = !item;
-  if (item) wireItemButton(btn, character, wallet, item);
+  const sellBtn = document.getElementById('storePedestalSellBtn');
+  if (item) {
+    wireItemButton(btn, character, wallet, item);
+    wireSellButton(sellBtn, character, item);
+  } else {
+    sellBtn.hidden = true;
+  }
 
   const nameEl = document.getElementById('storePreviewName');
   nameEl.textContent = item ? item.name : '';
@@ -403,6 +456,14 @@ function buildPawgreensRow(item, character, wallet) {
   btn.className = 'store-item-buy';
   wireItemButton(btn, character, wallet, item);
   row.appendChild(btn);
+
+  // wireSellButton() hides this itself whenever the item isn't owned, so
+  // it's safe to always append - no owned/unowned branch needed here.
+  const sellBtn = document.createElement('button');
+  sellBtn.type = 'button';
+  sellBtn.className = 'store-item-sell';
+  wireSellButton(sellBtn, character, item);
+  row.appendChild(sellBtn);
 
   return row;
 }

@@ -140,6 +140,18 @@ export function purchaseItem(character, itemSlug) {
   });
 }
 
+// Refunds a fraction of the item's original cost (see kpground-api's
+// economy.py SELL_REFUND_FRACTION) and reverts it to unowned - if it was
+// equipped, the backend also reverts that slot to its default look, so
+// storeModal.js only needs to fire onOutfitChangeCallback locally to keep
+// the live in-game sprite in sync (same as unequipItem's own caller).
+export function sellItem(character, itemSlug) {
+  return apiFetch(`/api/kattrap/store/${character}/sell/`, {
+    method: 'POST',
+    body: JSON.stringify({ item_slug: itemSlug }),
+  });
+}
+
 // Returns { [slot]: item } for whatever's currently equipped - an empty
 // object means every slot is at its default look. Only cosmetics can be
 // equipped; only 'outfit' exists as a slot today (see kpground-api's
