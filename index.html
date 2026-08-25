@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=24">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -176,17 +176,81 @@
   </div>
 
   <!-- Store modal (see js/utils/storeModal.js) — opened from GameScreen's
-       canvas-drawn "Store" button. A real DOM list rather than canvas-drawn
-       cards, same reasoning as the login modal: this needs per-item buy
-       buttons and dynamic owned/locked/affordable states, which is much
-       simpler as DOM than as hand-rolled canvas hit-testing per row. Same
-       cream-card-plus-purple-accent language as #creditsModal/#loginModal. -->
+       canvas-drawn "Store" button. A real DOM modal rather than canvas-drawn
+       cards, same reasoning as the login modal: dynamic owned/locked/
+       affordable states are much simpler as DOM than as hand-rolled canvas
+       hit-testing per row.
+
+       Two separate storefronts sharing one modal shell, switched via
+       #storeTabBloomingtails/#storeTabPawgreens (js/utils/storeModal.js's
+       switchTab()) - split per explicit direction ("remove the non-clothes
+       items from this store, we will create a new store for those things
+       called Pawgreens") since cosmetics and perks are different enough
+       shopping experiences (trying on a look vs. buying an upgrade) to
+       deserve their own presentation rather than being crammed into one
+       generic list. Both panels read from the same single getStore() fetch
+       (js/utils/storeModal.js's currentState) - no separate network call
+       per store, just filtered client-side by item_type.
+
+       #bloomingtailsPanel is the "dressing room" - a real fitting-room
+       scene with a pedestal (a bride trying on dresses, not a department-
+       store rack). Per explicit direction ("make the dressing room bigger,
+       if not the full background... like you may see in a console game"),
+       #storePedestalScene's backdrop now fills the *entire* card edge-to-
+       edge (see styles.css's #storeCard padding:0) with every other
+       element - heading/wallet-line/arrows/name/button - positioned as
+       overlaid UI directly on top of it, gradient scrims behind the text
+       for legibility against a busy photo, rather than the photo being one
+       inset box among several stacked elements. Outfits are browsed right
+       on the pedestal via #storePrevOutfitBtn/#storeNextOutfitBtn, no
+       separate list - "scroll through and try one on" is specifically an
+       outfit gesture.
+
+       #pawgreensPanel is a plain shopping list, deliberately not another
+       pedestal - perks are invisible gameplay effects, not something to
+       try on, so a list of upgrades (name, description, cost/status, buy
+       button) fits the metaphor better. #pawgreensBackdrop is a simple
+       placeholder for now (matching Bloomingtails' own pre-real-art
+       history) - eventual real art is meant to read like a convenience-
+       store checkout counter, deferred until the split itself is solid.
+       Every row gets its own inline buy button (see
+       storeModal.js's buildPawgreensRow()) rather than routing through a
+       single shared action button the way Bloomingtails does - there's no
+       character preview to focus a single button's target on, so "which
+       item does this button act on" needs to live on the row itself. -->
   <div id="storeModal" hidden>
     <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
-      <h2 id="storeHeading">Store</h2>
-      <p id="storeWalletLine"></p>
-      <div id="storeItemsList"></div>
+
+      <div id="storeTabs" role="tablist">
+        <button id="storeTabBloomingtails" class="store-tab" type="button" role="tab" aria-selected="true"><img src="./assets/bloomingtails_logo.png" class="store-tab-logo" alt=""><span class="store-tab-label">Bloomingtails</span></button>
+        <button id="storeTabPawgreens" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐾</span><span class="store-tab-label">Pawgreens</span></button>
+      </div>
+
+      <div id="bloomingtailsPanel" class="store-panel">
+        <div id="storePedestalScene">
+          <div id="storeOverlayTop">
+            <h2 id="storeHeading"><img src="./assets/bloomingtails_logo.png" alt="Bloomingtails"></h2>
+            <p id="storeWalletLine"></p>
+          </div>
+          <button id="storePrevOutfitBtn" aria-label="Previous outfit" type="button">&#10094;</button>
+          <canvas id="storePedestalCanvas" width="240" height="240"></canvas>
+          <button id="storeNextOutfitBtn" aria-label="Next outfit" type="button">&#10095;</button>
+          <div id="storeOverlayBottom">
+            <p id="storePreviewName"></p>
+            <button id="storePedestalActionBtn" class="store-item-buy" type="button"></button>
+            <button id="storePedestalSellBtn" class="store-item-sell" type="button" hidden></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="pawgreensPanel" class="store-panel" hidden>
+        <div id="pawgreensBackdrop">
+          <h2 id="pawgreensHeading">Pawgreens <span id="pawgreensHeadingMark" aria-hidden="true">🐾</span></h2>
+          <p id="pawgreensWalletLine"></p>
+        </div>
+        <div id="pawgreensItemsList"></div>
+      </div>
     </div>
   </div>
 

@@ -784,9 +784,11 @@ body.in-game #settingsMenu {
 }
 
 /* Store modal (see js/utils/storeModal.js) — opened from GameScreen's
-   canvas-drawn "Store" button mid-round. Same cream-card-plus-purple-accent
-   language as #creditsModal/#loginModal; taller and scrollable since the
-   item list is dynamic/unbounded rather than fixed content. */
+   canvas-drawn "Store" button mid-round. Two storefronts (Bloomingtails,
+   the cosmetics dressing room; Pawgreens, a plain perks list) sharing one
+   modal shell, switched via #storeTabs - split per explicit direction
+   ("remove the non-clothes items from this store, we will create a new
+   store for those things called Pawgreens"). */
 #storeModal {
   position: fixed;
   inset: 0;
@@ -804,9 +806,21 @@ body.in-game #settingsMenu {
 
 #storeCard {
   position: relative;
-  width: min(380px, 100%);
-  max-height: min(520px, 80vh);
-  padding: 28px;
+  /* width/height are set directly in JS (storeModal.js's
+     applyModalSizing()) to match the intro cutscene's own modal footprint
+     exactly, per explicit direction - a "big immersive carousel," not a
+     small popup. These are just the pre-JS fallback (briefly visible, if
+     at all, before applyModalSizing() runs on open). Padding is 0, not a
+     fixed inset, now that Bloomingtails' backdrop fills the card
+     edge-to-edge (see #storePedestalScene below) - each panel/the tab bar
+     apply their own padding instead of relying on one shared value that
+     would leave an unwanted cream margin around a full-bleed photo.
+     overflow: hidden is what actually clips that photo to the card's own
+     rounded corners. */
+  width: 90vw;
+  height: 80vh;
+  padding: 0;
+  overflow: hidden;
   border-radius: 20px;
   background: linear-gradient(180deg, #fff8ee, #ffe9c7);
   border: 3px solid rgba(138, 43, 226, 0.55);
@@ -822,52 +836,494 @@ body.in-game #settingsMenu {
   }
 }
 
+/* Close mirror of #storeCard's own entry pop-in above - literally the
+   same credits-pop-in keyframes, played in reverse (animation-direction:
+   reverse) rather than a hand-authored fade-out, so open/close read as
+   one consistent motion. storeModal.js's close() adds this class, waits
+   for 'animationend', then actually hides the modal - see that file for
+   why (a plain [hidden] would just make the card vanish, skipping the
+   shrink-and-fade entirely). */
+#storeCard.store-card-closing {
+  animation: credits-pop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3) reverse forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #storeCard.store-card-closing {
+    animation: none;
+  }
+}
+
+/* Persistent header bar above whichever panel is showing - the one piece
+   of chrome common to both storefronts. Sits on the card's own cream
+   background (not overlaid on Bloomingtails' photo), so it reads as a
+   category-switcher strip above the immersive art, not part of the art
+   itself. Right padding clears #storeCloseBtn, which stays
+   absolutely-positioned in the card's corner regardless of tab. */
+#storeTabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 12px;
+  padding: 20px 56px 16px 20px;
+}
+
+/* Reworked from a single-line pill (text, then the Bloomingtails logo
+   image in place of text) into a small icon on top with the actual
+   store name as real text underneath - both previous versions were
+   reported hard to read, worse on mobile, since a detailed logo image
+   (or even bold text) squeezed into a single-line pill has to shrink to
+   fit the tab bar and stops being legible well before a phone-sized tab
+   would need it to. Splitting icon and label lets the icon shrink freely
+   (it's decorative, not the legibility source) while the label stays a
+   comfortably readable fixed size regardless of how small the icon gets. */
+.store-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-radius: 14px;
+  border: 2px solid rgba(138, 43, 226, 0.25);
+  background: rgba(255, 255, 255, 0.55);
+  color: #5c2e8a;
+  font: 700 0.85rem/1.1 Arial, sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.store-tab:active {
+  transform: scale(0.96);
+}
+
+/* Bloomingtails' small icon reuses the exact same wordmark image as
+   #storeHeading (see its own comment above) rather than a separate icon
+   asset, so there's still one source of truth for the mark - it's just
+   decorative here (the visible .store-tab-label below carries the actual
+   name), so alt="" on the <img> in index.html to avoid a screen reader
+   announcing "Bloomingtails" twice back to back. */
+.store-tab-logo {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+
+/* Pawgreens' own icon, matched in visual weight to .store-tab-logo above
+   despite being an emoji rather than an image - reuses the same paw mark
+   as #pawgreensHeadingMark, since "paw" is this store's own name. */
+.store-tab-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.store-tab-label {
+  line-height: 1.1;
+}
+
+/* Touch shrink pass, per explicit "the button bar is too big on mobile"
+   direction - the desktop sizing above ate too much of a landscape
+   phone's limited vertical space. The icon shrinks the most aggressively
+   here (down to being barely legible on Bloomingtails' logo) since it's
+   purely decorative - .store-tab-label is what actually names the tab,
+   so it shrinks by far the least of anything in this block, staying the
+   priority element rather than scaling down in lockstep with everything
+   else. */
+@media (pointer: coarse) {
+  #storeTabs {
+    gap: 8px;
+    padding: 10px 46px 8px 12px;
+  }
+
+  .store-tab {
+    gap: 2px;
+    padding: 5px 10px;
+  }
+
+  .store-tab-logo {
+    height: 14px;
+  }
+
+  .store-tab-icon {
+    font-size: 0.85rem;
+  }
+
+  .store-tab-label {
+    font-size: 0.72rem;
+  }
+}
+
+/* Bloomingtails keeps its established purple/pink boutique gradient;
+   Pawgreens gets its own fresh green identity (a hint toward the
+   eventual convenience-store-checkout theme) so the two storefronts read
+   as distinct places, not just two tabs of the same list. */
+#storeTabBloomingtails[aria-selected="true"] {
+  background: linear-gradient(135deg, #8a2be2, #ff8fb1);
+  border-color: transparent;
+  color: #fff;
+}
+
+#storeTabPawgreens[aria-selected="true"] {
+  background: linear-gradient(135deg, #2e8b57, #7fd858);
+  border-color: transparent;
+  color: #fff;
+}
+
+.store-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.store-panel[hidden] {
+  display: none;
+}
+
+/* Boutique fitting-room backdrop. Per explicit direction ("make the
+   dressing room bigger, if not the full background... like you may see
+   in a console game"), this now fills the *entire* panel edge-to-edge -
+   #storeCard's own overflow:hidden clips it to the card's corners - with
+   every other element (heading/wallet-line/arrows/name/button)
+   overlaid directly on top via #storeOverlayTop/#storeOverlayBottom's
+   gradient scrims, rather than the photo being one inset box among
+   several stacked elements above/below it. */
+#storePedestalScene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Real backdrop art (see assets/store_dressing_room.webp) - a
+     celebrity-home-dressing-room/Beverly-Hills-boutique scene, chosen
+     after two rounds of live art direction (first pass read as a
+     photorealistic retail interior rather than this game's own glossy
+     cartoon style; second pass overcorrected into full fairy-tale-castle
+     glitz). `background-position`'s vertical anchor is biased toward the
+     bottom (65%, not center) since `cover` crops most of its excess
+     height from the top at this scene's own aspect ratio, and the
+     pedestal/floor - the part that actually matters for lining up with
+     #storePedestalCanvas below - sits in the lower half of the source
+     image. Re-confirm live after any further layout change - the scene's
+     own aspect ratio (now the *whole card*, not a smaller inset box)
+     changed materially with this "full background" pass, which can shift
+     where `cover`'s crop lands the pedestal in the visible frame. */
+  background-image: url('./assets/store_dressing_room.webp');
+  background-size: cover;
+  background-position: center 65%;
+}
+
+/* Gradient scrims behind the overlaid text/UI - the console-game
+   convention for legible chrome over busy art, rather than a flat panel
+   that would hide most of the photo. Anchored to the scene's own top/
+   bottom edges, full width. */
+#storeOverlayTop,
+#storeOverlayBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 14px 24px;
+  text-align: center;
+}
+
+#storeOverlayTop {
+  top: 0;
+  padding-bottom: 20px;
+  /* Stronger + slower fade than a plain two-stop gradient (was
+     rgba(...0.6) -> rgba(...0)) - a two-stop fade cleared to fully
+     transparent by the *bottom* of this box, right behind the wallet
+     line, which is exactly the text that most needed the scrim's help.
+     The middle stop keeps real coverage most of the way down instead. */
+  background: linear-gradient(
+    180deg,
+    rgba(20, 10, 30, 0.8) 0%,
+    rgba(20, 10, 30, 0.5) 65%,
+    rgba(20, 10, 30, 0) 100%
+  );
+}
+
+#storeOverlayBottom {
+  bottom: 0;
+  padding-top: 28px;
+  background: linear-gradient(0deg, rgba(20, 10, 30, 0.68), rgba(20, 10, 30, 0));
+}
+
+/* Full "bloomingtails" wordmark - including the furry curled tail
+   flowing out of the final "s" - as one generated image
+   (assets/bloomingtails_logo.png) rather than live text, replacing both
+   the earlier cartoon-bubble-logo text and the live-Allura-script-plus-
+   emoji-mark attempt that came after it. Neither text-based approach
+   could make a separately-placed tail glyph/graphic actually read as
+   part of the word - baking the tail into the wordmark itself, drawn as
+   one continuous stroke leaving the "s", is what finally made it read as
+   the word's own tail rather than decoration bolted on beside it. Same
+   image is reused by .store-tab-logo below for the tab pill, so there's
+   one source of truth for the whole mark. drop-shadow (not text-shadow,
+   since this is an <img> now) lifts it off the dark photo scrim the same
+   way the old text treatment's shadow did. */
 #storeHeading {
   margin: 0 0 4px;
-  font: 800 1.5rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
-  background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
+}
+
+/* max-width/max-height (both, with width/height:auto) rather than a
+   width-only percentage - a width-only rule ignores the vertical space
+   #storeOverlayTop actually has, which is exactly what let this overflow
+   into and squish the rest of the overlay on short viewports (landscape
+   phones especially, since this game is landscape-only). Letting the
+   browser pick whichever bound actually binds keeps it correctly
+   proportioned either way. Touch gets its own, tighter caps below since
+   a landscape phone's viewport is far shorter than a desktop window's,
+   even though this game requires landscape on touch too. */
+#storeHeading img {
+  display: block;
+  max-width: min(600px, 70%);
+  max-height: 22vh;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+@media (pointer: coarse) {
+  #storeHeading img {
+    max-width: min(260px, 55%);
+    max-height: 14vh;
+  }
+}
+
+#storeWalletLine {
+  margin: 0;
+  font: 700 1rem/1.3 Arial, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* The real doober-coin icon standing in for the word "coins" - see
+   storeModal.js's COIN_ICON_HTML - sized/aligned to sit inline with
+   whatever text surrounds it (a wallet line or a buy button) rather than
+   at a fixed pixel size that would look right in only one of those two
+   contexts. */
+.coin-icon {
+  /* Explicit inline-block, not the default `inline` an <img> would
+     normally get - Tailwind's preflight reset sets a bare `img` to
+     `display: block`, which pulled this icon clean out of the inline
+     text flow (it rendered off to the side of its wallet-line/button
+     text instead of inline before it) until this rule won the cascade
+     back. */
+  display: inline-block;
+  height: 1em;
+  width: 1em;
+  vertical-align: -0.15em;
+  margin-right: 0.15em;
+}
+
+/* width/height are set directly in JS (storeModal.js's
+   applyModalSizing()) as CSS pixel sizes proportional to the scene's own
+   actual rendered box. Only the *display* size is set from JS; the
+   canvas's width/height attributes (its actual drawing-buffer
+   resolution) stay untouched by that so resizing never clears whatever's
+   already drawn. `bottom` lines the character up with the real photo's
+   own marble pedestal - re-tune live after the "full background" layout
+   change above, which shifts the scene's own aspect ratio and therefore
+   where `cover`'s crop lands the pedestal in the visible frame. */
+#storePedestalCanvas {
+  position: absolute;
+  left: 50%;
+  /* 20% (was 15%) - the "full background" layout change moved the
+     visible pedestal surface higher in the frame than the old smaller
+     inset scene did, and the character needs to sit further up to
+     actually land on it rather than in front of/below it - confirm live
+     after any further layout change, same as the original 15% was. */
+  bottom: 20%;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.35));
+}
+
+/* Outfit-browsing arrows - flank the pedestal, vertically centered, so
+   they read as "flip through the rack." Hidden entirely (not just
+   disabled) via the `hidden` attribute when a character has zero active
+   cosmetics, toggled from storeModal.js's updateBloomingtailsPreview(). */
+#storePrevOutfitBtn,
+#storeNextOutfitBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.75);
+  color: #6a1fc2;
+  font-size: 1.2rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+#storePrevOutfitBtn {
+  left: 10px;
+}
+
+#storeNextOutfitBtn {
+  right: 10px;
+}
+
+#storePrevOutfitBtn:hover,
+#storeNextOutfitBtn:hover {
+  background: #ffffff;
+}
+
+#storePrevOutfitBtn:active,
+#storeNextOutfitBtn:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+#storePrevOutfitBtn[hidden],
+#storeNextOutfitBtn[hidden] {
+  display: none;
+}
+
+/* Just the previewed cosmetic's name - this is a "what am I looking at"
+   label over the pedestal, not a sales pitch. */
+#storePreviewName {
+  margin: 0 0 10px;
+  text-align: center;
+  min-height: 1.5em;
+  font: 700 1.3rem/1.3 Arial, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* The single Buy/Equip/Owned action for whatever's currently previewed -
+   reuses .store-item-buy's own gradient/disabled/equipped styling (see
+   below) via that same class in the markup, just full-width. */
+#storePedestalActionBtn {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  font-size: 1.1rem;
+}
+
+#storePedestalActionBtn[hidden] {
+  display: none;
+}
+
+/* Touch shrink pass, per explicit "shift the character up / make the
+   button smaller so we can see the character on stage" direction - the
+   bottom overlay's name label + button are fixed px/rem sizes, not
+   percentage-based like the pedestal character's own position below, so
+   on a short landscape-phone viewport they ate a proportionally much
+   bigger bite of the scene than on desktop, crowding out the character.
+   #storePedestalCanvas also moves up (a bigger `bottom` percentage) to
+   give it more clearance from this now-shorter bottom band. */
+@media (pointer: coarse) {
+  #storeOverlayBottom {
+    padding-top: 14px;
+  }
+
+  #storePreviewName {
+    margin: 0 0 4px;
+    min-height: 1.2em;
+    font-size: 1rem;
+  }
+
+  #storePedestalActionBtn {
+    padding: 8px 14px;
+    font-size: 0.9rem;
+  }
+
+  #storePedestalCanvas {
+    bottom: 28%;
+  }
+}
+
+/* Pawgreens - a plain shopping list, deliberately not another pedestal
+   (see index.html's own comment on #pawgreensPanel for why). Its own flex
+   column so the backdrop banner stays fixed-height and the list scrolls
+   independently below it. `:not([hidden])` rather than a bare
+   `#pawgreensPanel` selector - an ID selector's specificity otherwise
+   beats `.store-panel[hidden] { display: none }` above, which kept both
+   panels visibly stacked (each splitting the card's height) regardless
+   of which tab was actually selected, confirmed live. */
+#pawgreensPanel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Simple placeholder for now, matching Bloomingtails' own pre-real-art
+   history - eventual real art is meant to read like a convenience-store
+   checkout counter (per explicit direction), deferred until the
+   Bloomingtails/Pawgreens split itself is solid. Green-tinted to match
+   the tab's own accent color rather than reusing Bloomingtails' purple. */
+#pawgreensBackdrop {
+  flex-shrink: 0;
+  padding: 8px 24px 18px;
+  text-align: center;
+  background: linear-gradient(180deg, #eafff0, #d9f7e3);
+  border-bottom: 2px solid rgba(46, 139, 87, 0.2);
+}
+
+#pawgreensHeading {
+  margin: 0 0 4px;
+  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #2e8b57, #7fd858);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-#storeWalletLine {
-  margin: 0 0 16px;
-  font: 700 0.85rem/1.3 Arial, sans-serif;
-  color: #5c4a72;
+/* The paw print originally on Bloomingtails' own heading, moved here
+   instead - "paw" is literally in this store's name, and unlike
+   Bloomingtails' dark photo scrim, this panel's own light green backdrop
+   (see #pawgreensBackdrop above) gives the paw plenty of natural
+   contrast with no glow/shadow treatment needed. */
+#pawgreensHeadingMark {
+  font-size: 1.3rem;
+  vertical-align: 0.02em;
 }
 
-#storeItemsList {
+#pawgreensWalletLine {
+  margin: 0;
+  font: 700 1rem/1.3 Arial, sans-serif;
+  color: #2f6b46;
+}
+
+#pawgreensItemsList {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  padding: 14px 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.store-item {
+.pawgreens-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 2px solid rgba(138, 43, 226, 0.18);
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px solid rgba(46, 139, 87, 0.18);
 }
 
-.store-item-info {
+.pawgreens-item-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
-.store-item-info strong {
+.pawgreens-item-info strong {
   font: 700 0.95rem/1.3 Arial, sans-serif;
   color: #2b1d3d;
 }
 
-.store-item-info span {
+.pawgreens-item-info span {
   font: 500 0.78rem/1.3 Arial, sans-serif;
   color: #5c4a72;
 }
@@ -903,10 +1359,108 @@ body.in-game #settingsMenu {
   background: linear-gradient(135deg, #34c759, #248a3d);
 }
 
+/* Secondary "sell it back" action - always paired with wireItemButton()'s
+   own primary button (Try It On/Wearing It/Buy/Owned) but deliberately
+   muted/smaller so it reads as a lesser option, not competing with the
+   primary button's own color language (orange=buy, green=equipped).
+   Reuses the same muted-pill look .store-tab's own unselected state
+   already established, rather than inventing a third color. Hidden
+   whenever the item isn't owned - see wireSellButton() in storeModal.js. */
+.store-item-sell {
+  border: 2px solid rgba(138, 43, 226, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #5c2e8a;
+  font: 700 0.8rem/1.2 Arial, sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.store-item-sell:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.store-item-sell:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Pawgreens row: sits beside wireItemButton()'s own row button, same
+   flex-shrink:0 treatment so the row's flexbox doesn't try to squeeze it. */
+.pawgreens-item .store-item-sell {
+  flex-shrink: 0;
+  padding: 8px 12px;
+}
+
+/* Pedestal: centered below the full-width primary button, auto width so
+   it stays visibly secondary rather than a second equally-prominent
+   action. The [hidden] override is needed for the same reason
+   #storePedestalActionBtn[hidden] already has one above - an ID
+   selector's own `display` beats the UA stylesheet's plain [hidden]
+   rule, so hiding it needs its own explicit override at equal specificity. */
+#storePedestalSellBtn {
+  display: block;
+  width: auto;
+  margin: 8px auto 0;
+  padding: 6px 16px;
+}
+
+#storePedestalSellBtn[hidden] {
+  display: none;
+}
+
+/* "+N" coin popup for a successful sell (storeModal.js's spawnCoinPopup())
+   - a plain fixed-position body child positioned off the real sell
+   button's own rect, not a child of #storeCard, so #storeCard's own
+   overflow:hidden (needed to clip the dressing-room photo to its rounded
+   corners) can't clip this too. z-index above #storeModal's own 90 so it
+   reads on top of the card regardless of where it spawns. */
+.store-coin-popup {
+  position: fixed;
+  z-index: 200;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: 800 1.3rem/1 Arial, sans-serif;
+  color: #ffd76a;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: store-coin-popup-float 0.9s ease-out forwards;
+}
+
+.store-coin-popup img {
+  width: 1em;
+  height: 1em;
+}
+
+@keyframes store-coin-popup-float {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0) scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-6px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-46px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .store-coin-popup {
+    animation: none;
+  }
+}
+
 #storeCloseBtn {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 1;
   width: 32px;
   height: 32px;
   display: flex;
@@ -914,18 +1468,19 @@ body.in-game #settingsMenu {
   justify-content: center;
   border-radius: 50%;
   border: none;
-  background: rgba(138, 43, 226, 0.15);
+  background: rgba(255, 255, 255, 0.85);
   color: #6a1fc2;
   font-size: 1.3rem;
   line-height: 1;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   transition: background 0.12s ease, transform 0.12s ease;
 }
 
 #storeCloseBtn:hover,
 #storeCloseBtn:active {
-  background: rgba(138, 43, 226, 0.3);
+  background: #ffffff;
   transform: scale(0.92);
 }
 

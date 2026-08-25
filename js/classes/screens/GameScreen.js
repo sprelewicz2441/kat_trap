@@ -9,8 +9,8 @@
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
 import Cat from '../Cat.js?v=6';
-import Mouse from '../Mouse.js?v=2';
-import Dog from '../Dog.js?v=6';
+import Mouse from '../Mouse.js?v=3';
+import Dog from '../Dog.js?v=8';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
@@ -20,11 +20,17 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=3';
-import { drawRoundedRect } from '../../utils/canvasShapes.js';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=5';
+import {
+  drawRoundedRect,
+  drawCatEarCard, drawCatEarInner,
+  drawMouseEarCard, drawMouseEarInner,
+  drawDogEarCard, drawDogEarInner,
+} from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
-import { isLoggedIn, getWallets, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js';
+import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
+import { openStoreModal } from '../../utils/storeModal.js?v=13';
+import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
 //  CONSTANTS
@@ -582,6 +588,10 @@ const BASE_DOG_PLAYER_SPEED = 10;
 // stars just keep orbiting for however long catPaused stays true.
 const DOG_PAUSE_DURATION = 4000;
 const DOG_COLLISION_COOLDOWN = 1000; // ms
+// Dog's "Longer Cat Pause" perk (store slug 'longer-pause') - applied in
+// handleDogCollision() only when controlledEntity === 'dog' (Dog's own
+// wallet-gated purchase, see this.ownedPerkSlugs in init()).
+const LONGER_PAUSE_PERK_MULTIPLIER = 1.5;
 
 // Dog poop hazard — the dog can drop a pile that stuns the cat for
 // POOP_STUN_DURATION on contact, same catPaused/pauseEndTime/message
@@ -686,6 +696,12 @@ const CAT_WANDER_SPEED_MULTIPLIER = 0.5;
 const BASE_PUNCH_DISTANCE = 40;
 const PUNCH_SHOCKWAVE_DURATION = 200; // ms
 const BASE_PUNCH_SHOCKWAVE_MAX_RADIUS = 60;
+// Cat's "Bigger Punch Knockback" perk (store slug 'punch-knockback') -
+// applied in handlePunch() only when controlledEntity === 'cat', since
+// this is Cat's own wallet-gated purchase (see this.ownedPerkSlugs in
+// init()); punch is also usable in Mouse mode (see handlePunch()'s own
+// comment) but Poop never inherits an upgrade Mia paid for.
+const PUNCH_KNOCKBACK_PERK_MULTIPLIER = 1.5;
 
 // Toot's little wind/fart puff — purely cosmetic (unlike the shove
 // distance above, nothing here affects gameplay), triggered from
@@ -748,15 +764,19 @@ const BASE_MESSAGE_Y_OFFSET = 80;
 // the live board, which was sometimes hard to read depending on what was
 // underneath it. UI chrome, so sized with uiScale like the rest of this
 // section rather than the in-game scale.
-const BASE_MODAL_WIDTH = 420;
-const BASE_MODAL_HEIGHT = 280;
-const BASE_MODAL_RADIUS = 24;
-const BASE_MODAL_TITLE_FONT_SIZE = 52;
-const BASE_MODAL_SUBTITLE_FONT_SIZE = 22;
-const BASE_MODAL_BUTTON_WIDTH = 200;
-const BASE_MODAL_BUTTON_HEIGHT = 60;
-const BASE_MODAL_BUTTON_RADIUS = 16;
-const BASE_MODAL_BUTTON_FONT_SIZE = 24;
+// Bumped up a notch across the board (was 420x280) per explicit "make it
+// bigger" request — the modal is the single most important thing on
+// screen at the moment it's shown, and the old size read as timid next to
+// a full-canvas dimming scrim.
+const BASE_MODAL_WIDTH = 480;
+const BASE_MODAL_HEIGHT = 320;
+const BASE_MODAL_RADIUS = 26;
+const BASE_MODAL_TITLE_FONT_SIZE = 58;
+const BASE_MODAL_SUBTITLE_FONT_SIZE = 25;
+const BASE_MODAL_BUTTON_WIDTH = 220;
+const BASE_MODAL_BUTTON_HEIGHT = 66;
+const BASE_MODAL_BUTTON_RADIUS = 18;
+const BASE_MODAL_BUTTON_FONT_SIZE = 26;
 // Extra room the modal grows by to fit the "here's what you earned"
 // rewards section (see endGame()'s roundRewardBreakdown, displayGameOverModal()'s
 // drawRewardsBreakdown()) - only added when that section will actually be
@@ -769,13 +789,50 @@ const BASE_MODAL_BUTTON_FONT_SIZE = 24;
 // drawRewardsBreakdown() moved to a single row (coins left, level-up/XP
 // right) instead of stacking up to three lines - a single row needs much
 // less reserved height.
-const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 70;
-const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 22;
-const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 15;
+const BASE_MODAL_REWARDS_EXTRA_HEIGHT = 78;
+const BASE_MODAL_REWARDS_TITLE_FONT_SIZE = 24;
+const BASE_MODAL_REWARDS_LINE_FONT_SIZE = 16;
 // How long the modal takes to pop/scale in once the round ends — a
 // duration, not a size, so this doesn't scale with canvas size (same
 // reasoning as DOG_PAUSE_DURATION below).
 const MODAL_POP_IN_DURATION = 250; // ms
+
+// Absolute pixel floors for the modal's own size/text, applied on top of
+// the BASE_MODAL_* * uiScale numbers above in computeLayout() — uiScale
+// alone (a pure fraction of canvas *width*) tracks a normal mobile canvas
+// fine, but a narrow desktop browser window can push uiScale low enough
+// that the computed numbers stop being legible ("hard to read on some
+// sizes" — confirmed live). Same fixed-minimum-plus-computed shape
+// Cutscene.js already uses for its own pop-in text. modalWidth/modalHeight
+// get the same floor treatment so the card is actually big enough to hold
+// text drawn at its own floor size, not just the text alone.
+const MIN_MODAL_WIDTH = 320;
+const MIN_MODAL_HEIGHT = 240;
+const MIN_MODAL_TITLE_FONT_SIZE = 32;
+const MIN_MODAL_SUBTITLE_FONT_SIZE = 17;
+const MIN_MODAL_BUTTON_WIDTH = 170;
+const MIN_MODAL_BUTTON_HEIGHT = 50;
+const MIN_MODAL_BUTTON_FONT_SIZE = 18;
+const MIN_MODAL_REWARDS_EXTRA_HEIGHT = 60;
+const MIN_MODAL_REWARDS_TITLE_FONT_SIZE = 17;
+const MIN_MODAL_REWARDS_LINE_FONT_SIZE = 13;
+
+// Frames the modal in whichever character's ears the player is actually
+// controlling this round (this.controlledEntity) — same shapes and same
+// "outer card silhouette plus a two-tone inner accent" convention
+// CharacterSelectScreen's own EAR_SHAPES map already uses for its cards,
+// echoing the pick made there rather than the modal defaulting to one
+// specific animal regardless of who's playing.
+const MODAL_EAR_SHAPES = {
+  cat: { card: drawCatEarCard, inner: drawCatEarInner },
+  mouse: { card: drawMouseEarCard, inner: drawMouseEarInner },
+  dog: { card: drawDogEarCard, inner: drawDogEarInner },
+};
+// Same flat pale-pink inner-ear accent CharacterSelectScreen's cards use
+// regardless of the card's own color — real ears are two-toned, and using
+// one shared accent color keeps that read consistent between the two
+// screens instead of retuning it per palette.
+const MODAL_EAR_INNER_COLOR = '#ffd7d0';
 
 const BASE_FLOOR_TILE_SIZE = 24;
 
@@ -1034,6 +1091,30 @@ function computeLayout(canvasWidth) {
     FRIDGE_SPEC.height * FRIDGE_SCALE_MULTIPLIER
   ) * moduleScale);
 
+  // Game-over modal geometry, floored (see MIN_MODAL_* above) and then
+  // capped against the actual canvas so a floor kicking in on a tiny
+  // canvas can never push the card past its edges. Canvas height isn't a
+  // parameter here, but main.js's resizeCanvas() always locks it to a
+  // fixed 4:3 ratio off canvasWidth, so it's safe to derive rather than
+  // thread through as its own argument.
+  const canvasHeightApprox = canvasWidth * (3 / 4);
+  const modalWidth = Math.min(Math.max(BASE_MODAL_WIDTH * uiScale, MIN_MODAL_WIDTH), canvasWidth * 0.94);
+  const modalRewardsExtraHeight = Math.max(BASE_MODAL_REWARDS_EXTRA_HEIGHT * uiScale, MIN_MODAL_REWARDS_EXTRA_HEIGHT);
+  // The card can grow again on top of modalHeight to fit the rewards
+  // section (see displayGameOverModal()) — reserve room for that worst
+  // case up front so the floored/capped base height plus that extra can
+  // never together exceed the canvas, even though whether rewards will
+  // actually show isn't known yet at layout time.
+  // Capped a bit short of the canvas (0.84, not 0.92) to leave headroom
+  // above the card for the ears drawn poking up past its own top edge
+  // (see MODAL_EAR_SHAPES/displayGameOverModal()) — they can peak roughly
+  // 20% of modalHeight above modalY, the same proportion
+  // CharacterSelectScreen's own cards use.
+  const modalHeight = Math.min(
+    Math.max(BASE_MODAL_HEIGHT * uiScale, MIN_MODAL_HEIGHT),
+    canvasHeightApprox * 0.84 - modalRewardsExtraHeight
+  );
+
   return {
     scale,
     characterScale,
@@ -1058,18 +1139,18 @@ function computeLayout(canvasWidth) {
     dogCollisionStarSize: BASE_DOG_COLLISION_STAR_SIZE * scale,
     messageFontSize: BASE_MESSAGE_FONT_SIZE * uiScale,
     messageYOffset: BASE_MESSAGE_Y_OFFSET * uiScale,
-    modalWidth: BASE_MODAL_WIDTH * uiScale,
-    modalHeight: BASE_MODAL_HEIGHT * uiScale,
-    modalRewardsExtraHeight: BASE_MODAL_REWARDS_EXTRA_HEIGHT * uiScale,
-    modalRewardsTitleFontSize: BASE_MODAL_REWARDS_TITLE_FONT_SIZE * uiScale,
-    modalRewardsLineFontSize: BASE_MODAL_REWARDS_LINE_FONT_SIZE * uiScale,
+    modalWidth,
+    modalHeight,
+    modalRewardsExtraHeight,
+    modalRewardsTitleFontSize: Math.max(BASE_MODAL_REWARDS_TITLE_FONT_SIZE * uiScale, MIN_MODAL_REWARDS_TITLE_FONT_SIZE),
+    modalRewardsLineFontSize: Math.max(BASE_MODAL_REWARDS_LINE_FONT_SIZE * uiScale, MIN_MODAL_REWARDS_LINE_FONT_SIZE),
     modalRadius: BASE_MODAL_RADIUS * uiScale,
-    modalTitleFontSize: BASE_MODAL_TITLE_FONT_SIZE * uiScale,
-    modalSubtitleFontSize: BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale,
-    modalButtonWidth: BASE_MODAL_BUTTON_WIDTH * uiScale,
-    modalButtonHeight: BASE_MODAL_BUTTON_HEIGHT * uiScale,
+    modalTitleFontSize: Math.max(BASE_MODAL_TITLE_FONT_SIZE * uiScale, MIN_MODAL_TITLE_FONT_SIZE),
+    modalSubtitleFontSize: Math.max(BASE_MODAL_SUBTITLE_FONT_SIZE * uiScale, MIN_MODAL_SUBTITLE_FONT_SIZE),
+    modalButtonWidth: Math.max(BASE_MODAL_BUTTON_WIDTH * uiScale, MIN_MODAL_BUTTON_WIDTH),
+    modalButtonHeight: Math.max(BASE_MODAL_BUTTON_HEIGHT * uiScale, MIN_MODAL_BUTTON_HEIGHT),
     modalButtonRadius: BASE_MODAL_BUTTON_RADIUS * uiScale,
-    modalButtonFontSize: BASE_MODAL_BUTTON_FONT_SIZE * uiScale,
+    modalButtonFontSize: Math.max(BASE_MODAL_BUTTON_FONT_SIZE * uiScale, MIN_MODAL_BUTTON_FONT_SIZE),
     floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
     hudMargin: BASE_HUD_MARGIN * uiScale,
     hudPadding: BASE_HUD_PADDING * uiScale,
@@ -1335,12 +1416,19 @@ export default class GameScreen {
     // (Mouse/Dog mode) has no "key held" concept at all, only tryMoveCat()'s
     // own return value.
     this.catMovedThisTick = false;
-    // this.running's value at the moment the settings menu opened — restored
-    // when it closes (see the settingsmenutoggle handler in init()), so
-    // closing the menu can never resume something that was already stopped
-    // for another reason (cutscenes, game over) just because the menu also
-    // happened to be open at the time.
-    this.wasRunningBeforeMenu = null;
+    // this.running's value at the moment the *first* pausing overlay
+    // (settings menu or store modal - see pauseForOverlay()/
+    // resumeForOverlay() below) opened, restored once every pausing
+    // overlay has closed again, so closing one can never resume something
+    // that was already stopped for another reason (cutscenes, game over)
+    // just because an overlay also happened to be open at the time.
+    this.wasRunningBeforeOverlay = null;
+    // How many pausing overlays are currently open - a counter rather
+    // than a boolean so two overlapping overlays (e.g. Escape closing the
+    // store while the settings menu also happens to be open) can't let
+    // the first one's close prematurely resume gameplay out from under
+    // the second, still-open one.
+    this.pausingOverlayCount = 0;
 
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
@@ -1359,9 +1447,22 @@ export default class GameScreen {
     this.walletAtRoundStart = null;
     this.roundRewardBreakdown = null;
     this.storeButtonArea = null;
-    // Mirrors wasRunningBeforeMenu's pattern for the settings menu - see
-    // storeModalToggleHandler in init().
-    this.wasRunningBeforeStore = null;
+    // Perk slugs the *controlled* character's wallet owns (see init()'s
+    // getStore() fetch) - stays empty (every perk check below just no-ops)
+    // if never logged in or the fetch fails, same degrade-gracefully shape
+    // as this.wallet. Perks only ever apply to the character whose wallet
+    // paid for them - see PUNCH_KNOCKBACK_PERK_MULTIPLIER's own comment.
+    this.ownedPerkSlugs = new Set();
+    // Equipped 'outfit'-slot cosmetic per character (cat/mouse/dog), keyed
+    // by character regardless of controlledEntity - a purchased look is
+    // worn by that character whenever it's on screen, not just when it's
+    // the one being played. Populated by init()'s getEquipped() fetches
+    // (one per character) and re-applied by resetGameObjects() every time
+    // it (re)constructs an entity - resetGameObjects() runs a second time
+    // once cutscenes finish (see its own comment), which would otherwise
+    // silently discard a sprite swap already applied to the *first*
+    // Cat/Mouse/Dog instance the moment that fetch resolved before then.
+    this.equippedOutfits = {};
     this.cutsceneManager = new CutsceneManager(screenManager, canvas, ctx);
 
     this.floorPattern = null;
@@ -1405,56 +1506,24 @@ export default class GameScreen {
     document.addEventListener('musicmutechange', this.musicMuteChangeHandler);
 
     // Pauses gameplay while the settings menu (js/utils/settingsMenu.js) is
-    // open, resuming to whatever this.running actually was beforehand
-    // rather than unconditionally to true — see wasRunningBeforeMenu above.
-    // Also pauses/resumes the dog's own bark schedule (see Dog.js's
-    // pauseBarking()/resumeBarking()) — this.running gates the game loop's
-    // own update() (see update()'s own early return), but the dog's barks
-    // are scheduled via a plain setTimeout chain that runs on real
-    // wall-clock time regardless of this.running, so without this a bark
-    // could keep firing audibly while the menu sat open over a paused
-    // board. stopDogBarkSound() also cuts off a bark that's already
-    // mid-playback at the moment the menu opens, the same way endGame()
-    // does at round end.
+    // open - see pauseForOverlay()/resumeForOverlay() for what that
+    // actually does and why (this used to be hand-rolled separately here
+    // and in storeModalToggleHandler below; the two drifted once, which is
+    // exactly the bug those two methods exist to make impossible to repeat
+    // for a third overlay).
     this.settingsMenuToggleHandler = (e) => {
-      if (e.detail.open) {
-        this.wasRunningBeforeMenu = this.running;
-        this.running = false;
-        if (this.dog) {
-          this.dog.pauseBarking();
-          this.dog.pausePooping();
-        }
-        this.stopDogBarkSound();
-      } else if (this.wasRunningBeforeMenu !== null) {
-        this.running = this.wasRunningBeforeMenu;
-        this.wasRunningBeforeMenu = null;
-        // Only resume barking/pooping if play is actually resuming — if the
-        // menu was opened after the round had already ended, this.running
-        // restores to false (game over) and the dog should stay silent.
-        // resumePooping() is also skipped in Dog mode — the autonomous
-        // timer was never started there in the first place (see
-        // resetGameObjects()), and resuming it unconditionally here would
-        // start it for the first time in a mode where poop is meant to be
-        // player-triggered only.
-        if (this.running && this.dog) {
-          this.dog.resumeBarking();
-          if (this.controlledEntity !== 'dog') this.dog.resumePooping();
-        }
-      }
+      if (e.detail.open) this.pauseForOverlay();
+      else this.resumeForOverlay();
     };
     document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
 
-    // Same pause/resume shape as settingsMenuToggleHandler above, for the
+    // Same shared pause/resume as settingsMenuToggleHandler above, for the
     // store modal (js/utils/storeModal.js) instead - opening the store
-    // mid-round shouldn't let gameplay keep running underneath it.
+    // mid-round shouldn't let gameplay (or the dog's bark/poop timers)
+    // keep running underneath it.
     this.storeModalToggleHandler = (e) => {
-      if (e.detail.open) {
-        this.wasRunningBeforeStore = this.running;
-        this.running = false;
-      } else if (this.wasRunningBeforeStore !== null) {
-        this.running = this.wasRunningBeforeStore;
-        this.wasRunningBeforeStore = null;
-      }
+      if (e.detail.open) this.pauseForOverlay();
+      else this.resumeForOverlay();
     };
     document.addEventListener('storemodaltoggle', this.storeModalToggleHandler);
 
@@ -1477,6 +1546,31 @@ export default class GameScreen {
             : null;
         })
         .catch((err) => console.warn('Could not load wallet:', err.message));
+
+      // Perk ownership only ever needs the *controlled* character's own
+      // catalog (see this.ownedPerkSlugs's own comment) - getStore()
+      // already returns every item's .owned flag, so no separate
+      // endpoint is needed just for this.
+      getStore(this.controlledEntity)
+        .then((items) => {
+          this.ownedPerkSlugs = new Set(
+            items.filter((item) => item.item_type === 'perk' && item.owned).map((item) => item.slug)
+          );
+        })
+        .catch((err) => console.warn('Could not load perks:', err.message));
+
+      // Cosmetic equip state, one fetch per character (not just
+      // controlledEntity) - the dog's own tutu, say, should show whenever
+      // Dummy is on screen, regardless of who's actually being played
+      // this round. applyEquippedOutfit() both updates the live sprite
+      // immediately (covers the skip-cutscenes path, where
+      // resetGameObjects() never runs again) and records the pick on
+      // this.equippedOutfits (covers the normal path, where it does).
+      ['cat', 'mouse', 'dog'].forEach((character) => {
+        getEquipped(character)
+          .then((equipped) => this.applyEquippedOutfit(character, equipped.outfit))
+          .catch((err) => console.warn(`Could not load ${character}'s equipped outfit:`, err.message));
+      });
     }
 
     // Always add the click handler
@@ -1535,6 +1629,31 @@ export default class GameScreen {
       this.running = false;
       this.startCutscenes();
     }
+  }
+
+  // Records `outfitItem` (a StoreItem, or null/undefined for "no cosmetic
+  // equipped, default look") as `character`'s current pick, then - if that
+  // character's entity already exists - swaps its live spriteSheet.src
+  // right away via getSpriteSrc() (js/utils/outfits.js), which falls back
+  // to that character's default look when outfitItem is null - unequipping
+  // needs the live sprite to revert just as much as equipping needs it to
+  // change, so this always reassigns rather than early-returning on a
+  // falsy outfitItem. Called from three places: once per character as each
+  // of init()'s getEquipped() fetches resolves (covers the skipCutscenes
+  // path, where resetGameObjects() never runs a second time), again from
+  // inside resetGameObjects() itself every time it (re)constructs the
+  // three entities (covers the normal path, where cutscenes finishing
+  // calls resetGameObjects() a second time - see its own comment - which
+  // would otherwise reconstruct Cat/Mouse/Dog at their plain default look
+  // and silently discard whatever a fetch had already applied to the
+  // now-replaced instance), and from openStore()'s onOutfitChange callback
+  // whenever an equip/unequip happens while already in a round (without
+  // this, the store's own DB state changed but the on-screen character
+  // stayed stale until the next reload re-ran getEquipped()).
+  applyEquippedOutfit(character, outfitItem) {
+    this.equippedOutfits[character] = outfitItem || null;
+    const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;
+    if (entity) entity.spriteSheet.src = getSpriteSrc(character, outfitItem);
   }
 
   resetGameObjects() {
@@ -1655,6 +1774,12 @@ export default class GameScreen {
       // the normal random range.
       this.dog.setNextPoop(true);
     }
+    // Re-applies whatever init()'s getEquipped() fetches have already
+    // resolved to (a no-op for any character whose fetch hasn't resolved
+    // yet, or that has nothing equipped) - see applyEquippedOutfit()'s own
+    // comment for why this has to happen here too, not just once at fetch
+    // time.
+    ['cat', 'mouse', 'dog'].forEach((character) => this.applyEquippedOutfit(character, this.equippedOutfits[character]));
 
     this.inputHandler = new InputHandler();
     // wallHitCallback is sound-only — see checkMouseEscapeOnWallHit()'s own
@@ -2170,7 +2295,8 @@ export default class GameScreen {
     };
 
     // Move dog away
-    const punchDistance = this.layout.punchDistance;
+    const hasPunchKnockbackPerk = this.controlledEntity === 'cat' && this.ownedPerkSlugs.has('punch-knockback');
+    const punchDistance = this.layout.punchDistance * (hasPunchKnockbackPerk ? PUNCH_KNOCKBACK_PERK_MULTIPLIER : 1);
     if (this.dog.x < this.cat.x) this.dog.x -= punchDistance;
     else this.dog.x += punchDistance;
     if (this.dog.y < this.cat.y) this.dog.y -= punchDistance;
@@ -2838,20 +2964,26 @@ export default class GameScreen {
         (direction === 'left' && atLeft) ||
         (direction === 'right' && atRight);
       if (enteringWall) this.checkMouseEscapeOnWallHit();
-    } else if (performance.now() - this.mouseLastMovedAt >= MOUSE_STOP_DEBOUNCE_MS) {
-      // No movement key held this tick, *and* it's been long enough since
-      // one last was — see MOUSE_STOP_DEBOUNCE_MS's own comment for why the
-      // debounce is needed (a single idle tick isn't reliably "the player
-      // stopped," a tapped key produces those too). Safe to call every
-      // tick this condition holds, not just the first: gated by
-      // checkMouseEscapeOnWallHit()'s own mouseEscaped/gameOver guard, and
-      // hasMouseEntered()'s own geometry already requires the mouse to be
-      // resting at a wall for it to ever return true, so this is a correct
-      // no-op whenever the mouse stopped out in the open floor instead.
-      this.checkMouseEscapeOnWallHit();
-    }
 
-    this.mouse.updateAnimations();
+      this.mouse.updateAnimations();
+    } else {
+      if (performance.now() - this.mouseLastMovedAt >= MOUSE_STOP_DEBOUNCE_MS) {
+        // No movement key held this tick, *and* it's been long enough since
+        // one last was — see MOUSE_STOP_DEBOUNCE_MS's own comment for why the
+        // debounce is needed (a single idle tick isn't reliably "the player
+        // stopped," a tapped key produces those too). Safe to call every
+        // tick this condition holds, not just the first: gated by
+        // checkMouseEscapeOnWallHit()'s own mouseEscaped/gameOver guard, and
+        // hasMouseEntered()'s own geometry already requires the mouse to be
+        // resting at a wall for it to ever return true, so this is a correct
+        // no-op whenever the mouse stopped out in the open floor instead.
+        this.checkMouseEscapeOnWallHit();
+      }
+      // No direction held this tick — snap to a resting pose rather than
+      // continuing to cycle the walk-cycle frames in place (same bug class
+      // as movePlayerDog()'s own stand() fix).
+      this.mouse.stand();
+    }
   }
 
   // Dog-controlled mode only: reads arrow-key input directly, same per-tick
@@ -2933,10 +3065,16 @@ export default class GameScreen {
 
   movePlayerDog() {
     const direction = this.inputHandler.getDirection();
-    if (direction) {
-      this.tryMoveDog(direction);
+    if (!direction) {
+      this.dog.stand();
+      return;
     }
-    this.dog.updateAnimation();
+    const moved = this.tryMoveDog(direction);
+    if (moved) {
+      this.dog.updateAnimation(this.dog.playerFrameSpeed);
+    } else {
+      this.dog.stand();
+    }
   }
 
   // Drives the power-LED-as-danger-meter in the viewport frame (see
@@ -2964,7 +3102,8 @@ export default class GameScreen {
 
   handleDogCollision() {
     this.catPaused = true;
-    this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION;
+    const hasLongerPausePerk = this.controlledEntity === 'dog' && this.ownedPerkSlugs.has('longer-pause');
+    this.pauseEndTime = performance.now() + DOG_PAUSE_DURATION * (hasLongerPausePerk ? LONGER_PAUSE_PERK_MULTIPLIER : 1);
     this.message = MESSAGES.DOG_CAUGHT;
     this.catStunStartTime = performance.now();
     this.catStunSource = 'dog';
@@ -3078,8 +3217,66 @@ export default class GameScreen {
     }
   }
 
+  // Shared by every pausing overlay (settings menu, store modal - see
+  // their toggle handlers in init()) rather than each hand-rolling its own
+  // running/bark/poop pause logic. This exists because that duplication
+  // already caused a real bug once: storeModalToggleHandler was originally
+  // written as a partial copy of settingsMenuToggleHandler that paused
+  // this.running but forgot the dog's bark/poop timers entirely (reported
+  // live as "a stray dog bark" with the store open), since those two
+  // handlers had no shared code to keep them in sync. Routing both (and
+  // any future overlay) through these two methods instead means there is
+  // exactly one place bark/poop pausing lives, so a third overlay gets it
+  // automatically just by calling these rather than needing to remember
+  // and re-copy the bark-specific bits by hand again.
+  //
+  // A counter, not a boolean, so two overlays open at once (however
+  // unlikely today) can't let the first one's close resume gameplay out
+  // from under the second, still-open one - only the transition into/out
+  // of "zero overlays open" actually touches this.running.
+  pauseForOverlay() {
+    if (this.pausingOverlayCount === 0) {
+      this.wasRunningBeforeOverlay = this.running;
+      this.running = false;
+      // this.running gates the game loop's own update() (see update()'s
+      // early return), but the dog's bark/poop timers are scheduled via
+      // plain setTimeout chains that run on real wall-clock time
+      // regardless of this.running, so without this they'd keep firing
+      // audibly over a paused board.
+      if (this.dog) {
+        this.dog.pauseBarking();
+        this.dog.pausePooping();
+      }
+      // Cuts off a bark that's already mid-playback at the moment the
+      // overlay opens, the same way endGame() does at round end -
+      // pauseBarking() above only stops *future* barks from being
+      // scheduled.
+      this.stopDogBarkSound();
+    }
+    this.pausingOverlayCount++;
+  }
+
+  resumeForOverlay() {
+    this.pausingOverlayCount = Math.max(0, this.pausingOverlayCount - 1);
+    if (this.pausingOverlayCount > 0) return;
+    if (this.wasRunningBeforeOverlay === null) return;
+    this.running = this.wasRunningBeforeOverlay;
+    this.wasRunningBeforeOverlay = null;
+    // Only resume barking/pooping if play is actually resuming - if every
+    // overlay closed after the round had already ended, this.running
+    // restores to false (game over) and the dog should stay silent.
+    // resumePooping() is also skipped in Dog mode - the autonomous timer
+    // was never started there in the first place (see resetGameObjects()),
+    // and resuming it unconditionally here would start it for the first
+    // time in a mode where poop is meant to be player-triggered only.
+    if (this.running && this.dog) {
+      this.dog.resumeBarking();
+      if (this.controlledEntity !== 'dog') this.dog.resumePooping();
+    }
+  }
+
   // Immediately silences a dog bark that's already mid-playback — shared by
-  // endGame() (round over) and the settingsMenuToggleHandler (menu opened
+  // endGame() (round over) and pauseForOverlay() (an overlay opened
   // mid-round) since both need to cut off a currently-playing clip, not
   // just stop future ones from being scheduled (that part is Dog.js's own
   // job, via cleanup()/pauseBarking()).
@@ -3128,6 +3325,9 @@ export default class GameScreen {
     this.drawFloor();
     this.drawWalls();
     this.escapes.forEach(escape => escape.draw(this.ctx));
+    if (this.controlledEntity === 'mouse' && this.ownedPerkSlugs.has('hole-radar')) {
+      this.drawEscapeRadar();
+    }
     // A floor-level hazard, same as the escapes above — drawn before the
     // mouse/furniture/characters so anything walking over it draws on top,
     // the same convention every other ground-level thing in this sequence
@@ -3172,9 +3372,14 @@ export default class GameScreen {
   // the HUD without a redundant re-fetch.
   openStore() {
     if (!this.wallet) return;
-    openStoreModal(this.controlledEntity, this.wallet, (updatedWallet) => {
-      this.wallet = updatedWallet;
-    });
+    openStoreModal(
+      this.controlledEntity,
+      this.wallet,
+      (updatedWallet) => {
+        this.wallet = updatedWallet;
+      },
+      (character, outfitItem) => this.applyEquippedOutfit(character, outfitItem)
+    );
   }
 
   // Shared geometry for the HUD box (top-center, wide) and its
@@ -3653,8 +3858,25 @@ export default class GameScreen {
   // of its type/content - see DOOBER_ARROW_* above for why this lives in
   // the shared drawDoober() rather than in a type's own draw(). A soft
   // glow (shadowBlur) plus a bold dark outline, same "cartoon-bold, hard
-  // to miss" language the reference screenshot's own arrows use.
+  // to miss" language the reference screenshot's own arrows use. The
+  // actual shape/bob math is shared with drawEscapeRadar() (the
+  // "Mouse Hole Radar" perk, see below) via drawPointerArrow() - same
+  // "point at a fixed spot" widget, just recolored per caller so a coin
+  // callout and an escape-hole callout can't be confused for each other.
   drawDooberArrow(centerX, topY, baseRadius, elapsed) {
+    this.drawPointerArrow(centerX, topY, baseRadius, elapsed, {
+      glow: 'rgba(255, 214, 64, 0.85)',
+      gradientStart: '#fff59d',
+      gradientEnd: '#ffca28',
+      stroke: '#8a5a00',
+    });
+  }
+
+  // Shared "bobbing arrow pointing down at a fixed spot" shape - see
+  // drawDooberArrow() above (gold, the original use) and
+  // drawEscapeRadar() below (the "Mouse Hole Radar" perk's cool-blue
+  // recolor of the exact same widget).
+  drawPointerArrow(centerX, topY, baseRadius, elapsed, { glow, gradientStart, gradientEnd, stroke }) {
     const ctx = this.ctx;
     const bob = Math.sin((elapsed / DOOBER_ARROW_BOB_PERIOD) * Math.PI * 2) * DOOBER_ARROW_BOB_AMPLITUDE;
     const tipY = topY - DOOBER_ARROW_GAP + bob;
@@ -3667,7 +3889,7 @@ export default class GameScreen {
     const topEdgeY = tipY - height;
 
     ctx.save();
-    ctx.shadowColor = 'rgba(255, 214, 64, 0.85)';
+    ctx.shadowColor = glow;
     ctx.shadowBlur = baseRadius * 0.4;
 
     ctx.beginPath();
@@ -3681,15 +3903,51 @@ export default class GameScreen {
     ctx.closePath();
 
     const gradient = ctx.createLinearGradient(centerX, topEdgeY, centerX, tipY);
-    gradient.addColorStop(0, '#fff59d');
-    gradient.addColorStop(1, '#ffca28');
+    gradient.addColorStop(0, gradientStart);
+    gradient.addColorStop(1, gradientEnd);
     ctx.fillStyle = gradient;
     ctx.fill();
-    ctx.strokeStyle = '#8a5a00';
+    ctx.strokeStyle = stroke;
     ctx.lineWidth = Math.max(1, baseRadius * 0.08);
     ctx.lineJoin = 'round';
     ctx.stroke();
     ctx.restore();
+  }
+
+  // "Mouse Hole Radar" perk (slug 'hole-radar', see this.ownedPerkSlugs in
+  // init()) - highlights whichever escape is currently nearest the mouse,
+  // recomputed every frame (not just once) so the highlighted hole
+  // actually updates as the mouse moves around, the way a real radar
+  // would. Cool blue/white rather than the doober arrow's gold, so the
+  // two "look here" cues never read as the same kind of thing (one's a
+  // reward, one's an escape route).
+  drawEscapeRadar() {
+    if (!this.mouse || this.mouseEscaped || this.escapes.length === 0) return;
+
+    const mouseCenterX = this.mouse.x + this.mouse.size / 2;
+    const mouseCenterY = this.mouse.y + this.mouse.size / 2;
+
+    let nearest = this.escapes[0];
+    let nearestDistance = Infinity;
+    this.escapes.forEach((escape) => {
+      const escapeCenterX = escape.x + escape.width / 2;
+      const escapeCenterY = escape.y + escape.height / 2;
+      const distance = Math.hypot(mouseCenterX - escapeCenterX, mouseCenterY - escapeCenterY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = escape;
+      }
+    });
+
+    const centerX = nearest.x + nearest.width / 2;
+    const topY = nearest.y;
+    const baseRadius = Math.max(nearest.width, nearest.height) / 2;
+    this.drawPointerArrow(centerX, topY, baseRadius, performance.now(), {
+      glow: 'rgba(41, 182, 246, 0.85)',
+      gradientStart: '#e1f5fe',
+      gradientEnd: '#29b6f6',
+      stroke: '#01579b',
+    });
   }
 
   // The 'coin' doober type's content (see DOOBER_TYPES): a real generated
@@ -4263,7 +4521,17 @@ export default class GameScreen {
     ctx.translate(-centerX, -centerY);
 
     const modalX = centerX - modalWidth / 2;
-    const modalY = centerY - modalHeight / 2;
+    // Clamped, not just centered — on an extremely small/narrow canvas
+    // (well past any real device this game targets, but reachable by
+    // hand-shrinking a desktop browser window) the ear-headroom cap in
+    // computeLayout() can still be squeezed tighter than the ears actually
+    // need, which would otherwise poke the card's ears (see
+    // MODAL_EAR_SHAPES) up past the canvas's own top edge. 0.22 is a
+    // deliberately generous upper bound on any of the three ear shapes'
+    // actual peak height (all ~0.2*modalHeight or less — see
+    // canvasShapes.js) so this holds regardless of which character's ears
+    // are drawn.
+    const modalY = Math.max(centerY - modalHeight / 2, modalHeight * 0.22 + 4 * scale);
 
     const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
     if (this.gameOverIsWin) {
@@ -4274,7 +4542,18 @@ export default class GameScreen {
       gradient.addColorStop(1, COLORS.MODAL.LOSE_GRADIENT_END);
     }
 
-    drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    // Framed in whichever character's ears the player is actually
+    // controlling this round (see MODAL_EAR_SHAPES) — same "ears poking up
+    // past the card's own top edge" language CharacterSelectScreen's cards
+    // use, so the modal echoes the pick made there instead of just being a
+    // plain rounded rect. Falls back to a plain rounded rect for any
+    // unrecognized controlledEntity, though every real value has a shape.
+    const earShapes = MODAL_EAR_SHAPES[this.controlledEntity];
+    if (earShapes) {
+      earShapes.card(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    } else {
+      drawRoundedRect(ctx, modalX, modalY, modalWidth, modalHeight, modalRadius);
+    }
     ctx.fillStyle = gradient;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     ctx.shadowBlur = 24 * scale;
@@ -4286,6 +4565,15 @@ export default class GameScreen {
     ctx.lineWidth = Math.max(2, 4 * scale);
     ctx.strokeStyle = COLORS.MODAL.BORDER;
     ctx.stroke();
+
+    // Two-tone inner-ear accent, drawn after the card body/border so it
+    // sits on top — same pale-pink fill CharacterSelectScreen's cards use
+    // regardless of the card's own color (see MODAL_EAR_INNER_COLOR).
+    if (earShapes) {
+      earShapes.inner(ctx, modalX, modalY, modalWidth, modalHeight);
+      ctx.fillStyle = MODAL_EAR_INNER_COLOR;
+      ctx.fill();
+    }
 
     ctx.textAlign = 'center';
     const title = this.gameOverIsWin ? 'You Win!' : 'You Lose!';
@@ -4305,7 +4593,22 @@ export default class GameScreen {
     ctx.fillText(title, centerX, titleY);
 
     const subtitleY = modalY + baseModalHeight * 0.56;
-    ctx.font = `bold ${modalSubtitleFontSize}px Arial`;
+    // Shrink further (down to MIN_MODAL_SUBTITLE_FONT_SIZE) only if the
+    // message would actually overflow the card at its normal floored size
+    // — same "floor plus measure-and-shrink-if-needed" pattern
+    // Cutscene.js's own pop-in text uses, so a longer message (a custom
+    // character name, say) can't run past the card's edges.
+    let subtitleFontSize = modalSubtitleFontSize;
+    ctx.font = `bold ${subtitleFontSize}px Arial`;
+    const availableSubtitleWidth = modalWidth - 40 * scale;
+    const measuredSubtitleWidth = ctx.measureText(this.message).width;
+    if (measuredSubtitleWidth > availableSubtitleWidth) {
+      subtitleFontSize = Math.max(
+        MIN_MODAL_SUBTITLE_FONT_SIZE,
+        subtitleFontSize * (availableSubtitleWidth / measuredSubtitleWidth)
+      );
+      ctx.font = `bold ${subtitleFontSize}px Arial`;
+    }
     ctx.fillStyle = COLORS.MODAL.SUBTITLE;
     ctx.fillText(this.message, centerX, subtitleY);
 
@@ -4412,9 +4715,13 @@ export default class GameScreen {
       : breakdown.xpGained
         ? `✨ +${breakdown.xpGained} XP`
         : null;
+    // drawHudCoinStatText() below already draws the real doober-coin icon
+    // ahead of this text - the word "Coins" would just repeat what the
+    // icon already says, per the same "icon in place of the word" rule
+    // the store's own wallet line/buy button follow.
     const coinsText = (!secondText && breakdown.dooberCoins > 0)
-      ? `+${breakdown.totalCoinsGained} Coins (+${breakdown.dooberCoins} doobers)`
-      : `+${breakdown.totalCoinsGained} Coins`;
+      ? `+${breakdown.totalCoinsGained} (+${breakdown.dooberCoins} doobers)`
+      : `+${breakdown.totalCoinsGained}`;
 
     const rowFontSize = secondText ? titleSize * 0.8 : titleSize;
     const chipPaddingH = rowFontSize * 0.7;

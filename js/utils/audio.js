@@ -157,6 +157,123 @@ export function playModalPopSound() {
   noise.stop(now + duration);
 }
 
+// A bigger "whoosh" transition for the Bloomingtails/Pawgreens store modal
+// (js/utils/storeModal.js), reused identically for both open and close -
+// requested as "more of a console game whoosh" than playModalPopSound()'s
+// small, soft "pfff" above is tuned for. Two layers: filtered noise whose
+// bandpass center sweeps up then back down (an actual rise-then-fall
+// swoosh, wider-ranging than playModalPopSound()'s single downward sweep)
+// for the airy top end, plus a short low sine pitch-slide underneath for
+// the low-end "body" console-menu transitions usually have that noise
+// alone doesn't provide. Longer (~0.4s) than playModalPopSound() so the
+// sweep has room to actually read as motion rather than a quick puff.
+export function playStoreWhooshSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const duration = 0.4;
+  const now = ctx.currentTime;
+
+  const bufferSize = Math.floor(ctx.sampleRate * duration);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.Q.value = 0.8;
+  filter.frequency.setValueAtTime(250, now);
+  filter.frequency.exponentialRampToValueAtTime(4000, now + duration * 0.4);
+  filter.frequency.exponentialRampToValueAtTime(300, now + duration);
+
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.0001, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.55, now + duration * 0.18);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  noise.connect(filter);
+  filter.connect(noiseGain);
+  noiseGain.connect(ctx.destination);
+
+  const tone = ctx.createOscillator();
+  tone.type = 'sine';
+  tone.frequency.setValueAtTime(240, now);
+  tone.frequency.exponentialRampToValueAtTime(70, now + duration * 0.8);
+
+  const toneGain = ctx.createGain();
+  toneGain.gain.setValueAtTime(0.0001, now);
+  toneGain.gain.exponentialRampToValueAtTime(0.25, now + duration * 0.15);
+  toneGain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.85);
+
+  tone.connect(toneGain);
+  toneGain.connect(ctx.destination);
+
+  noise.start(now);
+  noise.stop(now + duration);
+  tone.start(now);
+  tone.stop(now + duration);
+}
+
+// A cash-register "cha-ching" for storeModal.js's sell button - a short
+// high-passed noise click for the "cha" (a coin/register-lever transient),
+// then two ascending bell notes for the "ching". Each bell note is two
+// sine partials a hair apart (1x and 2.01x the note's frequency) rather
+// than a single pure tone - two nearly-identical frequencies played
+// together produce a slow beating/shimmer that reads as "bell" rather
+// than "beep", the same trick a real bell's overtones create acoustically.
+export function playSellChaChingSound() {
+  if (isSfxMuted()) return;
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+
+  const clickDuration = 0.05;
+  const clickBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * clickDuration), ctx.sampleRate);
+  const clickData = clickBuffer.getChannelData(0);
+  for (let i = 0; i < clickData.length; i++) {
+    clickData[i] = Math.random() * 2 - 1;
+  }
+  const click = ctx.createBufferSource();
+  click.buffer = clickBuffer;
+  const clickFilter = ctx.createBiquadFilter();
+  clickFilter.type = 'highpass';
+  clickFilter.frequency.value = 4000;
+  const clickGain = ctx.createGain();
+  clickGain.gain.setValueAtTime(0.4, now);
+  clickGain.gain.exponentialRampToValueAtTime(0.0001, now + clickDuration);
+  click.connect(clickFilter);
+  clickFilter.connect(clickGain);
+  clickGain.connect(ctx.destination);
+  click.start(now);
+  click.stop(now + clickDuration);
+
+  const bellNotes = [
+    { time: now + 0.04, freq: 1046.5 }, // C6
+    { time: now + 0.17, freq: 1568.0 }, // G6
+  ];
+  bellNotes.forEach(({ time, freq }) => {
+    [1, 2.01].forEach((mult, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * mult;
+      const gain = ctx.createGain();
+      const peak = i === 0 ? 0.35 : 0.15;
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(peak, time + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.5);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(time);
+      osc.stop(time + 0.55);
+    });
+  });
+}
+
 // Plays a single synthesized note: fast attack, ramps toward `endFreq` (or
 // stays flat if omitted) over the note's length, exponential decay to
 // silence. Shared by playWinSound()/playLoseSound() below so their per-note

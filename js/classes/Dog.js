@@ -110,7 +110,20 @@ export default class Dog {
     this.frameHeight = BASE_FRAME_HEIGHT * sizeScale; // On-screen height — draw + collision
     this.rows = 6; // Total rows
     this.currentFrame = 0;
-    this.frameSpeed = 20; // Speed of animation
+    this.frameSpeed = 20; // Autonomous-wander walk-cycle speed only — see playerFrameSpeed below
+    // Player-controlled Dog mode's own walk-cycle speed — kept separate from
+    // frameSpeed above for the same "one field can't serve two speeds at
+    // once" reason this.speed/layout.dogPlayerSpeed were already split (see
+    // that field's own comment). Reported live as "too slow to tell the dog
+    // is walking" at frameSpeed's original value once movePlayerDog() only
+    // advanced the walk-cycle while actually moving (previously it animated
+    // continuously regardless of input, which happened to read as a normal
+    // pace purely by coincidence). Matched to Cat.js's own frameSpeed (10)
+    // since both characters now move at the identical per-tick player speed
+    // (BASE_DOG_PLAYER_SPEED === Cat.speed — see Character selection &
+    // playable modes) and both have a 6-frame cycle, so the same per-frame
+    // hold time reads as the same walking pace for either.
+    this.playerFrameSpeed = 10;
     this.frameCounter = 0;
 
     this.column = 0; // dog_v2.png is a single column (see comment above) — was 1 for the old 6x6 dog_medium.png
@@ -349,12 +362,28 @@ export default class Dog {
     this.updateAnimation();
   }
 
-  updateAnimation() {
+  // frameSpeed defaults to the autonomous-wander cadence; GameScreen's
+  // movePlayerDog() passes playerFrameSpeed instead so the two modes can
+  // each have their own walk-cycle pace (see playerFrameSpeed's own
+  // comment in the constructor).
+  updateAnimation(frameSpeed = this.frameSpeed) {
     this.frameCounter++;
-    if (this.frameCounter >= this.frameSpeed) {
+    if (this.frameCounter >= frameSpeed) {
       this.currentFrame = (this.currentFrame + 1) % this.rows; // Loop through rows
       this.frameCounter = 0;
     }
+  }
+
+  // Called from GameScreen.movePlayerDog() whenever no direction key is
+  // held or the attempted move was blocked, so the walk-cycle snaps back
+  // to a resting pose instead of continuing to animate in place while the
+  // dog isn't actually going anywhere — mirrors Cat.js's own stand().
+  // Only used by the player-controlled path: the autonomous wander
+  // (update() above) is essentially always moving every tick, so it has
+  // no real idle state to snap back to.
+  stand() {
+    this.currentFrame = 0;
+    this.frameCounter = 0;
   }
 
   // frameWidth/frameHeight are already the scaled on-screen size (see

@@ -123,6 +123,17 @@ export default class Mouse {
     }
   }
 
+  // Called from GameScreen.movePlayerMouse() whenever no direction key is
+  // held, so the walk-cycle snaps back to a resting pose instead of
+  // continuing to cycle frames in place — same idle-while-standing-still
+  // bug class as Dog.js's own stand() (see that file's comment). The
+  // autonomous wander path (update() above) is untouched: it's always
+  // moving every tick, so it has no idle state to snap back to.
+  stand() {
+    this.currentFrame = 0;
+    this.frameCounter = 0;
+  }
+
   draw(ctx) {
     const frameIndex = this.animations[this.currentDirection][this.currentFrame];
     const sx = (frameIndex % 3) * this.frameWidth; // Assuming 3 frames per row
