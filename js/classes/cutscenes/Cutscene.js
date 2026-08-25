@@ -1,6 +1,6 @@
 import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
-import { playModalPopSound } from '../../utils/audio.js?v=3';
+import { playModalPopSound } from '../../utils/audio.js?v=4';
 
 const POP_IN_DURATION = 250; // ms — same ease-out-cubic pop as GameScreen's game-over modal
 

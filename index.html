@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=15">
+  <link rel="stylesheet" href="./styles.css?v=22">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -223,14 +223,14 @@
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
 
       <div id="storeTabs" role="tablist">
-        <button id="storeTabBloomingtails" class="store-tab" type="button" role="tab" aria-selected="true">Bloomingtails</button>
-        <button id="storeTabPawgreens" class="store-tab" type="button" role="tab" aria-selected="false">Pawgreens</button>
+        <button id="storeTabBloomingtails" class="store-tab" type="button" role="tab" aria-selected="true"><img src="./assets/bloomingtails_logo.png" class="store-tab-logo" alt=""><span class="store-tab-label">Bloomingtails</span></button>
+        <button id="storeTabPawgreens" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐾</span><span class="store-tab-label">Pawgreens</span></button>
       </div>
 
       <div id="bloomingtailsPanel" class="store-panel">
         <div id="storePedestalScene">
           <div id="storeOverlayTop">
-            <h2 id="storeHeading">Bloomingtails</h2>
+            <h2 id="storeHeading"><img src="./assets/bloomingtails_logo.png" alt="Bloomingtails"></h2>
             <p id="storeWalletLine"></p>
           </div>
           <button id="storePrevOutfitBtn" aria-label="Previous outfit" type="button">&#10094;</button>
@@ -245,7 +245,7 @@
 
       <div id="pawgreensPanel" class="store-panel" hidden>
         <div id="pawgreensBackdrop">
-          <h2 id="pawgreensHeading">Pawgreens</h2>
+          <h2 id="pawgreensHeading">Pawgreens <span id="pawgreensHeadingMark" aria-hidden="true">🐾</span></h2>
           <p id="pawgreensWalletLine"></p>
         </div>
         <div id="pawgreensItemsList"></div>

@@ -1,6 +1,7 @@
 import { equipItem, getStore, purchaseItem, unequipItem } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js';
-import { getUIScale } from './scale.js?v=1';
+import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
+import { playStoreWhooshSound } from './audio.js?v=4';
 
 // Registered by openStoreModal(), fired whenever a purchase changes the
 // wallet - GameScreen uses this to keep its own this.wallet (and the
@@ -62,10 +63,30 @@ function applyModalSizing() {
   const pedestalCanvas = document.getElementById('storePedestalCanvas');
   if (!canvas || !card || !scene || !pedestalCanvas) return;
 
-  const uiScale = getUIScale(canvas.width);
-  const margin = 50 * uiScale;
-  card.style.width = `${Math.max(300, canvas.width - margin * 2)}px`;
-  card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
+  if (isTouch()) {
+    // Sized off the true viewport, not just the canvas's own box - the
+    // canvas itself already excludes the side/top gutters the d-pad/
+    // action buttons live in (see resizeCanvas()'s own touch-device width
+    // margin), so sizing the card off canvas.width/height alone (the
+    // desktop branch below) left a visible strip around the card on
+    // mobile where the touch controls showed through #storeModal's own
+    // translucent scrim - reported live as "looks awful on mobile,
+    // controls visible behind it". Margin is deliberately computed
+    // without any touch multiplier (unlike getUIScale() below, which
+    // doubles it for touch) - per explicit follow-up direction the card
+    // should keep "a margin in the same scale as desktop," not one
+    // inflated by a multiplier that was tuned for button/text sizing, not
+    // gaps. This still reaches past the canvas's own gutter and covers
+    // the touch controls; it just no longer goes flush to zero.
+    const margin = 50 * (window.innerWidth / REFERENCE_WIDTH);
+    card.style.width = `${Math.max(300, window.innerWidth - margin * 2)}px`;
+    card.style.height = `${Math.max(340, window.innerHeight - margin * 2)}px`;
+  } else {
+    const uiScale = getUIScale(canvas.width);
+    const margin = 50 * uiScale;
+    card.style.width = `${Math.max(300, canvas.width - margin * 2)}px`;
+    card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
+  }
 
   // Only meaningful while Bloomingtails is the visible panel - the scene
   // lays out at zero size while its panel is [hidden], so skip measuring
@@ -90,13 +111,56 @@ export function setupStoreModal() {
   // Fires storemodaltoggle the same way settingsMenu.js's settingsmenutoggle
   // does, so GameScreen can pause/resume in lockstep with this modal's
   // actual visible state.
-  const close = () => {
+  const finishClose = () => {
     modal.hidden = true;
     window.removeEventListener('resize', applyModalSizing);
     window.removeEventListener('orientationchange', applyModalSizing);
     document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: false } }));
     onWalletUpdateCallback = null;
     onOutfitChangeCallback = null;
+  };
+
+  // Same console-style whoosh played on open (see openStoreModal(), and
+  // audio.js's playStoreWhooshSound()), reused here rather than a second
+  // synthesized sound - open and close are the same kind of transition in
+  // opposite directions. The visual close mirrors
+  // #storeCard's own entry pop-in (styles.css's credits-pop-in keyframes)
+  // by playing that exact animation in reverse via .store-card-closing
+  // (animation-direction: reverse) rather than hand-authoring a separate
+  // fade-out - actually hiding the modal is deferred to 'animationend' so
+  // the shrink-and-fade is visible instead of the card just vanishing.
+  // prefers-reduced-motion skips straight to finishClose() the same way
+  // #storeCard's own entry animation is disabled for that media query.
+  const close = () => {
+    if (modal.hidden) return;
+    playStoreWhooshSound();
+    const card = document.getElementById('storeCard');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!card || reduceMotion) {
+      finishClose();
+      return;
+    }
+    // A hard timeout backstop, not just 'animationend' alone - reported
+    // live as the store's dark scrim staying stuck forever (game
+    // unplayable) on a device/browser where the event apparently never
+    // fired. `#storeModal`'s translucent backdrop sits above everything
+    // else at z-index 90 with no pointer-events:none, so a finishClose()
+    // that never runs blocks the entire board, not just the store itself
+    // - too severe a failure mode to depend on a single DOM event firing
+    // reliably. `done` guards against both firing (animationend then
+    // clearing the timeout, or vice versa).
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      card.removeEventListener('animationend', finish);
+      clearTimeout(fallbackTimer);
+      card.classList.remove('store-card-closing');
+      finishClose();
+    };
+    card.addEventListener('animationend', finish);
+    const fallbackTimer = setTimeout(finish, 400);
+    card.classList.add('store-card-closing');
   };
 
   closeBtn.addEventListener('click', close);
@@ -219,9 +283,13 @@ function wireItemButton(btn, character, wallet, item) {
   if (item.owned && item.item_type === 'cosmetic') {
     // Cosmetics stay actionable once owned - a toggle between wearing
     // this look and reverting to the default, rather than a dead-end
-    // "Owned" label.
+    // "Owned" label. "Try It On"/"Wearing It" rather than the plainer
+    // "Equip"/"Equipped" per explicit "more fun words" direction - fits
+    // the dressing-room/boutique framing this whole panel already uses
+    // (see the pedestal-scene comments above) better than generic
+    // game-UI inventory language.
     btn.disabled = false;
-    btn.textContent = item.equipped ? 'Equipped' : 'Equip';
+    btn.textContent = item.equipped ? 'Wearing It' : 'Try It On';
     btn.classList.toggle('store-item-equipped', item.equipped);
     btn.onclick = async () => {
       btn.disabled = true;
@@ -422,6 +490,7 @@ function refreshAfterChange() {
 export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange) {
   const modal = document.getElementById('storeModal');
   if (!modal) return;
+  playStoreWhooshSound();
   onWalletUpdateCallback = onWalletUpdate;
   onOutfitChangeCallback = onOutfitChange;
   // A fresh open shouldn't remember what a *previous* character's store

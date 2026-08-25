@@ -1,4 +1,4 @@
-import { isMusicMuted, isSfxMuted, toggleMusicMuted, toggleSfxMuted, playModalPopSound } from './audio.js?v=3';
+import { isMusicMuted, isSfxMuted, toggleMusicMuted, toggleSfxMuted, playModalPopSound } from './audio.js?v=4';
 
 function updateMusicButton(button) {
   const muted = isMusicMuted();

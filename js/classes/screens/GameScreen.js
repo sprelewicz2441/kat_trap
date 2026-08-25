@@ -20,7 +20,7 @@ import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=3';
+import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=4';
 import {
   drawRoundedRect,
   drawCatEarCard, drawCatEarInner,
@@ -29,7 +29,7 @@ import {
 } from '../../utils/canvasShapes.js';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { isLoggedIn, getWallets, getStore, getEquipped, submitRound } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=7';
+import { openStoreModal } from '../../utils/storeModal.js?v=11';
 import { getSpriteSrc } from '../../utils/outfits.js';
 
 // ==============================
@@ -1416,12 +1416,19 @@ export default class GameScreen {
     // (Mouse/Dog mode) has no "key held" concept at all, only tryMoveCat()'s
     // own return value.
     this.catMovedThisTick = false;
-    // this.running's value at the moment the settings menu opened — restored
-    // when it closes (see the settingsmenutoggle handler in init()), so
-    // closing the menu can never resume something that was already stopped
-    // for another reason (cutscenes, game over) just because the menu also
-    // happened to be open at the time.
-    this.wasRunningBeforeMenu = null;
+    // this.running's value at the moment the *first* pausing overlay
+    // (settings menu or store modal - see pauseForOverlay()/
+    // resumeForOverlay() below) opened, restored once every pausing
+    // overlay has closed again, so closing one can never resume something
+    // that was already stopped for another reason (cutscenes, game over)
+    // just because an overlay also happened to be open at the time.
+    this.wasRunningBeforeOverlay = null;
+    // How many pausing overlays are currently open - a counter rather
+    // than a boolean so two overlapping overlays (e.g. Escape closing the
+    // store while the settings menu also happens to be open) can't let
+    // the first one's close prematurely resume gameplay out from under
+    // the second, still-open one.
+    this.pausingOverlayCount = 0;
 
     this.sounds = this.loadSounds();
     this.playAgainButtonArea = null;
@@ -1456,9 +1463,6 @@ export default class GameScreen {
     // silently discard a sprite swap already applied to the *first*
     // Cat/Mouse/Dog instance the moment that fetch resolved before then.
     this.equippedOutfits = {};
-    // Mirrors wasRunningBeforeMenu's pattern for the settings menu - see
-    // storeModalToggleHandler in init().
-    this.wasRunningBeforeStore = null;
     this.cutsceneManager = new CutsceneManager(screenManager, canvas, ctx);
 
     this.floorPattern = null;
@@ -1502,56 +1506,24 @@ export default class GameScreen {
     document.addEventListener('musicmutechange', this.musicMuteChangeHandler);
 
     // Pauses gameplay while the settings menu (js/utils/settingsMenu.js) is
-    // open, resuming to whatever this.running actually was beforehand
-    // rather than unconditionally to true — see wasRunningBeforeMenu above.
-    // Also pauses/resumes the dog's own bark schedule (see Dog.js's
-    // pauseBarking()/resumeBarking()) — this.running gates the game loop's
-    // own update() (see update()'s own early return), but the dog's barks
-    // are scheduled via a plain setTimeout chain that runs on real
-    // wall-clock time regardless of this.running, so without this a bark
-    // could keep firing audibly while the menu sat open over a paused
-    // board. stopDogBarkSound() also cuts off a bark that's already
-    // mid-playback at the moment the menu opens, the same way endGame()
-    // does at round end.
+    // open - see pauseForOverlay()/resumeForOverlay() for what that
+    // actually does and why (this used to be hand-rolled separately here
+    // and in storeModalToggleHandler below; the two drifted once, which is
+    // exactly the bug those two methods exist to make impossible to repeat
+    // for a third overlay).
     this.settingsMenuToggleHandler = (e) => {
-      if (e.detail.open) {
-        this.wasRunningBeforeMenu = this.running;
-        this.running = false;
-        if (this.dog) {
-          this.dog.pauseBarking();
-          this.dog.pausePooping();
-        }
-        this.stopDogBarkSound();
-      } else if (this.wasRunningBeforeMenu !== null) {
-        this.running = this.wasRunningBeforeMenu;
-        this.wasRunningBeforeMenu = null;
-        // Only resume barking/pooping if play is actually resuming — if the
-        // menu was opened after the round had already ended, this.running
-        // restores to false (game over) and the dog should stay silent.
-        // resumePooping() is also skipped in Dog mode — the autonomous
-        // timer was never started there in the first place (see
-        // resetGameObjects()), and resuming it unconditionally here would
-        // start it for the first time in a mode where poop is meant to be
-        // player-triggered only.
-        if (this.running && this.dog) {
-          this.dog.resumeBarking();
-          if (this.controlledEntity !== 'dog') this.dog.resumePooping();
-        }
-      }
+      if (e.detail.open) this.pauseForOverlay();
+      else this.resumeForOverlay();
     };
     document.addEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
 
-    // Same pause/resume shape as settingsMenuToggleHandler above, for the
+    // Same shared pause/resume as settingsMenuToggleHandler above, for the
     // store modal (js/utils/storeModal.js) instead - opening the store
-    // mid-round shouldn't let gameplay keep running underneath it.
+    // mid-round shouldn't let gameplay (or the dog's bark/poop timers)
+    // keep running underneath it.
     this.storeModalToggleHandler = (e) => {
-      if (e.detail.open) {
-        this.wasRunningBeforeStore = this.running;
-        this.running = false;
-      } else if (this.wasRunningBeforeStore !== null) {
-        this.running = this.wasRunningBeforeStore;
-        this.wasRunningBeforeStore = null;
-      }
+      if (e.detail.open) this.pauseForOverlay();
+      else this.resumeForOverlay();
     };
     document.addEventListener('storemodaltoggle', this.storeModalToggleHandler);
 
@@ -3245,8 +3217,66 @@ export default class GameScreen {
     }
   }
 
+  // Shared by every pausing overlay (settings menu, store modal - see
+  // their toggle handlers in init()) rather than each hand-rolling its own
+  // running/bark/poop pause logic. This exists because that duplication
+  // already caused a real bug once: storeModalToggleHandler was originally
+  // written as a partial copy of settingsMenuToggleHandler that paused
+  // this.running but forgot the dog's bark/poop timers entirely (reported
+  // live as "a stray dog bark" with the store open), since those two
+  // handlers had no shared code to keep them in sync. Routing both (and
+  // any future overlay) through these two methods instead means there is
+  // exactly one place bark/poop pausing lives, so a third overlay gets it
+  // automatically just by calling these rather than needing to remember
+  // and re-copy the bark-specific bits by hand again.
+  //
+  // A counter, not a boolean, so two overlays open at once (however
+  // unlikely today) can't let the first one's close resume gameplay out
+  // from under the second, still-open one - only the transition into/out
+  // of "zero overlays open" actually touches this.running.
+  pauseForOverlay() {
+    if (this.pausingOverlayCount === 0) {
+      this.wasRunningBeforeOverlay = this.running;
+      this.running = false;
+      // this.running gates the game loop's own update() (see update()'s
+      // early return), but the dog's bark/poop timers are scheduled via
+      // plain setTimeout chains that run on real wall-clock time
+      // regardless of this.running, so without this they'd keep firing
+      // audibly over a paused board.
+      if (this.dog) {
+        this.dog.pauseBarking();
+        this.dog.pausePooping();
+      }
+      // Cuts off a bark that's already mid-playback at the moment the
+      // overlay opens, the same way endGame() does at round end -
+      // pauseBarking() above only stops *future* barks from being
+      // scheduled.
+      this.stopDogBarkSound();
+    }
+    this.pausingOverlayCount++;
+  }
+
+  resumeForOverlay() {
+    this.pausingOverlayCount = Math.max(0, this.pausingOverlayCount - 1);
+    if (this.pausingOverlayCount > 0) return;
+    if (this.wasRunningBeforeOverlay === null) return;
+    this.running = this.wasRunningBeforeOverlay;
+    this.wasRunningBeforeOverlay = null;
+    // Only resume barking/pooping if play is actually resuming - if every
+    // overlay closed after the round had already ended, this.running
+    // restores to false (game over) and the dog should stay silent.
+    // resumePooping() is also skipped in Dog mode - the autonomous timer
+    // was never started there in the first place (see resetGameObjects()),
+    // and resuming it unconditionally here would start it for the first
+    // time in a mode where poop is meant to be player-triggered only.
+    if (this.running && this.dog) {
+      this.dog.resumeBarking();
+      if (this.controlledEntity !== 'dog') this.dog.resumePooping();
+    }
+  }
+
   // Immediately silences a dog bark that's already mid-playback — shared by
-  // endGame() (round over) and the settingsMenuToggleHandler (menu opened
+  // endGame() (round over) and pauseForOverlay() (an overlay opened
   // mid-round) since both need to cut off a currently-playing clip, not
   // just stop future ones from being scheduled (that part is Dog.js's own
   // job, via cleanup()/pauseBarking()).

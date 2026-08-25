@@ -836,6 +836,23 @@ body.in-game #settingsMenu {
   }
 }
 
+/* Close mirror of #storeCard's own entry pop-in above - literally the
+   same credits-pop-in keyframes, played in reverse (animation-direction:
+   reverse) rather than a hand-authored fade-out, so open/close read as
+   one consistent motion. storeModal.js's close() adds this class, waits
+   for 'animationend', then actually hides the modal - see that file for
+   why (a plain [hidden] would just make the card vanish, skipping the
+   shrink-and-fade entirely). */
+#storeCard.store-card-closing {
+  animation: credits-pop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3) reverse forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #storeCard.store-card-closing {
+    animation: none;
+  }
+}
+
 /* Persistent header bar above whichever panel is showing - the one piece
    of chrome common to both storefronts. Sits on the card's own cream
    background (not overlaid on Bloomingtails' photo), so it reads as a
@@ -845,17 +862,30 @@ body.in-game #settingsMenu {
 #storeTabs {
   flex-shrink: 0;
   display: flex;
-  gap: 10px;
-  padding: 16px 56px 12px 20px;
+  gap: 12px;
+  padding: 20px 56px 16px 20px;
 }
 
+/* Reworked from a single-line pill (text, then the Bloomingtails logo
+   image in place of text) into a small icon on top with the actual
+   store name as real text underneath - both previous versions were
+   reported hard to read, worse on mobile, since a detailed logo image
+   (or even bold text) squeezed into a single-line pill has to shrink to
+   fit the tab bar and stops being legible well before a phone-sized tab
+   would need it to. Splitting icon and label lets the icon shrink freely
+   (it's decorative, not the legibility source) while the label stays a
+   comfortably readable fixed size regardless of how small the icon gets. */
 .store-tab {
-  padding: 8px 20px;
-  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-radius: 14px;
   border: 2px solid rgba(138, 43, 226, 0.25);
   background: rgba(255, 255, 255, 0.55);
   color: #5c2e8a;
-  font: 700 0.9rem/1.2 Arial, sans-serif;
+  font: 700 0.85rem/1.1 Arial, sans-serif;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
@@ -863,6 +893,62 @@ body.in-game #settingsMenu {
 
 .store-tab:active {
   transform: scale(0.96);
+}
+
+/* Bloomingtails' small icon reuses the exact same wordmark image as
+   #storeHeading (see its own comment above) rather than a separate icon
+   asset, so there's still one source of truth for the mark - it's just
+   decorative here (the visible .store-tab-label below carries the actual
+   name), so alt="" on the <img> in index.html to avoid a screen reader
+   announcing "Bloomingtails" twice back to back. */
+.store-tab-logo {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+
+/* Pawgreens' own icon, matched in visual weight to .store-tab-logo above
+   despite being an emoji rather than an image - reuses the same paw mark
+   as #pawgreensHeadingMark, since "paw" is this store's own name. */
+.store-tab-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.store-tab-label {
+  line-height: 1.1;
+}
+
+/* Touch shrink pass, per explicit "the button bar is too big on mobile"
+   direction - the desktop sizing above ate too much of a landscape
+   phone's limited vertical space. The icon shrinks the most aggressively
+   here (down to being barely legible on Bloomingtails' logo) since it's
+   purely decorative - .store-tab-label is what actually names the tab,
+   so it shrinks by far the least of anything in this block, staying the
+   priority element rather than scaling down in lockstep with everything
+   else. */
+@media (pointer: coarse) {
+  #storeTabs {
+    gap: 8px;
+    padding: 10px 46px 8px 12px;
+  }
+
+  .store-tab {
+    gap: 2px;
+    padding: 5px 10px;
+  }
+
+  .store-tab-logo {
+    height: 14px;
+  }
+
+  .store-tab-icon {
+    font-size: 0.85rem;
+  }
+
+  .store-tab-label {
+    font-size: 0.72rem;
+  }
 }
 
 /* Bloomingtails keeps its established purple/pink boutique gradient;
@@ -957,44 +1043,47 @@ body.in-game #settingsMenu {
   background: linear-gradient(0deg, rgba(20, 10, 30, 0.68), rgba(20, 10, 30, 0));
 }
 
-/* A real cartoon "logo" treatment per explicit direction ("branded in a
-   fun cartoony kind of logo, disneyfied") rather than the plain
-   gradient-clipped text this used to be - keeps that same gradient fill
-   (still reads as this store's own brand color) but adds a thick
-   contrasting outline via -webkit-text-stroke, the actual fix for
-   legibility against a busy photo backdrop that a drop-shadow alone
-   couldn't reliably provide (a shadow only darkens one side/direction; a
-   stroke outlines the whole glyph). The extra offset text-shadow layer
-   underneath is a flat "extrusion" - the classic bubble-logo look of a
-   solid color block sitting just behind the main fill, like a title-card
-   wordmark - with a second, blurred shadow on top of that for depth/lift
-   off the photo. */
+/* Full "bloomingtails" wordmark - including the furry curled tail
+   flowing out of the final "s" - as one generated image
+   (assets/bloomingtails_logo.png) rather than live text, replacing both
+   the earlier cartoon-bubble-logo text and the live-Allura-script-plus-
+   emoji-mark attempt that came after it. Neither text-based approach
+   could make a separately-placed tail glyph/graphic actually read as
+   part of the word - baking the tail into the wordmark itself, drawn as
+   one continuous stroke leaving the "s", is what finally made it read as
+   the word's own tail rather than decoration bolted on beside it. Same
+   image is reused by .store-tab-logo below for the tab pill, so there's
+   one source of truth for the whole mark. drop-shadow (not text-shadow,
+   since this is an <img> now) lifts it off the dark photo scrim the same
+   way the old text treatment's shadow did. */
 #storeHeading {
   margin: 0 0 4px;
-  font: 900 2.3rem/1.1 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #8a2be2, #ff8fb1 65%, #ffb238);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  /* -webkit-text-stroke alone is what actually gives this its cartoon-
-     logo outline without swallowing the gradient fill - two other
-     combinations were tried live and both failed: text-stroke *plus*
-     `paint-order: stroke fill` still rendered as a near-solid dark
-     silhouette, and a dense 8-direction ring of offset text-shadows
-     (meant to fake a stroke without touching -webkit-text-stroke at all)
-     fared even worse, since the shadow copies overlapped heavily enough
-     on this bold a font to read as a solid block behind the glyphs
-     rather than a thin edge. Isolating each layer live (temporarily
-     zeroing text-shadow, then testing stroke alone) is what found that
-     -webkit-text-stroke by itself, with no text-shadow at all in the mix,
-     renders exactly right - gradient fully visible, outline clean. The
-     one text-shadow kept here afterward is a soft blur only (no solid
-     offset layer) for lift off the photo, confirmed not to muddy the
-     stroke+gradient combination the way the earlier layered attempts
-     did. */
-  -webkit-text-stroke: 1.5px #3d1259;
-  text-shadow: 0 6px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* max-width/max-height (both, with width/height:auto) rather than a
+   width-only percentage - a width-only rule ignores the vertical space
+   #storeOverlayTop actually has, which is exactly what let this overflow
+   into and squish the rest of the overlay on short viewports (landscape
+   phones especially, since this game is landscape-only). Letting the
+   browser pick whichever bound actually binds keeps it correctly
+   proportioned either way. Touch gets its own, tighter caps below since
+   a landscape phone's viewport is far shorter than a desktop window's,
+   even though this game requires landscape on touch too. */
+#storeHeading img {
+  display: block;
+  max-width: min(600px, 70%);
+  max-height: 22vh;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+@media (pointer: coarse) {
+  #storeHeading img {
+    max-width: min(260px, 55%);
+    max-height: 14vh;
+  }
 }
 
 #storeWalletLine {
@@ -1120,6 +1209,35 @@ body.in-game #settingsMenu {
   display: none;
 }
 
+/* Touch shrink pass, per explicit "shift the character up / make the
+   button smaller so we can see the character on stage" direction - the
+   bottom overlay's name label + button are fixed px/rem sizes, not
+   percentage-based like the pedestal character's own position below, so
+   on a short landscape-phone viewport they ate a proportionally much
+   bigger bite of the scene than on desktop, crowding out the character.
+   #storePedestalCanvas also moves up (a bigger `bottom` percentage) to
+   give it more clearance from this now-shorter bottom band. */
+@media (pointer: coarse) {
+  #storeOverlayBottom {
+    padding-top: 14px;
+  }
+
+  #storePreviewName {
+    margin: 0 0 4px;
+    min-height: 1.2em;
+    font-size: 1rem;
+  }
+
+  #storePedestalActionBtn {
+    padding: 8px 14px;
+    font-size: 0.9rem;
+  }
+
+  #storePedestalCanvas {
+    bottom: 28%;
+  }
+}
+
 /* Pawgreens - a plain shopping list, deliberately not another pedestal
    (see index.html's own comment on #pawgreensPanel for why). Its own flex
    column so the backdrop banner stays fixed-height and the list scrolls
@@ -1153,6 +1271,16 @@ body.in-game #settingsMenu {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* The paw print originally on Bloomingtails' own heading, moved here
+   instead - "paw" is literally in this store's name, and unlike
+   Bloomingtails' dark photo scrim, this panel's own light green backdrop
+   (see #pawgreensBackdrop above) gives the paw plenty of natural
+   contrast with no glow/shadow treatment needed. */
+#pawgreensHeadingMark {
+  font-size: 1.3rem;
+  vertical-align: 0.02em;
 }
 
 #pawgreensWalletLine {
