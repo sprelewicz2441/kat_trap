@@ -234,6 +234,22 @@ function getPortraitImage(src) {
   return portraitImageCache[src];
 }
 
+// Per-character fit adjustment for the dressing-room pedestal only -
+// independent of PORTRAITS' crop rect and CharacterSelectScreen's own
+// sizing, which are untouched. Cat's portrait read too large against the
+// pedestal backdrop/scene at the default fit-to-box scale; multiplying the
+// scale down (rather than changing the crop) keeps the existing
+// bottom-anchored draw() below working unmodified - a smaller scale still
+// lands the character's feet exactly on canvas.height, it's only the
+// height *above* the feet that shrinks.
+const PEDESTAL_SIZE_MULTIPLIER = {
+  cat: 0.75,
+};
+
+function getPedestalSizeMultiplier(character) {
+  return PEDESTAL_SIZE_MULTIPLIER[character] ?? 1;
+}
+
 // Draws whichever cosmetic is currently being "tried on" onto the
 // dressing-room pedestal (#storePedestalCanvas) - same source-rect crop
 // technique CharacterSelectScreen's own character cards use (see
@@ -253,7 +269,8 @@ function drawPedestalPortrait(character, item) {
 
   const draw = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scale = Math.min(canvas.width / crop.sw, canvas.height / crop.sh);
+    const scale =
+      Math.min(canvas.width / crop.sw, canvas.height / crop.sh) * getPedestalSizeMultiplier(character);
     const dw = crop.sw * scale;
     const dh = crop.sh * scale;
     // Bottom-anchored, horizontally centered - "standing on the pedestal"
@@ -269,6 +286,49 @@ function drawPedestalPortrait(character, item) {
   }
 }
 
+// A synthetic slug for the character's own built-in look - never a real
+// StoreItem/slug from the backend (see buildDefaultCosmeticItem() below),
+// so it can't collide with previewedSlug's other sentinel value (null,
+// "nothing previewed yet").
+const DEFAULT_OUTFIT_SLUG = '__default__';
+
+// The default look isn't a StoreItem at all - it was never for sale, so
+// there's nothing to buy/own/sell. But the dressing room still needs a
+// real, always-present, always-free entry the player can cycle to and
+// equip explicitly (rather than only ever reaching it as a side effect of
+// un-equipping whatever else is worn) - this builds that entry client-side
+// each render rather than seeding a $0 row in kpground-api's catalog,
+// since "not sellable" and "always owned" would otherwise need their own
+// special-cased fields on a real StoreItem just for this one case.
+// sprite_src is left null - getSpriteSrc() already falls back to each
+// character's own DEFAULT_SPRITE_SRC when nothing's equipped, so drawing
+// this "item" reuses that exact same fallback rather than duplicating it.
+function buildDefaultCosmeticItem(realCosmetics) {
+  return {
+    slug: DEFAULT_OUTFIT_SLUG,
+    name: 'Default',
+    item_type: 'cosmetic',
+    slot: 'outfit',
+    sprite_src: null,
+    description: "This character's original look - always free to wear.",
+    cost: 0,
+    min_level: 1,
+    owned: true,
+    // No EquippedItem row for any real cosmetic means the backend is
+    // already serving the default look - mirror that same "nothing
+    // equipped" condition here instead of tracking it independently.
+    equipped: !realCosmetics.some((item) => item.equipped),
+    isDefault: true,
+  };
+}
+
+// The one list every cycle/preview/pick-a-fallback path should read from -
+// the default entry always first, then whatever's actually in the store.
+function getCosmeticsWithDefault(items) {
+  const realCosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  return [buildDefaultCosmeticItem(realCosmetics), ...realCosmetics];
+}
+
 // Shared Buy/Equip/Owned/locked logic for a single item - both
 // Bloomingtails' one pedestal button and each of Pawgreens' own per-row
 // buttons funnel through this so there's only one purchase/equip/state
@@ -279,6 +339,31 @@ function drawPedestalPortrait(character, item) {
 function wireItemButton(btn, character, wallet, item) {
   btn.onclick = null;
   btn.classList.remove('store-item-equipped');
+
+  if (item.isDefault) {
+    // Nothing to buy or toggle off here - "wearing" the default is just
+    // whatever state a real EquippedItem's absence already means, so
+    // equipping it is only ever unequip_slot() (a documented no-op if
+    // that's already the case, see kpground-api's services.py), never
+    // equip_item() with some item_slug.
+    btn.disabled = item.equipped;
+    btn.textContent = item.equipped ? 'Wearing It' : 'Try It On';
+    btn.classList.toggle('store-item-equipped', item.equipped);
+    if (!item.equipped) {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          await unequipItem(character, item.slot);
+          if (onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+          await refreshAfterChange();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = err.message || 'Failed';
+        }
+      };
+    }
+    return;
+  }
 
   if (item.owned && item.item_type === 'cosmetic') {
     // Cosmetics stay actionable once owned - a toggle between wearing
@@ -385,7 +470,7 @@ function spawnCoinPopup(anchorEl, amount) {
 // inside wireItemButton() itself. Hidden whenever the item isn't owned,
 // since there's nothing to sell back.
 function wireSellButton(sellBtn, character, item) {
-  if (!item.owned) {
+  if (!item.owned || item.isDefault) {
     sellBtn.hidden = true;
     sellBtn.onclick = null;
     return;
@@ -427,7 +512,9 @@ function wireSellButton(sellBtn, character, item) {
 function updateBloomingtailsPreview() {
   if (!currentState) return;
   const { character, wallet, items } = currentState;
-  const cosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  const cosmetics = getCosmeticsWithDefault(items);
+  // The default entry is always present, so this only stays null while
+  // currentState itself hasn't loaded yet.
   const item = cosmetics.find((i) => i.slug === previewedSlug) || null;
 
   drawPedestalPortrait(character, item);
@@ -455,8 +542,7 @@ function updateBloomingtailsPreview() {
 // to disable.
 function cycleOutfit(direction) {
   if (!currentState) return;
-  const cosmetics = currentState.items.filter((item) => item.item_type === 'cosmetic');
-  if (cosmetics.length === 0) return;
+  const cosmetics = getCosmeticsWithDefault(currentState.items);
 
   const currentIndex = cosmetics.findIndex((item) => item.slug === previewedSlug);
   const nextIndex =
@@ -552,12 +638,12 @@ async function renderItems(character, wallet) {
 
   // Keeps whatever cosmetic was already previewed if it still exists;
   // otherwise prefers the character's actually-equipped look (the
-  // "current outfit" is the natural thing to show first), falling back
-  // to the first cosmetic, or nothing at all if there are none.
-  const cosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  // "current outfit" is the natural thing to show first) - the default
+  // entry's own equipped flag already covers "nothing else is equipped",
+  // so this always finds something now, never falling through to null.
+  const cosmetics = getCosmeticsWithDefault(items);
   if (!cosmetics.some((item) => item.slug === previewedSlug)) {
-    const equipped = cosmetics.find((item) => item.equipped);
-    previewedSlug = (equipped || cosmetics[0] || null)?.slug ?? null;
+    previewedSlug = cosmetics.find((item) => item.equipped).slug;
   }
 
   if (currentTab === 'bloomingtails') {

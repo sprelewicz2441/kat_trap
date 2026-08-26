@@ -1071,8 +1071,11 @@ body.in-game #settingsMenu {
    even though this game requires landscape on touch too. */
 #storeHeading img {
   display: block;
-  max-width: min(600px, 70%);
-  max-height: 22vh;
+  /* 33% smaller than the original min(600px, 70%) / 22vh - the wordmark
+     was reading oversized against the dressing room's own pedestal
+     character/backdrop. */
+  max-width: min(400px, 47%);
+  max-height: 14.5vh;
   width: auto;
   height: auto;
   margin: 0 auto;
@@ -1081,8 +1084,8 @@ body.in-game #settingsMenu {
 
 @media (pointer: coarse) {
   #storeHeading img {
-    max-width: min(260px, 55%);
-    max-height: 14vh;
+    max-width: min(175px, 37%);
+    max-height: 9.5vh;
   }
 }
 
