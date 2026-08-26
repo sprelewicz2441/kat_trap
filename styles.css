@@ -1011,7 +1011,23 @@ body.in-game #settingsMenu {
 /* Gradient scrims behind the overlaid text/UI - the console-game
    convention for legible chrome over busy art, rather than a flat panel
    that would hide most of the photo. Anchored to the scene's own top/
-   bottom edges, full width. */
+   bottom edges, full width.
+
+   pointer-events:none on the scrim itself, re-enabled only on its actual
+   interactive children below - #storeOverlayBottom's height is driven by
+   its own content (name/badge/button/sell-button, auto-height, growing
+   upward from `bottom: 0`), while #storePrevOutfitBtn/#storeNextOutfitBtn
+   sit at a fixed `top: 50%` of the scene, entirely independent of that
+   height. An owned cosmetic stacks an extra "Owned" badge *and* a sell
+   button on top of the plain name+button an unowned/default one shows,
+   which was enough on a shorter viewport for this box to grow tall enough
+   to visually cover the arrows - and since it comes later in the DOM, it
+   painted over them and silently ate the click with zero console error
+   (reported live as the arrows "stopping working," only for owned items,
+   only on shorter windows). Letting clicks pass through the scrim itself
+   fixes this regardless of how tall the content stack ever grows, rather
+   than trying to keep the arrows and this box's height from ever
+   overlapping again. */
 #storeOverlayTop,
 #storeOverlayBottom {
   position: absolute;
@@ -1019,6 +1035,12 @@ body.in-game #settingsMenu {
   right: 0;
   padding: 14px 24px;
   text-align: center;
+  pointer-events: none;
+}
+
+#storeOverlayTop > *,
+#storeOverlayBottom > * {
+  pointer-events: auto;
 }
 
 #storeOverlayTop {
