@@ -306,7 +306,7 @@ const DEFAULT_OUTFIT_SLUG = '__default__';
 function buildDefaultCosmeticItem(realCosmetics) {
   return {
     slug: DEFAULT_OUTFIT_SLUG,
-    name: 'Default',
+    name: 'Original Look',
     item_type: 'cosmetic',
     slot: 'outfit',
     sprite_src: null,
@@ -531,6 +531,12 @@ function updateBloomingtailsPreview() {
 
   const nameEl = document.getElementById('storePreviewName');
   nameEl.textContent = item ? item.name : '';
+
+  // The default entry is always "available" but was never bought - only a
+  // real purchased cosmetic should read as "Owned" here, otherwise every
+  // character's own built-in look would confusingly claim to be owned too.
+  const ownedBadge = document.getElementById('storePreviewOwnedBadge');
+  ownedBadge.hidden = !item || item.isDefault || !item.owned;
 
   const hasOutfits = cosmetics.length > 0;
   document.getElementById('storePrevOutfitBtn').hidden = !hasOutfits;
