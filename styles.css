@@ -1013,21 +1013,27 @@ body.in-game #settingsMenu {
    that would hide most of the photo. Anchored to the scene's own top/
    bottom edges, full width.
 
-   pointer-events:none on the scrim itself, re-enabled only on its actual
-   interactive children below - #storeOverlayBottom's height is driven by
-   its own content (name/badge/button/sell-button, auto-height, growing
-   upward from `bottom: 0`), while #storePrevOutfitBtn/#storeNextOutfitBtn
-   sit at a fixed `top: 50%` of the scene, entirely independent of that
-   height. An owned cosmetic stacks an extra "Owned" badge *and* a sell
-   button on top of the plain name+button an unowned/default one shows,
-   which was enough on a shorter viewport for this box to grow tall enough
-   to visually cover the arrows - and since it comes later in the DOM, it
-   painted over them and silently ate the click with zero console error
-   (reported live as the arrows "stopping working," only for owned items,
-   only on shorter windows). Letting clicks pass through the scrim itself
-   fixes this regardless of how tall the content stack ever grows, rather
-   than trying to keep the arrows and this box's height from ever
-   overlapping again. */
+   pointer-events:none on the scrim itself, re-enabled only on the actual
+   buttons inside it (not *every* child - see below) - #storeOverlayBottom's
+   height is driven by its own content (name/badge/button/sell-button,
+   auto-height, growing upward from `bottom: 0`), while
+   #storePrevOutfitBtn/#storeNextOutfitBtn sit at a fixed `top: 50%` of the
+   scene, entirely independent of that height. An owned cosmetic stacks an
+   extra "Owned" badge *and* a sell button on top of the plain name+button
+   an unowned/default one shows, tall enough on a real landscape-phone
+   viewport (do the math: a 390px-tall touch viewport clamps the card to
+   applyModalSizing()'s 340px floor, leaving only a ~282px scene once the
+   touch-shrunk tab bar is subtracted - the arrows then sit at y 119-163,
+   while an owned item's overlay content stack runs to ~148px tall, putting
+   its own top edge at y=134, a real ~29px overlap with the arrows' own
+   circles) to visually cover the arrows. Since it comes later in the DOM,
+   it paints over them; with no pointer-events set at all, it silently ate
+   the click with zero console error (reported live as the arrows
+   "stopping working," only for owned items, only once actually measured on
+   a touch-sized viewport rather than a merely-shortened desktop window).
+   Letting clicks pass through the scrim itself fixes this regardless of
+   how tall the content stack ever grows, rather than trying to keep the
+   arrows and this box's height from ever overlapping again. */
 #storeOverlayTop,
 #storeOverlayBottom {
   position: absolute;
@@ -1038,8 +1044,17 @@ body.in-game #settingsMenu {
   pointer-events: none;
 }
 
-#storeOverlayTop > *,
-#storeOverlayBottom > * {
+/* Only the actual buttons need clicks - #storePreviewName and the owned
+   badge are plain display text with no handler of their own. A first pass
+   re-enabled pointer-events on *every* direct child of #storeOverlayBottom,
+   which included that name label - a block-level <p> spanning the overlay's
+   full width, so wherever its own row happened to fall inside the overlap
+   computed above, it silently re-captured the click instead of letting it
+   pass through to the arrow underneath (confirmed live: only the outer
+   edges of each arrow's circle - the part furthest from that text row -
+   kept working). Scoping this to `button` only removes that second
+   pass-through gap without reintroducing the original bug. */
+#storeOverlayBottom button {
   pointer-events: auto;
 }
 
