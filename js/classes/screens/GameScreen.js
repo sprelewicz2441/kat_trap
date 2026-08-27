@@ -18,7 +18,7 @@ import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
 import CharacterSelectScreen from './CharacterSelectScreen.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
-import { getScale, getUIScale, getFurnitureScale, getCharacterScale } from '../../utils/scale.js?v=1';
+import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=5';
 import {
@@ -40,6 +40,8 @@ import {
 } from '../../utils/api.js';
 import { openStoreModal } from '../../utils/storeModal.js?v=23';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
+import CoinBadgeButton from '../../utils/canvasButton.js?v=1';
+import { drawTooltip } from '../../utils/tooltip.js?v=1';
 
 // ==============================
 //  CONSTANTS
@@ -858,7 +860,7 @@ const BASE_FLOOR_TILE_SIZE = 24;
 // getHudLayout() adds this on top of wallBandThickness (not from the raw
 // canvas edge), same fix as the store button's own wall-clearance below,
 // so the HUD doesn't sit flush against the wall regardless of world scale.
-const BASE_HUD_MARGIN = 10;
+const BASE_HUD_MARGIN = 3;
 const BASE_HUD_PADDING = 14;
 const BASE_HUD_WIDTH = 440;
 const BASE_HUD_STAT_ROW_HEIGHT = 32;
@@ -905,14 +907,13 @@ const HUD_STATS = [
   },
 ];
 
-// Store button - a floating circular "FAB" pinned to the canvas's top-right
-// corner, deliberately independent of the HUD box's own position/width (see
-// drawStoreButton()) rather than tucked just below it. storeButtonMargin is
-// the gap beyond the wall band, not from the raw canvas edge - drawStoreButton()
-// adds this.layout.wallBandThickness on top of it so the button always
-// clears the wall regardless of world scale.
+// Store button - a coin-medallion badge pinned bottom-center on the game
+// board, independent of the HUD box's own position/width. storeButtonMargin
+// is the gap beyond the wall band, not from the raw canvas edge -
+// drawStoreButton() adds this.layout.wallBandThickness on top of it so the
+// button always clears the wall regardless of world scale.
 const BASE_STORE_BUTTON_SIZE = 56;
-const BASE_STORE_BUTTON_MARGIN = 15;
+const BASE_STORE_BUTTON_MARGIN = 3;
 const BASE_STORE_BUTTON_ICON_SIZE = 26;
 const BASE_STORE_BUTTON_LABEL_FONT_SIZE = 12;
 
@@ -1170,23 +1171,37 @@ function computeLayout(canvasWidth) {
     modalButtonRadius: BASE_MODAL_BUTTON_RADIUS * uiScale,
     modalButtonFontSize: Math.max(BASE_MODAL_BUTTON_FONT_SIZE * uiScale, MIN_MODAL_BUTTON_FONT_SIZE),
     floorTileSize: BASE_FLOOR_TILE_SIZE * scale,
-    hudMargin: BASE_HUD_MARGIN * uiScale,
-    hudPadding: BASE_HUD_PADDING * uiScale,
-    hudWidth: BASE_HUD_WIDTH * uiScale,
-    hudStatRowHeight: BASE_HUD_STAT_ROW_HEIGHT * uiScale,
-    hudRadius: BASE_HUD_RADIUS * uiScale,
-    hudFontSize: BASE_HUD_FONT_SIZE * uiScale,
-    hudXpBarHeight: BASE_HUD_XP_BAR_HEIGHT * uiScale,
-    hudTooltipFontSize: BASE_HUD_TOOLTIP_FONT_SIZE * uiScale,
-    hudTooltipPadding: BASE_HUD_TOOLTIP_PADDING * uiScale,
-    hudTooltipMaxWidth: BASE_HUD_TOOLTIP_MAX_WIDTH * uiScale,
+    // HUD and store-button sizing use `scale` (the same proportional-with-
+    // board-size factor characters/furniture/walls use), not `uiScale` -
+    // these are persistent chrome sitting *in* the board, not a one-off
+    // modal button/message, so they need to shrink right along with the
+    // board on a small canvas the way furniture already does. Using
+    // uiScale here previously meant that on an actual mobile canvas (which
+    // is genuinely narrower than the 1280px reference, gutters included)
+    // the HUD stayed close to its "always tap-friendly-sized" floor while
+    // the board around it kept shrinking, so it ballooned to nearly the
+    // full board width - confirmed live and reported as "the HUDs and
+    // icons are both too big" on mobile. See CoinBadgeButton's own
+    // MAX_PANEL_WIDTH_FRACTION (js/utils/canvasButton.js) for the second
+    // half of that fix - a hard width cap on the store button's own panel,
+    // independent of this scale choice.
+    hudMargin: BASE_HUD_MARGIN * scale,
+    hudPadding: BASE_HUD_PADDING * scale,
+    hudWidth: BASE_HUD_WIDTH * scale,
+    hudStatRowHeight: BASE_HUD_STAT_ROW_HEIGHT * scale,
+    hudRadius: BASE_HUD_RADIUS * scale,
+    hudFontSize: BASE_HUD_FONT_SIZE * scale,
+    hudXpBarHeight: BASE_HUD_XP_BAR_HEIGHT * scale,
+    hudTooltipFontSize: BASE_HUD_TOOLTIP_FONT_SIZE * scale,
+    hudTooltipPadding: BASE_HUD_TOOLTIP_PADDING * scale,
+    hudTooltipMaxWidth: BASE_HUD_TOOLTIP_MAX_WIDTH * scale,
     dooberPopupFontSize: BASE_DOOBER_POPUP_FONT_SIZE * uiScale,
     hudCoinImpactMaxRadius: BASE_HUD_COIN_IMPACT_MAX_RADIUS * uiScale,
     hudCoinImpactSparkLength: BASE_HUD_COIN_IMPACT_SPARK_LENGTH * uiScale,
-    storeButtonSize: BASE_STORE_BUTTON_SIZE * uiScale,
-    storeButtonMargin: BASE_STORE_BUTTON_MARGIN * uiScale,
-    storeButtonIconSize: BASE_STORE_BUTTON_ICON_SIZE * uiScale,
-    storeButtonLabelFontSize: BASE_STORE_BUTTON_LABEL_FONT_SIZE * uiScale,
+    storeButtonSize: BASE_STORE_BUTTON_SIZE * scale,
+    storeButtonMargin: BASE_STORE_BUTTON_MARGIN * scale,
+    storeButtonIconSize: BASE_STORE_BUTTON_ICON_SIZE * scale,
+    storeButtonLabelFontSize: BASE_STORE_BUTTON_LABEL_FONT_SIZE * scale,
     catSizeApprox: BASE_CAT_SIZE * characterScale,
     mouseSizeApprox: BASE_MOUSE_SIZE * characterScale,
     dogSizeApprox: BASE_DOG_SIZE * characterScale,
@@ -1351,15 +1366,26 @@ export default class GameScreen {
 
     // Hit boxes for each HUD stat chip (rebuilt every drawHud() call) and
     // which one, if any, the mouse is currently over - see
-    // handleMouseMove()/drawHudTooltip(). null/[] until the wallet loads
+    // handleMouseMove()/js/utils/tooltip.js. null/[] until the wallet loads
     // and drawHud() actually draws something to hover over.
     this.hudStatAreas = [];
     this.hoveredHudStatIndex = null;
-    // Same hover-tooltip pattern as the HUD stat chips, for the store
-    // button's own hover tooltip (see drawStoreButton()/handleMouseMove()).
-    this.storeButtonHovered = false;
+    // Owns its own panel/coin geometry, hit-testing, hover state, and
+    // tooltip - see js/utils/canvasButton.js. Recomputed every frame in
+    // drawStoreButton() via .layout(), same as hudStatAreas above.
+    this.storeButton = new CoinBadgeButton({
+      icon: '\u{1F3EC}', // 🏬
+      label: 'Barking-ham Plaza',
+      tooltipDescription: 'Fetch the best deals in town!',
+    });
 
     this.running = false;
+    // true only for the span between startCutscenes() and startGame() -
+    // see render()/handleClick() for why this needs to be its own flag
+    // rather than inferred from this.running (which is also false during
+    // that span, but for a different reason, and stays false longer than
+    // cutscenes actually play in the skipCutscenes/"Play Again" path).
+    this.cutscenesActive = false;
     this.catPaused = false;
     this.pauseEndTime = 0;
     this.dogCollisionCooldown = 0;
@@ -1467,7 +1493,6 @@ export default class GameScreen {
     // at all" (never logged in, or the round hasn't ended yet).
     this.walletAtRoundStart = null;
     this.roundRewardBreakdown = null;
-    this.storeButtonArea = null;
     // Perk slugs the *controlled* character's wallet owns (see init()'s
     // getStore() fetch) - stays empty (every perk check below just no-ops)
     // if never logged in or the fetch fails, same degrade-gracefully shape
@@ -1577,14 +1602,28 @@ export default class GameScreen {
     this.clickHandler = this.handleClick.bind(this);
     this.canvas.addEventListener('click', this.clickHandler);
 
-    // HUD stat hover tooltip (see drawHudTooltip()) - a plain mousemove
-    // listener rather than per-shape DOM elements, matching this game's
-    // existing convention of hand-rolled AABB hit-testing (isClickInside)
-    // over the canvas's own drawn regions. Touch devices simply never fire
-    // mousemove without a cursor, so this is naturally desktop-only,
-    // exactly the "hover" behavior it's meant to be.
+    // HUD stat hover tooltip - a plain mousemove listener rather than
+    // per-shape DOM elements, matching this game's existing convention of
+    // hand-rolled AABB hit-testing (isClickInside) over the canvas's own
+    // drawn regions. NOT naturally desktop-only, despite appearances - a
+    // touchscreen tap fires one synthetic 'mousemove' as part of the
+    // browser's click-compatibility shim, which would otherwise latch
+    // whatever it hit-tested against as "hovered" forever (no further
+    // mousemove ever follows on a touchscreen); handleMouseMove() and
+    // CoinBadgeButton both guard against this explicitly with isTouch()
+    // rather than relying on mousemove happening to never fire.
     this.mouseMoveHandler = this.handleMouseMove.bind(this);
     this.canvas.addEventListener('mousemove', this.mouseMoveHandler);
+    // A real mouse leaving the canvas entirely (onto page chrome, or a
+    // shrunk browser window's letterboxing) fires 'mouseleave', not
+    // 'mousemove' - without clearing hover state here too, whatever was
+    // last hovered stayed stuck showing its tooltip until the cursor
+    // crossed back over the canvas and off it again.
+    this.mouseLeaveHandler = () => {
+      this.hoveredHudStatIndex = null;
+      this.storeButton.hovered = false;
+    };
+    this.canvas.addEventListener('mouseleave', this.mouseLeaveHandler);
 
     this.tootHandler = () => {
       this.playSound(SOUND_KEYS.TOOT);
@@ -1940,6 +1979,12 @@ export default class GameScreen {
   }
 
   startCutscenes() {
+    // Tells render()/handleClick() to sit out entirely while
+    // CutsceneManager owns the canvas - see render()'s own comment for
+    // why that matters (a real bug otherwise, not just wasted paint).
+    // Cleared in startGame() once CutsceneManager reports it's done.
+    this.cutscenesActive = true;
+
     const { scale, characterScale } = this.layout;
     const catAnimation = new Cat(0, 0, this.canvas.width, this.canvas.height, scale, characterScale);
     const mouseAnimation = new Mouse(0, 0, this.canvas.width, this.canvas.height, scale, characterScale);
@@ -1966,6 +2011,7 @@ export default class GameScreen {
   }
 
   startGame() {
+    this.cutscenesActive = false;
     if (this.cutsceneDog) this.cutsceneDog.cleanup();
     this.resetGameObjects();
     this.running = true;
@@ -1979,13 +2025,26 @@ export default class GameScreen {
   }
 
   handleClick(event) {
+    // The board's HUD/store button are never interactive while cutscenes
+    // own the canvas - render() already skips drawing/laying them out in
+    // that state (see render()), so this.storeButton.area stays whatever
+    // it was before cutscenes started (null for a fresh round). This check
+    // is the same rule stated explicitly rather than relied on as a side
+    // effect - GameScreen's own click listener and the CutsceneManager's
+    // rendering loop are two independent loops on the same canvas (see
+    // CutsceneManager.js), and a click landing inside the board's store-
+    // button hit box while the cutscene's own "Next" button happens to
+    // occupy the same screen space was a real, reproduced bug (confirmed
+    // on a narrow/touch canvas, where the two can genuinely overlap).
+    if (this.cutscenesActive) return;
+
     const { offsetX, offsetY } = event;
 
     // Checked before the gameOver branch below, but naturally excluded
-    // from it anyway since drawHud() (see render()) never draws the store
-    // button once this.gameOver is true - the game-over modal's own scrim
-    // covers it regardless.
-    if (this.isClickInside(offsetX, offsetY, this.storeButtonArea)) {
+    // from it anyway since render() (see render()) never lays out the
+    // store button once this.gameOver is true - the game-over modal's own
+    // scrim covers it regardless.
+    if (this.storeButton.containsPoint(offsetX, offsetY)) {
       this.openStore();
       return;
     }
@@ -2003,14 +2062,31 @@ export default class GameScreen {
   }
 
   // Tracks which HUD stat chip (if any) the mouse is currently over, for
-  // drawHud()'s hover tooltip (see drawHudTooltip()) - just a hit-test
-  // against whatever this.hudStatAreas the last drawHud() call produced,
-  // same isClickInside() helper the click handler already uses.
+  // drawHud()'s hover tooltip - just a hit-test against whatever
+  // this.hudStatAreas the last drawHud() call produced, same
+  // isClickInside() helper the click handler already uses. Also updates
+  // the store button's own hover state (see js/utils/canvasButton.js).
+  //
+  // Gated behind !isTouch() - a touch tap fires one synthetic 'mousemove'
+  // as part of the browser's click-compatibility shim (the same mechanism
+  // that lets old mouse-only sites work on a touchscreen), which set
+  // hoveredHudStatIndex/the store button's hover exactly once per tap and
+  // then never cleared it again, since no further mousemove ever follows
+  // on a touchscreen - reported live as the store button's hover tooltip
+  // "showing immediately, stuck until you tap away." CoinBadgeButton
+  // already guards its own hover internally (see updateHover() there); the
+  // HUD stat tooltip had the identical latent bug and is guarded here for
+  // the same reason.
   handleMouseMove(event) {
+    if (this.cutscenesActive || isTouch()) {
+      this.hoveredHudStatIndex = null;
+      return;
+    }
+
     const { offsetX, offsetY } = event;
     const index = this.hudStatAreas.findIndex((area) => this.isClickInside(offsetX, offsetY, area));
     this.hoveredHudStatIndex = index === -1 ? null : index;
-    this.storeButtonHovered = this.isClickInside(offsetX, offsetY, this.storeButtonArea);
+    this.storeButton.updateHover(offsetX, offsetY);
   }
 
   // "Play Again" now returns to character select rather than immediately
@@ -2051,6 +2127,7 @@ export default class GameScreen {
     document.removeEventListener('storemodaltoggle', this.storeModalToggleHandler);
     this.canvas.removeEventListener('click', this.clickHandler);
     this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
+    this.canvas.removeEventListener('mouseleave', this.mouseLeaveHandler);
     if (this.inputHandler) this.inputHandler.cleanup();
     if (this.dog) this.dog.cleanup();
   }
@@ -3173,9 +3250,10 @@ export default class GameScreen {
   endGame(message, soundKey, isWin) {
     this.running = false;
     this.gameOver = true;
-    // render() stops calling drawHud() once gameOver is true (see render()),
-    // so this would otherwise be a stale hit area sitting under the modal.
-    this.storeButtonArea = null;
+    // render() stops laying out the store button once gameOver is true
+    // (see render()), so this would otherwise be a stale hit area sitting
+    // under the modal.
+    this.storeButton.area = null;
     this.message = message;
     this.gameOverIsWin = isWin;
     this.gameOverStartTime = performance.now();
@@ -3377,6 +3455,22 @@ export default class GameScreen {
   }
 
   render() {
+    // CutsceneManager runs its own independent requestAnimationFrame loop
+    // (see cutscenes/CutsceneManager.js) that clears and redraws this same
+    // canvas every frame, completely separate from this render() call -
+    // the two loops aren't coordinated by anything. Drawing the board here
+    // too would just be paved over a moment later, but it isn't harmless:
+    // it also lays out (and hit-tests) this.storeButton/this.hudStatAreas
+    // against whatever the *board's* layout happens to be, which can
+    // genuinely overlap the cutscene's own "Next" button on some canvas
+    // sizes - confirmed live as a real bug (tapping Next opened the store
+    // instead of/as well as advancing the cutscene) on a narrow/touch
+    // canvas. Bailing out entirely here is what keeps this.storeButton.area
+    // null for the whole cutscene phase, which is what actually makes
+    // handleClick()'s own cutscenesActive guard redundant-but-safe rather
+    // than load-bearing on its own.
+    if (this.cutscenesActive) return;
+
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawFloor();
     this.drawWalls();
@@ -3407,8 +3501,8 @@ export default class GameScreen {
       this.displayGameOverModal();
     } else {
       // Only live during active play - the game-over modal's own scrim
-      // covers this area anyway, and storeButtonArea is nulled out below
-      // so a click can't land on where the button used to be.
+      // covers this area anyway, and this.storeButton.area is nulled out
+      // below so a click can't land on where the button used to be.
       this.drawHud();
       this.drawStoreButton();
       // Drawn after the HUD so a flying "+N" visibly lands on top of the
@@ -3478,7 +3572,7 @@ export default class GameScreen {
   // differently-styled stacked rows.
   drawHud() {
     if (!this.wallet) {
-      this.storeButtonArea = null;
+      this.storeButton.area = null;
       this.hudStatAreas = [];
       return;
     }
@@ -3561,182 +3655,47 @@ export default class GameScreen {
     // Hover tooltip, drawn last so it sits on top of the HUD it's
     // explaining - see handleMouseMove() for how hoveredHudStatIndex gets
     // set. The store button (see drawStoreButton()) lives outside the HUD
-    // box now and draws itself separately.
+    // box now and draws its own tooltip itself.
     if (this.hoveredHudStatIndex !== null && this.hudStatAreas[this.hoveredHudStatIndex]) {
-      this.drawHudTooltip(this.hudStatAreas[this.hoveredHudStatIndex]);
+      const { hudTooltipFontSize, hudTooltipPadding, hudTooltipMaxWidth } = this.layout;
+      drawTooltip(this.ctx, this.hudStatAreas[this.hoveredHudStatIndex], {
+        placement: 'below',
+        fontSize: hudTooltipFontSize,
+        padding: hudTooltipPadding,
+        maxWidth: hudTooltipMaxWidth,
+        canvasWidth: this.canvas.width,
+      });
     }
   }
 
-  // Store button - a coin-medallion badge (milled edge, embossed inner
-  // bezel, a mall/department-store icon) sitting on its own backing panel,
-  // pinned bottom-center on the game board. The panel exists because the
-  // coin alone had no guaranteed contrast - it's drawn directly on whatever
-  // furniture the procedural kitchen layout happens to place underneath it,
-  // and a real screenshot review showed it half-disappearing into a wood
-  // counter (the HUD's own dark chip has the identical problem over the
-  // stove/sink, a separate pre-existing issue left alone for now). "Deep
-  // Plum" was picked specifically because it's a hue the kitchen art itself
-  // never produces (wood, stainless, cream tile), so it can't coincide with
-  // the board regardless of what furniture lands there, at an opacity (0.78)
-  // bumped well past the HUD's own 0.6 for the same reason. Renamed from the
-  // plain "Store" to "Barking-ham Plaza" (a Buckingham Palace pun fitting
-  // the dog-punny character names elsewhere - Poop, Dummy) - the panel width
-  // is measured against this text rather than assumed, since it's a lot
-  // longer than "Store" was. Deliberately horizontally centered rather than
-  // tucked in a corner - this is meant to become the first of a row of
-  // bottom-center action buttons (more are planned), so any future sibling
-  // should offset off this same centerX rather than picking its own
-  // independent anchor. Gated on this.wallet exactly like the old in-HUD
-  // button was - no login means no economy UI at all. The coin itself stays
-  // still at rest (an earlier idle-bob version was flagged as unwanted) but
-  // gets a playful wiggle-and-pop on hover, driven by this.storeButtonHovered
-  // (see handleMouseMove()) - animation reserved for an actual interaction
-  // rather than looping forever whether or not anyone's looking at it.
+  // Store button - a coin-medallion badge (see js/utils/canvasButton.js's
+  // CoinBadgeButton) pinned bottom-center on the game board. This method's
+  // only job is translating GameScreen's own layout numbers into that
+  // component's layout() call each frame and drawing it - all the panel/
+  // coin/hover/tooltip mechanics live in the component itself now, reusable
+  // for any future sibling in this same bottom-center action row (more are
+  // planned) without copy-pasting them again. Gated on this.wallet exactly
+  // like the old in-HUD button was - no login means no economy UI at all.
   drawStoreButton() {
     if (!this.wallet) {
-      this.storeButtonArea = null;
+      this.storeButton.area = null;
       return;
     }
 
     const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize, wallBandThickness } =
       this.layout;
-    // wallBandThickness pushes the panel clear of the wall band drawn by
-    // drawWalls() - a flat uiScale-only margin alone left it sitting right
-    // on top of the wall on some canvas sizes.
-    const edgeMargin = wallBandThickness + storeButtonMargin;
-    const radius = storeButtonSize / 2;
-    const centerX = this.canvas.width / 2;
-    const labelText = 'Barking-ham Plaza';
-
-    // Panel geometry - sized around the one coin today, with modest
-    // breathing room rather than pre-drawing empty slots for buttons that
-    // don't exist yet. Bottom edge sits edgeMargin above the wall; the coin
-    // and caption stack inside it top to bottom.
-    const panelPaddingX = storeButtonSize * 0.35;
-    const panelPaddingTop = storeButtonSize * 0.18;
-    const panelPaddingBottom = storeButtonSize * 0.16;
-    const labelGap = storeButtonLabelFontSize * 0.5;
-    const labelHeight = storeButtonLabelFontSize * 1.4;
-    this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
-    const labelTextWidth = this.ctx.measureText(labelText).width;
-    // Whichever needs more room - the coin or "Barking-ham Plaza" itself
-    // (a lot wider than the old plain "Store") - decides the panel's width.
-    const panelWidth = Math.max(storeButtonSize + panelPaddingX * 2, labelTextWidth + panelPaddingX * 2);
-    const panelHeight = panelPaddingTop + storeButtonSize + labelGap + labelHeight + panelPaddingBottom;
-    const panelX = centerX - panelWidth / 2;
-    const panelBottomY = this.canvas.height - edgeMargin;
-    const panelTopY = panelBottomY - panelHeight;
-    const panelRadius = Math.min(panelWidth, panelHeight) * 0.28;
-
-    const centerY = panelTopY + panelPaddingTop + radius;
-
-    // Click/tap target covers the whole panel, not just the coin - a
-    // bigger, more forgiving hit area for what's now a single cohesive
-    // badge rather than a bare icon.
-    this.storeButtonArea = {
-      x: panelX,
-      y: panelTopY,
-      width: panelWidth,
-      height: panelHeight,
-      centerX,
-      label: labelText,
-      description: 'Fetch the best deals in town!',
-    };
-
-    this.ctx.save();
-    drawRoundedRect(this.ctx, panelX, panelTopY, panelWidth, panelHeight, panelRadius);
-    this.ctx.fillStyle = 'rgba(58, 24, 74, 0.78)';
-    this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-    this.ctx.lineWidth = 1;
-    this.ctx.stroke();
-    this.ctx.restore();
-
-    this.ctx.save();
-    if (this.storeButtonHovered) {
-      // A quick wiggle-and-pop rather than a continuous idle animation -
-      // only runs while the mouse is actually over the button, so it reads
-      // as a response to attention rather than motion for its own sake.
-      const wiggleAngle = Math.sin(performance.now() / 150) * (Math.PI / 24);
-      this.ctx.translate(centerX, centerY);
-      this.ctx.rotate(wiggleAngle);
-      this.ctx.scale(1.08, 1.08);
-      this.ctx.translate(-centerX, -centerY);
-    }
-    this.ctx.beginPath();
-    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    // A real gold-coin palette (pale-gold highlight -> rich gold -> bronze
-    // shadow) rather than the earlier teal-to-gold brand gradient - that
-    // combination read as sickly/bilious at this size, and gold-on-gold is
-    // the more honest read for an actual coin anyway.
-    const gradient = this.ctx.createLinearGradient(
-      centerX - radius,
-      centerY - radius,
-      centerX + radius,
-      centerY + radius
-    );
-    gradient.addColorStop(0, '#fff3b0');
-    gradient.addColorStop(0.55, '#f0b429');
-    gradient.addColorStop(1, '#9c6510');
-    this.ctx.fillStyle = gradient;
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    this.ctx.shadowBlur = 6;
-    this.ctx.shadowOffsetY = 2;
-    this.ctx.fill();
-    this.ctx.shadowColor = 'transparent';
-    this.ctx.shadowBlur = 0;
-    this.ctx.shadowOffsetY = 0;
-    this.ctx.strokeStyle = 'rgba(40, 30, 10, 0.35)';
-    this.ctx.lineWidth = Math.max(1.5, storeButtonSize * 0.025);
-    this.ctx.stroke();
-
-    // Milled coin edge - a ring of short radial ticks just inside the rim,
-    // one continuous path/stroke rather than a per-tick draw call.
-    const tickCount = 28;
-    this.ctx.beginPath();
-    for (let i = 0; i < tickCount; i++) {
-      const angle = (i / tickCount) * Math.PI * 2;
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      this.ctx.moveTo(centerX + cos * radius * 0.88, centerY + sin * radius * 0.88);
-      this.ctx.lineTo(centerX + cos * radius * 0.97, centerY + sin * radius * 0.97);
-    }
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-    this.ctx.lineWidth = Math.max(1, storeButtonSize * 0.018);
-    this.ctx.stroke();
-
-    // Embossed inner bezel ring - the "coin face" boundary the icon sits
-    // inside of.
-    this.ctx.beginPath();
-    this.ctx.arc(centerX, centerY, radius * 0.78, 0, Math.PI * 2);
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-    this.ctx.lineWidth = Math.max(1, storeButtonSize * 0.02);
-    this.ctx.stroke();
-
-    this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('\u{1F3EC}', centerX, centerY + 1); // 🏬
-    this.ctx.restore();
-
-    // Caption sits directly on the plum panel now, not its own nested pill
-    // - the panel already supplies the contrast a floating label used to
-    // need on its own.
-    this.ctx.save();
-    this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillText(labelText, centerX, panelBottomY - panelPaddingBottom - labelHeight / 2);
-    this.ctx.restore();
-
-    // Hover tooltip, same component the HUD stat chips use - drawn "above"
-    // rather than the HUD's own "below" placement, since this button sits
-    // near the bottom of the board and a tooltip below it would run off
-    // the canvas.
-    if (this.storeButtonHovered) {
-      this.drawHudTooltip(this.storeButtonArea, 'above');
-    }
+    this.storeButton.layout({
+      canvasWidth: this.canvas.width,
+      canvasHeight: this.canvas.height,
+      // wallBandThickness pushes the panel clear of the wall band drawn by
+      // drawWalls() - a flat margin alone left it sitting right on top of
+      // the wall on some canvas sizes.
+      edgeMargin: wallBandThickness + storeButtonMargin,
+      size: storeButtonSize,
+      iconFontSize: storeButtonIconSize,
+      labelFontSize: storeButtonLabelFontSize,
+    });
+    this.storeButton.draw(this.ctx);
   }
 
   // Draws a coin icon (a small crop of the real doober_coin.png art) plus
@@ -3776,91 +3735,6 @@ export default class GameScreen {
     const gap = fontSize * 0.25;
     const textWidth = this.ctx.measureText(text).width;
     return { iconWidth, gap, textWidth, totalWidth: iconWidth + gap + textWidth };
-  }
-
-  // Small popover explaining whatever's hovered - a hovered HUD stat chip,
-  // or the store button (see drawStoreButton()) - a bold label line plus a
-  // word-wrapped description, same dark rounded-box chrome as the HUD
-  // itself. The description wraps (see wrapText()) against a max width
-  // that's itself clamped to a fraction of the live canvas width, rather
-  // than either a single unbroken line (which could overflow a narrow
-  // canvas) or a fixed pixel width (which wouldn't actually shrink on a
-  // small screen) - that's what makes this "responsive" rather than just
-  // bigger. `placement` defaults to 'below' (the HUD stat chips' own use,
-  // which always has room underneath); the store button passes 'above'
-  // since it sits near the bottom of the board.
-  drawHudTooltip(area, placement = 'below') {
-    const ctx = this.ctx;
-    const { hudTooltipFontSize, hudTooltipPadding, hudTooltipMaxWidth } = this.layout;
-    const titleFontSize = hudTooltipFontSize;
-    const descFontSize = hudTooltipFontSize * 0.82;
-    const maxWidth = Math.min(hudTooltipMaxWidth, this.canvas.width * 0.7);
-
-    ctx.save();
-    ctx.font = `bold ${Math.round(titleFontSize)}px Arial, sans-serif`;
-    const titleWidth = ctx.measureText(area.label).width;
-
-    ctx.font = `${Math.round(descFontSize)}px Arial, sans-serif`;
-    const descLines = this.wrapText(ctx, area.description, maxWidth);
-    const descWidth = Math.max(...descLines.map((line) => ctx.measureText(line).width));
-
-    const lineHeight = descFontSize * 1.25;
-    const boxWidth = Math.max(titleWidth, descWidth) + hudTooltipPadding * 2;
-    const boxHeight =
-      titleFontSize + hudTooltipPadding * 0.5 + descLines.length * lineHeight + hudTooltipPadding * 1.5;
-    // 'above' for anything living near the bottom of the board (the store
-    // button) where the HUD's own default 'below' placement would run the
-    // tooltip off the canvas.
-    const boxY = placement === 'above' ? area.y - boxHeight - 8 : area.y + area.height + 8;
-    const boxX = Math.max(
-      8,
-      Math.min(area.centerX - boxWidth / 2, this.canvas.width - boxWidth - 8)
-    );
-
-    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 10);
-    ctx.fillStyle = 'rgba(15, 8, 22, 0.94)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.font = `bold ${Math.round(titleFontSize)}px Arial, sans-serif`;
-    ctx.fillStyle = '#ffd54f';
-    ctx.fillText(area.label, boxX + boxWidth / 2, boxY + hudTooltipPadding * 0.9);
-
-    ctx.font = `${Math.round(descFontSize)}px Arial, sans-serif`;
-    ctx.fillStyle = '#ffffff';
-    const descStartY = boxY + hudTooltipPadding * 0.9 + titleFontSize + hudTooltipPadding * 0.5;
-    descLines.forEach((line, i) => {
-      ctx.fillText(line, boxX + boxWidth / 2, descStartY + i * lineHeight);
-    });
-    ctx.restore();
-  }
-
-  // Greedy word-wrap: packs words onto a line until the next one would
-  // exceed maxWidth, then starts a new line - assumes ctx.font is already
-  // set to the font the wrapped text will actually be drawn in, since
-  // measureText() depends on it. Shared by drawHudTooltip() today; general
-  // enough to reuse for any future multi-line canvas text.
-  wrapText(ctx, text, maxWidth) {
-    const words = text.split(' ');
-    const lines = [];
-    let currentLine = '';
-
-    words.forEach((word) => {
-      const candidate = currentLine ? `${currentLine} ${word}` : word;
-      if (ctx.measureText(candidate).width > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = candidate;
-      }
-    });
-    if (currentLine) lines.push(currentLine);
-
-    return lines;
   }
 
   drawFloor() {
