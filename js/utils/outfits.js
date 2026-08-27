@@ -37,6 +37,12 @@ export function getSpriteSrc(character, equippedOutfit = null) {
 // geometry check before wiring in).
 export const PORTRAITS = {
   cat: { sx: 0, sy: 0, sw: 256, sh: 296 }, // v2 sprite — native pixel size (see Cat.js), not the logical 118×150 display size
-  mouse: { sx: 327, sy: 654, sw: 327, sh: 327 }, // v2 sprite — native pixel size (see Mouse.js), south, frame 1
+  // east-facing profile, frame 1 (middle of the walk cycle) - was the
+  // south-facing "running toward camera" frame, which read as diving/
+  // falling at pedestal size and left too little clearance below the
+  // face for the store's name label. A side profile shows the full body
+  // and tutu/bow the same way Dog's own single-direction portrait
+  // already does, with none of that overlap.
+  mouse: { sx: 327, sy: 327, sw: 327, sh: 327 }, // v2 sprite — native pixel size (see Mouse.js)
   dog: { sx: 0, sy: 0, sw: 473, sh: 296 }, // v2 sprite — native pixel size (see Dog.js), not the logical 60×38 display size
 };

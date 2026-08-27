@@ -8,9 +8,9 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=6';
-import Mouse from '../Mouse.js?v=3';
-import Dog from '../Dog.js?v=8';
+import Cat from '../Cat.js?v=7';
+import Mouse from '../Mouse.js?v=4';
+import Dog from '../Dog.js?v=9';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
@@ -38,8 +38,8 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=17';
-import { getSpriteSrc } from '../../utils/outfits.js';
+import { openStoreModal } from '../../utils/storeModal.js?v=22';
+import { getSpriteSrc } from '../../utils/outfits.js?v=1';
 
 // ==============================
 //  CONSTANTS

@@ -1,5 +1,5 @@
 import { equipItem, getStore, purchaseItem, sellItem, unequipItem } from './api.js';
-import { getSpriteSrc, PORTRAITS } from './outfits.js';
+import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 
@@ -241,13 +241,66 @@ function getPortraitImage(src) {
 // scale down (rather than changing the crop) keeps the existing
 // bottom-anchored draw() below working unmodified - a smaller scale still
 // lands the character's feet exactly on canvas.height, it's only the
-// height *above* the feet that shrinks.
+// height *above* the feet that shrinks. Mouse's own east-facing crop
+// (PORTRAITS.mouse) needed the same treatment once it replaced the
+// earlier south-facing one.
 const PEDESTAL_SIZE_MULTIPLIER = {
   cat: 0.75,
+  mouse: 0.7,
 };
 
-function getPedestalSizeMultiplier(character) {
-  return PEDESTAL_SIZE_MULTIPLIER[character] ?? 1;
+// Mouse's east-facing crop leaves a real, measured gap between the
+// character's own feet and the frame's native bottom edge (~42-64px out
+// of 327px, depending on which sprite sheet - checked directly off each
+// PNG's alpha channel), unlike cat/dog's crops where the feet already sit
+// flush against the very bottom of the frame. Plain bottom-anchoring
+// (see draw() below) therefore left the mouse looking like it was
+// hovering above the pedestal rather than standing on it. This nudges
+// the whole draw down into that native margin - in native (pre-scale)
+// pixels, so it scales proportionally with PEDESTAL_SIZE_MULTIPLIER
+// rather than over- or under-shooting at different sizes.
+//
+// The default look gets its own, bigger value (not just the same
+// PEDESTAL_VERTICAL_NUDGE reused) for two compounding reasons: its own
+// native margin is wider to begin with (~64px vs. a recolor's ~42px),
+// and PEDESTAL_DEFAULT_SIZE_BOOST below scales it up further, which
+// scales the *leftover* (un-nudged) gap up right along with it - the
+// colored cosmetics' own flat 30px nudge left the default look reading
+// as still floating even though the nudge was in fact being applied.
+const PEDESTAL_VERTICAL_NUDGE = {
+  mouse: 30,
+};
+
+const PEDESTAL_DEFAULT_VERTICAL_NUDGE = {
+  mouse: 50,
+};
+
+// The default look's own sprite (hand-authored well before the store
+// existed) fills noticeably less of PORTRAITS' fixed crop box than the
+// tightly-extracted cosmetic recolors do, sitting through the exact same
+// crop rect and the exact same fit-to-box scale math - so at any given
+// PEDESTAL_SIZE_MULTIPLIER, the default look renders visibly smaller than
+// every purchased color, for all three characters. Measured directly off
+// each pair's alpha-channel content bbox (default vs. one of its own
+// recolors, same crop): cat's default fills ~86% of the crop's height
+// where a recolor fills 100%; dog's default fills ~82% of the crop's
+// width where a recolor fills ~93%; mouse's default fills ~62% of the
+// crop's height where a recolor fills ~75%. This multiplies on top of
+// PEDESTAL_SIZE_MULTIPLIER only when the default look is what's being
+// drawn (see getPedestalSizeMultiplier's isDefaultLook param) - the
+// ratio between "how full the default's own content is" and "how full a
+// recolor's own content is," on whichever axis (width/height) reads as
+// the more dominant size cue for that character's own pose.
+const PEDESTAL_DEFAULT_SIZE_BOOST = {
+  cat: 1.17,
+  dog: 1.14,
+  mouse: 1.21,
+};
+
+function getPedestalSizeMultiplier(character, isDefaultLook) {
+  const base = PEDESTAL_SIZE_MULTIPLIER[character] ?? 1;
+  const boost = isDefaultLook ? (PEDESTAL_DEFAULT_SIZE_BOOST[character] ?? 1) : 1;
+  return base * boost;
 }
 
 // Draws whichever cosmetic is currently being "tried on" onto the
@@ -269,14 +322,30 @@ function drawPedestalPortrait(character, item) {
 
   const draw = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const isDefaultLook = !item || item.isDefault;
     const scale =
-      Math.min(canvas.width / crop.sw, canvas.height / crop.sh) * getPedestalSizeMultiplier(character);
+      Math.min(canvas.width / crop.sw, canvas.height / crop.sh) *
+      getPedestalSizeMultiplier(character, isDefaultLook);
     const dw = crop.sw * scale;
     const dh = crop.sh * scale;
+    const nudgeMap = isDefaultLook ? PEDESTAL_DEFAULT_VERTICAL_NUDGE : PEDESTAL_VERTICAL_NUDGE;
+    const verticalNudge = (nudgeMap[character] ?? PEDESTAL_VERTICAL_NUDGE[character] ?? 0) * scale;
     // Bottom-anchored, horizontally centered - "standing on the pedestal"
     // rather than centered in the canvas, so the character's feet line up
-    // with the pedestal in the backdrop photo.
-    ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, (canvas.width - dw) / 2, canvas.height - dh, dw, dh);
+    // with the pedestal in the backdrop photo. verticalNudge shifts that
+    // anchor down into a crop's own native bottom margin, for characters
+    // whose feet don't already sit flush against the frame's edge.
+    ctx.drawImage(
+      img,
+      crop.sx,
+      crop.sy,
+      crop.sw,
+      crop.sh,
+      (canvas.width - dw) / 2,
+      canvas.height - dh + verticalNudge,
+      dw,
+      dh
+    );
   };
 
   if (img.complete && img.naturalWidth > 0) {
@@ -537,6 +606,11 @@ function updateBloomingtailsPreview() {
   // character's own built-in look would confusingly claim to be owned too.
   const ownedBadge = document.getElementById('storePreviewOwnedBadge');
   ownedBadge.hidden = !item || item.isDefault || !item.owned;
+  // The badge and sell button are always shown/hidden together (both
+  // conditioned on "a real owned cosmetic" - see wireSellButton() and the
+  // line above), so the wrapping row just mirrors the badge's own state
+  // rather than tracking a third, separately-computed condition.
+  document.getElementById('storeOwnedSellRow').hidden = ownedBadge.hidden;
 
   const hasOutfits = cosmetics.length > 0;
   document.getElementById('storePrevOutfitBtn').hidden = !hasOutfits;

@@ -6,7 +6,7 @@ import {
   drawMouseEarCard, drawMouseEarInner,
   drawDogEarCard, drawDogEarInner,
 } from '../../utils/canvasShapes.js';
-import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js';
+import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js?v=1';
 import { isLoggedIn, getEquipped } from '../../utils/api.js';
 
 // Per-entity ear shape, keyed the same way THEMES/PORTRAITS below are —

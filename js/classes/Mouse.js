@@ -1,4 +1,4 @@
-import { getSpriteSrc } from '../utils/outfits.js';
+import { getSpriteSrc } from '../utils/outfits.js?v=1';
 
 export default class Mouse {
   // `scale` (see js/utils/scale.js) shrinks movement speed on a small

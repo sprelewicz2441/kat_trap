@@ -1,4 +1,4 @@
-import { getSpriteSrc } from '../utils/outfits.js';
+import { getSpriteSrc } from '../utils/outfits.js?v=1';
 
 // cat.png is a symmetric, front-facing portrait (confirmed by looking at
 // the actual pixel art — matching ears/whiskers, centered face), not a

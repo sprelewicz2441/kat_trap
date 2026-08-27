@@ -1,5 +1,5 @@
 import { aabbOverlap, insetBox } from '../utils/collision.js';
-import { getSpriteSrc } from '../utils/outfits.js';
+import { getSpriteSrc } from '../utils/outfits.js?v=1';
 
 // Poop-drop "squat and release" — a quick vertical squash timed to the
 // drop itself (see startPoopAnim()/draw() below), so the moment reads as
