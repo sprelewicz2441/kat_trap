@@ -20,7 +20,7 @@ const SHOW_LOGIN_BUTTON = false;
 // CLAUDE.md history): on timeout or any other failure, play proceeds
 // without a token, and GameScreen retries the login in the background and
 // syncs any queued round results once it succeeds.
-const QUICK_LOGIN_TIMEOUT_MS = 8000;
+const QUICK_LOGIN_TIMEOUT_MS = 5000;
 
 // One full spin per this many ms - drives drawConnectingIndicator()'s
 // rotation. Purely cosmetic, tuned by eye.
