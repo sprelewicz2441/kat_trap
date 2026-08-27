@@ -901,11 +901,19 @@ const HUD_STATS = [
   },
 ];
 
-// Store button, drawn just below the HUD box.
-const BASE_STORE_BUTTON_WIDTH = 96;
-const BASE_STORE_BUTTON_HEIGHT = 32;
-const BASE_STORE_BUTTON_RADIUS = 16;
-const BASE_STORE_BUTTON_FONT_SIZE = 15;
+// Store button - a floating circular "FAB" pinned to the canvas's top-right
+// corner, deliberately independent of the HUD box's own position/width (see
+// drawStoreButton()) rather than tucked just below it.
+const BASE_STORE_BUTTON_SIZE = 56;
+const BASE_STORE_BUTTON_MARGIN = 14;
+const BASE_STORE_BUTTON_ICON_SIZE = 26;
+const BASE_STORE_BUTTON_LABEL_FONT_SIZE = 12;
+// Slow idle bob (a small vertical oscillation, not a scale change) so the
+// button reads as a live, clickable thing rather than static chrome - same
+// performance.now()-driven-angle technique as SetupScreen's connecting
+// spinner.
+const STORE_BUTTON_BOB_PERIOD_MS = 2200;
+const STORE_BUTTON_BOB_AMPLITUDE = 3;
 
 // Rough approximations of the cat/mouse/dog's on-screen size, used only to
 // keep the freestanding dining set and furniture placement clear of where
@@ -1174,10 +1182,10 @@ function computeLayout(canvasWidth) {
     dooberPopupFontSize: BASE_DOOBER_POPUP_FONT_SIZE * uiScale,
     hudCoinImpactMaxRadius: BASE_HUD_COIN_IMPACT_MAX_RADIUS * uiScale,
     hudCoinImpactSparkLength: BASE_HUD_COIN_IMPACT_SPARK_LENGTH * uiScale,
-    storeButtonWidth: BASE_STORE_BUTTON_WIDTH * uiScale,
-    storeButtonHeight: BASE_STORE_BUTTON_HEIGHT * uiScale,
-    storeButtonRadius: BASE_STORE_BUTTON_RADIUS * uiScale,
-    storeButtonFontSize: BASE_STORE_BUTTON_FONT_SIZE * uiScale,
+    storeButtonSize: BASE_STORE_BUTTON_SIZE * uiScale,
+    storeButtonMargin: BASE_STORE_BUTTON_MARGIN * uiScale,
+    storeButtonIconSize: BASE_STORE_BUTTON_ICON_SIZE * uiScale,
+    storeButtonLabelFontSize: BASE_STORE_BUTTON_LABEL_FONT_SIZE * uiScale,
     catSizeApprox: BASE_CAT_SIZE * characterScale,
     mouseSizeApprox: BASE_MOUSE_SIZE * characterScale,
     dogSizeApprox: BASE_DOG_SIZE * characterScale,
@@ -3397,6 +3405,7 @@ export default class GameScreen {
       // covers this area anyway, and storeButtonArea is nulled out below
       // so a click can't land on where the button used to be.
       this.drawHud();
+      this.drawStoreButton();
       // Drawn after the HUD so a flying "+N" visibly lands on top of the
       // coin readout at the end of its flight, not underneath it. The
       // crash burst draws last of the three so it's never covered by a
@@ -3542,54 +3551,84 @@ export default class GameScreen {
     }
     this.ctx.restore();
 
-    // Store button, centered just below the HUD box.
-    const { storeButtonWidth, storeButtonHeight, storeButtonRadius, storeButtonFontSize } = this.layout;
-    this.storeButtonArea = {
-      x: x + hudWidth / 2 - storeButtonWidth / 2,
-      y: y + height + 8,
-      width: storeButtonWidth,
-      height: storeButtonHeight,
-    };
-
-    this.ctx.save();
-    drawRoundedRect(
-      this.ctx,
-      this.storeButtonArea.x,
-      this.storeButtonArea.y,
-      this.storeButtonArea.width,
-      this.storeButtonArea.height,
-      storeButtonRadius
-    );
-    const gradient = this.ctx.createLinearGradient(
-      this.storeButtonArea.x,
-      this.storeButtonArea.y,
-      this.storeButtonArea.x,
-      this.storeButtonArea.y + this.storeButtonArea.height
-    );
-    gradient.addColorStop(0, '#8a2be2');
-    gradient.addColorStop(1, '#6a1fc2');
-    this.ctx.fillStyle = gradient;
-    this.ctx.fill();
-
-    this.ctx.font = `bold ${Math.round(storeButtonFontSize)}px Arial, sans-serif`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-    this.ctx.shadowBlur = 3;
-    this.ctx.fillText(
-      'Store',
-      this.storeButtonArea.x + this.storeButtonArea.width / 2,
-      this.storeButtonArea.y + this.storeButtonArea.height / 2 + 1
-    );
-    this.ctx.restore();
-
-    // Hover tooltip, drawn last so it sits on top of the HUD/store button
-    // it's explaining - see handleMouseMove() for how hoveredHudStatIndex
-    // gets set.
+    // Hover tooltip, drawn last so it sits on top of the HUD it's
+    // explaining - see handleMouseMove() for how hoveredHudStatIndex gets
+    // set. The store button (see drawStoreButton()) lives outside the HUD
+    // box now and draws itself separately.
     if (this.hoveredHudStatIndex !== null && this.hudStatAreas[this.hoveredHudStatIndex]) {
       this.drawHudTooltip(this.hudStatAreas[this.hoveredHudStatIndex]);
     }
+  }
+
+  // Store button - a floating circular button pinned to the canvas's
+  // top-right corner, moved out from under the HUD box per explicit
+  // direction (was: a text pill centered just below it) and given a
+  // shopping-cart icon instead of a text label. A small "Store" caption
+  // still draws underneath, though, since an icon-only button loses
+  // discoverability for a first-time player. Gated on this.wallet exactly
+  // like the old in-HUD button was - no login means no economy UI at all.
+  drawStoreButton() {
+    if (!this.wallet) {
+      this.storeButtonArea = null;
+      return;
+    }
+
+    const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize } = this.layout;
+    const centerX = this.canvas.width - storeButtonMargin - storeButtonSize / 2;
+    // Idle bob is a position offset only, not a size change, so the click
+    // hit box below doesn't have to chase an animated radius - it's rebuilt
+    // fresh every frame to match wherever the circle actually drew this
+    // frame, the same "hit box tracks the draw" pattern the HUD stat chips
+    // already use.
+    const bobOffset =
+      Math.sin((performance.now() / STORE_BUTTON_BOB_PERIOD_MS) * Math.PI * 2) * STORE_BUTTON_BOB_AMPLITUDE;
+    const centerY = storeButtonMargin + storeButtonSize / 2 + bobOffset;
+
+    this.storeButtonArea = {
+      x: centerX - storeButtonSize / 2,
+      y: centerY - storeButtonSize / 2,
+      width: storeButtonSize,
+      height: storeButtonSize,
+    };
+
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, storeButtonSize / 2, 0, Math.PI * 2);
+    const gradient = this.ctx.createLinearGradient(
+      centerX,
+      centerY - storeButtonSize / 2,
+      centerX,
+      centerY + storeButtonSize / 2
+    );
+    gradient.addColorStop(0, '#ffb238');
+    gradient.addColorStop(1, '#ff7a3d');
+    this.ctx.fillStyle = gradient;
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    this.ctx.shadowBlur = 6;
+    this.ctx.shadowOffsetY = 2;
+    this.ctx.fill();
+    this.ctx.shadowColor = 'transparent';
+    this.ctx.shadowBlur = 0;
+    this.ctx.shadowOffsetY = 0;
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+
+    this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('\u{1F6D2}', centerX, centerY + 1); // 🛒
+    this.ctx.restore();
+
+    this.ctx.save();
+    this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'top';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    this.ctx.shadowBlur = 3;
+    this.ctx.fillText('Store', centerX, this.storeButtonArea.y + storeButtonSize + 4);
+    this.ctx.restore();
   }
 
   // Draws a coin icon (a small crop of the real doober_coin.png art) plus
