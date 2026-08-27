@@ -1,4 +1,4 @@
-import GameScreen from './GameScreen.js?v=35';
+import GameScreen from './GameScreen.js?v=37';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {
@@ -292,7 +292,7 @@ export default class CharacterSelectScreen {
 
       ctx.fillStyle = option.enabled ? '#ffffff' : 'rgba(255, 255, 255, 0.6)';
       ctx.font = `bold ${BASE_NAME_FONT_SIZE * effectiveScale}px Arial`;
-      ctx.fillText(`${option.name} — ${option.role}`, boxCenterX, drawY + cardHeight * 0.68);
+      ctx.fillText(`${option.name} the ${option.role}`, boxCenterX, drawY + cardHeight * 0.68);
 
       ctx.font = `bold ${BASE_SUBLABEL_FONT_SIZE * effectiveScale}px Arial`;
       ctx.fillStyle = option.enabled ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.45)';

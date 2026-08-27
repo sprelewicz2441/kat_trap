@@ -38,7 +38,7 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=22';
+import { openStoreModal } from '../../utils/storeModal.js?v=23';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
 
 // ==============================
@@ -903,17 +903,14 @@ const HUD_STATS = [
 
 // Store button - a floating circular "FAB" pinned to the canvas's top-right
 // corner, deliberately independent of the HUD box's own position/width (see
-// drawStoreButton()) rather than tucked just below it.
+// drawStoreButton()) rather than tucked just below it. storeButtonMargin is
+// the gap beyond the wall band, not from the raw canvas edge - drawStoreButton()
+// adds this.layout.wallBandThickness on top of it so the button always
+// clears the wall regardless of world scale.
 const BASE_STORE_BUTTON_SIZE = 56;
-const BASE_STORE_BUTTON_MARGIN = 14;
+const BASE_STORE_BUTTON_MARGIN = 22;
 const BASE_STORE_BUTTON_ICON_SIZE = 26;
 const BASE_STORE_BUTTON_LABEL_FONT_SIZE = 12;
-// Slow idle bob (a small vertical oscillation, not a scale change) so the
-// button reads as a live, clickable thing rather than static chrome - same
-// performance.now()-driven-angle technique as SetupScreen's connecting
-// spinner.
-const STORE_BUTTON_BOB_PERIOD_MS = 2200;
-const STORE_BUTTON_BOB_AMPLITUDE = 3;
 
 // Rough approximations of the cat/mouse/dog's on-screen size, used only to
 // keep the freestanding dining set and furniture placement clear of where
@@ -3567,22 +3564,22 @@ export default class GameScreen {
   // still draws underneath, though, since an icon-only button loses
   // discoverability for a first-time player. Gated on this.wallet exactly
   // like the old in-HUD button was - no login means no economy UI at all.
+  // Deliberately static (no idle animation) - an earlier version bobbed
+  // up and down and that was flagged as unwanted.
   drawStoreButton() {
     if (!this.wallet) {
       this.storeButtonArea = null;
       return;
     }
 
-    const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize } = this.layout;
-    const centerX = this.canvas.width - storeButtonMargin - storeButtonSize / 2;
-    // Idle bob is a position offset only, not a size change, so the click
-    // hit box below doesn't have to chase an animated radius - it's rebuilt
-    // fresh every frame to match wherever the circle actually drew this
-    // frame, the same "hit box tracks the draw" pattern the HUD stat chips
-    // already use.
-    const bobOffset =
-      Math.sin((performance.now() / STORE_BUTTON_BOB_PERIOD_MS) * Math.PI * 2) * STORE_BUTTON_BOB_AMPLITUDE;
-    const centerY = storeButtonMargin + storeButtonSize / 2 + bobOffset;
+    const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize, wallBandThickness } =
+      this.layout;
+    // wallBandThickness pushes the button clear of the wall band drawn by
+    // drawWalls() - the flat uiScale-only margin alone left it sitting
+    // right on top of the wall on some canvas sizes.
+    const edgeMargin = wallBandThickness + storeButtonMargin;
+    const centerX = this.canvas.width - edgeMargin - storeButtonSize / 2;
+    const centerY = edgeMargin + storeButtonSize / 2;
 
     this.storeButtonArea = {
       x: centerX - storeButtonSize / 2,
@@ -3594,14 +3591,21 @@ export default class GameScreen {
     this.ctx.save();
     this.ctx.beginPath();
     this.ctx.arc(centerX, centerY, storeButtonSize / 2, 0, Math.PI * 2);
-    const gradient = this.ctx.createLinearGradient(
+    // A radial gradient with its hot spot offset toward the upper-left
+    // fakes a single light source hitting a glossy surface - a plain
+    // top-to-bottom linear gradient (the old fill) reads flat/matte by
+    // comparison.
+    const gradient = this.ctx.createRadialGradient(
+      centerX - storeButtonSize * 0.22,
+      centerY - storeButtonSize * 0.28,
+      storeButtonSize * 0.05,
       centerX,
-      centerY - storeButtonSize / 2,
-      centerX,
-      centerY + storeButtonSize / 2
+      centerY,
+      storeButtonSize * 0.75
     );
-    gradient.addColorStop(0, '#ffb238');
-    gradient.addColorStop(1, '#ff7a3d');
+    gradient.addColorStop(0, '#fff6d8');
+    gradient.addColorStop(0.35, '#ffcf5c');
+    gradient.addColorStop(1, '#d97e1a');
     this.ctx.fillStyle = gradient;
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     this.ctx.shadowBlur = 6;
@@ -3610,9 +3614,28 @@ export default class GameScreen {
     this.ctx.shadowColor = 'transparent';
     this.ctx.shadowBlur = 0;
     this.ctx.shadowOffsetY = 0;
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
+
+    // A small soft-white ellipse near the top edge, clipped to the circle,
+    // is the actual "specular glint" that sells the shine - the radial
+    // gradient alone still reads as a plain painted sphere without it.
+    this.ctx.save();
+    this.ctx.clip();
+    this.ctx.beginPath();
+    this.ctx.ellipse(
+      centerX - storeButtonSize * 0.1,
+      centerY - storeButtonSize * 0.3,
+      storeButtonSize * 0.3,
+      storeButtonSize * 0.16,
+      -0.4,
+      0,
+      Math.PI * 2
+    );
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    this.ctx.fill();
+    this.ctx.restore();
 
     this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';

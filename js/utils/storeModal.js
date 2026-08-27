@@ -546,7 +546,7 @@ function wireSellButton(sellBtn, character, item) {
   }
   sellBtn.hidden = false;
   sellBtn.disabled = false;
-  sellBtn.innerHTML = `Sell — ${COIN_ICON_HTML}${sellPriceFor(item)}`;
+  sellBtn.innerHTML = `Sell for ${COIN_ICON_HTML}${sellPriceFor(item)}`;
   sellBtn.onclick = async () => {
     sellBtn.disabled = true;
     sellBtn.textContent = 'Selling...';
