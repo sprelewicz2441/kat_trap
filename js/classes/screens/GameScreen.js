@@ -854,7 +854,11 @@ const BASE_FLOOR_TILE_SIZE = 24;
 // icon+value chip across one row rather than stacked coins-then-level
 // rows, each with a hover tooltip explaining the metric (see
 // getHudLayout()/drawHudTooltip()).
-const BASE_HUD_MARGIN = 16;
+// The gap between the HUD box and the wall band drawn by drawWalls() -
+// getHudLayout() adds this on top of wallBandThickness (not from the raw
+// canvas edge), same fix as the store button's own wall-clearance below,
+// so the HUD doesn't sit flush against the wall regardless of world scale.
+const BASE_HUD_MARGIN = 10;
 const BASE_HUD_PADDING = 14;
 const BASE_HUD_WIDTH = 440;
 const BASE_HUD_STAT_ROW_HEIGHT = 32;
@@ -908,7 +912,7 @@ const HUD_STATS = [
 // adds this.layout.wallBandThickness on top of it so the button always
 // clears the wall regardless of world scale.
 const BASE_STORE_BUTTON_SIZE = 56;
-const BASE_STORE_BUTTON_MARGIN = 22;
+const BASE_STORE_BUTTON_MARGIN = 15;
 const BASE_STORE_BUTTON_ICON_SIZE = 26;
 const BASE_STORE_BUTTON_LABEL_FONT_SIZE = 12;
 
@@ -3439,9 +3443,11 @@ export default class GameScreen {
   // same math three separate times. Geometry only - doesn't need
   // this.wallet, unlike drawHud() itself.
   getHudLayout() {
-    const { hudMargin, hudPadding, hudWidth, hudStatRowHeight } = this.layout;
+    const { hudMargin, hudPadding, hudWidth, hudStatRowHeight, wallBandThickness } = this.layout;
     const x = (this.canvas.width - hudWidth) / 2;
-    const y = hudMargin;
+    // wallBandThickness clears the wall band drawn by drawWalls() - hudMargin
+    // alone left the HUD sitting flush against it (see BASE_HUD_MARGIN).
+    const y = wallBandThickness + hudMargin;
     const innerWidth = hudWidth - hudPadding * 2;
     const statWidth = innerWidth / HUD_STATS.length;
     const statRowY = y + hudPadding + hudStatRowHeight / 2;
