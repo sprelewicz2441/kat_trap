@@ -3563,26 +3563,17 @@ export default class GameScreen {
     }
   }
 
-  // Store button - a floating circular button pinned to the canvas's
-  // top-right corner, moved out from under the HUD box per explicit
-  // direction - a coin medallion rather than a generic circular app-icon
-  // button, since this is literally the door to where coins get earned and
-  // spent. Wears the game's own established "special screen" gradient (teal
-  // -> gold, sampled off assets/start_screen.jpg - see Cutscene.js's and
-  // CharacterSelectScreen's own backdrop gradients) instead of an invented
-  // one-off color, so opening the store visually rhymes with the other
-  // "you've stepped into something special" moments rather than reading as
-  // a random UI accent. A milled coin edge and an embossed inner bezel ring
-  // sell the "coin" read; a paw print (matching Pawgreens' own tab icon and
-  // the game's whole animal branding) stands in for a generic shopping
-  // cart/bag, which would've been borrowed real-world e-commerce iconography
-  // with no connection to this game specifically. The "Store" caption
-  // underneath gets its own small pill in the HUD's own dark-chip language
-  // (see drawHud()) rather than bare floating text, so it stays legible
-  // over the floor tiles regardless of what's directly behind it. Gated on
-  // this.wallet exactly like the old in-HUD button was - no login means no
-  // economy UI at all. Deliberately static (no idle animation) - an earlier
-  // version bobbed up and down and that was flagged as unwanted.
+  // Store button - a coin-medallion badge (milled edge, embossed inner
+  // bezel, a paw-print icon matching Pawgreens' own tab icon rather than a
+  // generic shopping cart/bag) pinned bottom-center on the game board.
+  // Deliberately horizontally centered rather than tucked in a corner -
+  // this is meant to become the first of a row of bottom-center action
+  // buttons (more are planned), so any future sibling should offset off
+  // this same centerX/centerY rather than picking its own independent
+  // anchor. Gated on this.wallet exactly like the old in-HUD button was -
+  // no login means no economy UI at all. Deliberately static (no idle
+  // animation) - an earlier version bobbed up and down and that was
+  // flagged as unwanted.
   drawStoreButton() {
     if (!this.wallet) {
       this.storeButtonArea = null;
@@ -3596,8 +3587,8 @@ export default class GameScreen {
     // on top of the wall on some canvas sizes.
     const edgeMargin = wallBandThickness + storeButtonMargin;
     const radius = storeButtonSize / 2;
-    const centerX = this.canvas.width - edgeMargin - radius;
-    const centerY = edgeMargin + radius;
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height - edgeMargin - radius;
 
     this.storeButtonArea = {
       x: centerX - radius,
@@ -3609,17 +3600,19 @@ export default class GameScreen {
     this.ctx.save();
     this.ctx.beginPath();
     this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    // Same diagonal direction (top-left to bottom-right) as the cutscene/
-    // character-select backdrops, so the gradient reads as the identical
-    // brand asset rather than a coincidentally similar recolor.
+    // A real gold-coin palette (pale-gold highlight -> rich gold -> bronze
+    // shadow) rather than the earlier teal-to-gold brand gradient - that
+    // combination read as sickly/bilious at this size, and gold-on-gold is
+    // the more honest read for an actual coin anyway.
     const gradient = this.ctx.createLinearGradient(
       centerX - radius,
       centerY - radius,
       centerX + radius,
       centerY + radius
     );
-    gradient.addColorStop(0, '#2fa8b8');
-    gradient.addColorStop(1, '#ffb238');
+    gradient.addColorStop(0, '#fff3b0');
+    gradient.addColorStop(0.55, '#f0b429');
+    gradient.addColorStop(1, '#9c6510');
     this.ctx.fillStyle = gradient;
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     this.ctx.shadowBlur = 6;
@@ -3664,7 +3657,9 @@ export default class GameScreen {
     // "Store" caption in its own small pill, same dark-translucent chrome
     // as the HUD box itself (see drawHud()) - guarantees legibility over
     // the floor tiles regardless of what's directly underneath, rather than
-    // bare text at the mercy of whatever's drawn behind it.
+    // bare text at the mercy of whatever's drawn behind it. Sits above the
+    // coin, not below - the button now lives close to the bottom wall, and
+    // a label drawn underneath it would crowd or clip past the wall band.
     this.ctx.save();
     this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
     const labelText = 'Store';
@@ -3672,7 +3667,7 @@ export default class GameScreen {
     const labelHeight = storeButtonLabelFontSize * 1.7;
     const labelWidth = this.ctx.measureText(labelText).width + labelPaddingX * 2;
     const labelX = centerX - labelWidth / 2;
-    const labelY = this.storeButtonArea.y + storeButtonSize + storeButtonLabelFontSize * 0.4;
+    const labelY = this.storeButtonArea.y - labelHeight - storeButtonLabelFontSize * 0.4;
     drawRoundedRect(this.ctx, labelX, labelY, labelWidth, labelHeight, labelHeight / 2);
     this.ctx.fillStyle = 'rgba(20, 10, 30, 0.6)';
     this.ctx.fill();
