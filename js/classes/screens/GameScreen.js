@@ -3559,13 +3559,24 @@ export default class GameScreen {
 
   // Store button - a floating circular button pinned to the canvas's
   // top-right corner, moved out from under the HUD box per explicit
-  // direction (was: a text pill centered just below it) and given a
-  // shopping-cart icon instead of a text label. A small "Store" caption
-  // still draws underneath, though, since an icon-only button loses
-  // discoverability for a first-time player. Gated on this.wallet exactly
-  // like the old in-HUD button was - no login means no economy UI at all.
-  // Deliberately static (no idle animation) - an earlier version bobbed
-  // up and down and that was flagged as unwanted.
+  // direction - a coin medallion rather than a generic circular app-icon
+  // button, since this is literally the door to where coins get earned and
+  // spent. Wears the game's own established "special screen" gradient (teal
+  // -> gold, sampled off assets/start_screen.jpg - see Cutscene.js's and
+  // CharacterSelectScreen's own backdrop gradients) instead of an invented
+  // one-off color, so opening the store visually rhymes with the other
+  // "you've stepped into something special" moments rather than reading as
+  // a random UI accent. A milled coin edge and an embossed inner bezel ring
+  // sell the "coin" read; a paw print (matching Pawgreens' own tab icon and
+  // the game's whole animal branding) stands in for a generic shopping
+  // cart/bag, which would've been borrowed real-world e-commerce iconography
+  // with no connection to this game specifically. The "Store" caption
+  // underneath gets its own small pill in the HUD's own dark-chip language
+  // (see drawHud()) rather than bare floating text, so it stays legible
+  // over the floor tiles regardless of what's directly behind it. Gated on
+  // this.wallet exactly like the old in-HUD button was - no login means no
+  // economy UI at all. Deliberately static (no idle animation) - an earlier
+  // version bobbed up and down and that was flagged as unwanted.
   drawStoreButton() {
     if (!this.wallet) {
       this.storeButtonArea = null;
@@ -3575,37 +3586,34 @@ export default class GameScreen {
     const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize, wallBandThickness } =
       this.layout;
     // wallBandThickness pushes the button clear of the wall band drawn by
-    // drawWalls() - the flat uiScale-only margin alone left it sitting
-    // right on top of the wall on some canvas sizes.
+    // drawWalls() - a flat uiScale-only margin alone left it sitting right
+    // on top of the wall on some canvas sizes.
     const edgeMargin = wallBandThickness + storeButtonMargin;
-    const centerX = this.canvas.width - edgeMargin - storeButtonSize / 2;
-    const centerY = edgeMargin + storeButtonSize / 2;
+    const radius = storeButtonSize / 2;
+    const centerX = this.canvas.width - edgeMargin - radius;
+    const centerY = edgeMargin + radius;
 
     this.storeButtonArea = {
-      x: centerX - storeButtonSize / 2,
-      y: centerY - storeButtonSize / 2,
+      x: centerX - radius,
+      y: centerY - radius,
       width: storeButtonSize,
       height: storeButtonSize,
     };
 
     this.ctx.save();
     this.ctx.beginPath();
-    this.ctx.arc(centerX, centerY, storeButtonSize / 2, 0, Math.PI * 2);
-    // A radial gradient with its hot spot offset toward the upper-left
-    // fakes a single light source hitting a glossy surface - a plain
-    // top-to-bottom linear gradient (the old fill) reads flat/matte by
-    // comparison.
-    const gradient = this.ctx.createRadialGradient(
-      centerX - storeButtonSize * 0.22,
-      centerY - storeButtonSize * 0.28,
-      storeButtonSize * 0.05,
-      centerX,
-      centerY,
-      storeButtonSize * 0.75
+    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    // Same diagonal direction (top-left to bottom-right) as the cutscene/
+    // character-select backdrops, so the gradient reads as the identical
+    // brand asset rather than a coincidentally similar recolor.
+    const gradient = this.ctx.createLinearGradient(
+      centerX - radius,
+      centerY - radius,
+      centerX + radius,
+      centerY + radius
     );
-    gradient.addColorStop(0, '#eef6fb');
-    gradient.addColorStop(0.35, '#6fa3c7');
-    gradient.addColorStop(1, '#264a63');
+    gradient.addColorStop(0, '#2fa8b8');
+    gradient.addColorStop(1, '#ffb238');
     this.ctx.fillStyle = gradient;
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     this.ctx.shadowBlur = 6;
@@ -3614,43 +3622,61 @@ export default class GameScreen {
     this.ctx.shadowColor = 'transparent';
     this.ctx.shadowBlur = 0;
     this.ctx.shadowOffsetY = 0;
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = 'rgba(40, 30, 10, 0.35)';
+    this.ctx.lineWidth = Math.max(1.5, storeButtonSize * 0.025);
     this.ctx.stroke();
 
-    // A small soft-white ellipse near the top edge, clipped to the circle,
-    // is the actual "specular glint" that sells the shine - the radial
-    // gradient alone still reads as a plain painted sphere without it.
-    this.ctx.save();
-    this.ctx.clip();
+    // Milled coin edge - a ring of short radial ticks just inside the rim,
+    // one continuous path/stroke rather than a per-tick draw call.
+    const tickCount = 28;
     this.ctx.beginPath();
-    this.ctx.ellipse(
-      centerX - storeButtonSize * 0.1,
-      centerY - storeButtonSize * 0.3,
-      storeButtonSize * 0.3,
-      storeButtonSize * 0.16,
-      -0.4,
-      0,
-      Math.PI * 2
-    );
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    this.ctx.fill();
-    this.ctx.restore();
+    for (let i = 0; i < tickCount; i++) {
+      const angle = (i / tickCount) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      this.ctx.moveTo(centerX + cos * radius * 0.88, centerY + sin * radius * 0.88);
+      this.ctx.lineTo(centerX + cos * radius * 0.97, centerY + sin * radius * 0.97);
+    }
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+    this.ctx.lineWidth = Math.max(1, storeButtonSize * 0.018);
+    this.ctx.stroke();
+
+    // Embossed inner bezel ring - the "coin face" boundary the paw print
+    // sits inside of.
+    this.ctx.beginPath();
+    this.ctx.arc(centerX, centerY, radius * 0.78, 0, Math.PI * 2);
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    this.ctx.lineWidth = Math.max(1, storeButtonSize * 0.02);
+    this.ctx.stroke();
 
     this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('\u{1F6D2}', centerX, centerY + 1); // 🛒
+    this.ctx.fillText('\u{1F43E}', centerX, centerY + 1); // 🐾
     this.ctx.restore();
 
+    // "Store" caption in its own small pill, same dark-translucent chrome
+    // as the HUD box itself (see drawHud()) - guarantees legibility over
+    // the floor tiles regardless of what's directly underneath, rather than
+    // bare text at the mercy of whatever's drawn behind it.
     this.ctx.save();
     this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
+    const labelText = 'Store';
+    const labelPaddingX = storeButtonLabelFontSize * 0.7;
+    const labelHeight = storeButtonLabelFontSize * 1.7;
+    const labelWidth = this.ctx.measureText(labelText).width + labelPaddingX * 2;
+    const labelX = centerX - labelWidth / 2;
+    const labelY = this.storeButtonArea.y + storeButtonSize + storeButtonLabelFontSize * 0.4;
+    drawRoundedRect(this.ctx, labelX, labelY, labelWidth, labelHeight, labelHeight / 2);
+    this.ctx.fillStyle = 'rgba(20, 10, 30, 0.6)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
     this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'top';
-    this.ctx.fillStyle = '#3d7ba6';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    this.ctx.shadowBlur = 3;
-    this.ctx.fillText('Store', centerX, this.storeButtonArea.y + storeButtonSize + 4);
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillText(labelText, centerX, labelY + labelHeight / 2 + 1);
     this.ctx.restore();
   }
 
