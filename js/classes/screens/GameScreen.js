@@ -3564,16 +3564,26 @@ export default class GameScreen {
   }
 
   // Store button - a coin-medallion badge (milled edge, embossed inner
-  // bezel, a paw-print icon matching Pawgreens' own tab icon rather than a
-  // generic shopping cart/bag) pinned bottom-center on the game board.
-  // Deliberately horizontally centered rather than tucked in a corner -
-  // this is meant to become the first of a row of bottom-center action
-  // buttons (more are planned), so any future sibling should offset off
-  // this same centerX/centerY rather than picking its own independent
-  // anchor. Gated on this.wallet exactly like the old in-HUD button was -
-  // no login means no economy UI at all. Deliberately static (no idle
-  // animation) - an earlier version bobbed up and down and that was
-  // flagged as unwanted.
+  // bezel, a shopping-bag icon) sitting on its own backing panel, pinned
+  // bottom-center on the game board. The panel exists because the coin
+  // alone had no guaranteed contrast - it's drawn directly on whatever
+  // furniture the procedural kitchen layout happens to place underneath it,
+  // and a real screenshot review showed it half-disappearing into a wood
+  // counter (the HUD's own dark chip has the identical problem over the
+  // stove/sink, a separate pre-existing issue left alone for now). "Deep
+  // Plum" was picked specifically because it's a hue the kitchen art itself
+  // never produces (wood, stainless, cream tile), so it can't coincide with
+  // the board regardless of what furniture lands there, at an opacity (0.78)
+  // bumped well past the HUD's own 0.6 for the same reason. A shopping bag
+  // replaced an earlier paw-print icon - cute as a signature once you know
+  // what the button does, but too small/muddy to read as "shop here" on
+  // first contact. Deliberately horizontally centered rather than tucked in
+  // a corner - this is meant to become the first of a row of bottom-center
+  // action buttons (more are planned), so any future sibling should offset
+  // off this same centerX rather than picking its own independent anchor.
+  // Gated on this.wallet exactly like the old in-HUD button was - no login
+  // means no economy UI at all. Deliberately static (no idle animation) -
+  // an earlier version bobbed up and down and that was flagged as unwanted.
   drawStoreButton() {
     if (!this.wallet) {
       this.storeButtonArea = null;
@@ -3582,20 +3592,49 @@ export default class GameScreen {
 
     const { storeButtonSize, storeButtonMargin, storeButtonIconSize, storeButtonLabelFontSize, wallBandThickness } =
       this.layout;
-    // wallBandThickness pushes the button clear of the wall band drawn by
+    // wallBandThickness pushes the panel clear of the wall band drawn by
     // drawWalls() - a flat uiScale-only margin alone left it sitting right
     // on top of the wall on some canvas sizes.
     const edgeMargin = wallBandThickness + storeButtonMargin;
     const radius = storeButtonSize / 2;
     const centerX = this.canvas.width / 2;
-    const centerY = this.canvas.height - edgeMargin - radius;
 
+    // Panel geometry - sized around the one coin today, with modest
+    // breathing room rather than pre-drawing empty slots for buttons that
+    // don't exist yet. Bottom edge sits edgeMargin above the wall; the coin
+    // and "Store" caption stack inside it top to bottom.
+    const panelPaddingX = storeButtonSize * 0.35;
+    const panelPaddingTop = storeButtonSize * 0.18;
+    const panelPaddingBottom = storeButtonSize * 0.16;
+    const labelGap = storeButtonLabelFontSize * 0.5;
+    const labelHeight = storeButtonLabelFontSize * 1.4;
+    const panelWidth = storeButtonSize + panelPaddingX * 2;
+    const panelHeight = panelPaddingTop + storeButtonSize + labelGap + labelHeight + panelPaddingBottom;
+    const panelX = centerX - panelWidth / 2;
+    const panelBottomY = this.canvas.height - edgeMargin;
+    const panelTopY = panelBottomY - panelHeight;
+    const panelRadius = Math.min(panelWidth, panelHeight) * 0.28;
+
+    const centerY = panelTopY + panelPaddingTop + radius;
+
+    // Click/tap target covers the whole panel, not just the coin - a
+    // bigger, more forgiving hit area for what's now a single cohesive
+    // badge rather than a bare icon.
     this.storeButtonArea = {
-      x: centerX - radius,
-      y: centerY - radius,
-      width: storeButtonSize,
-      height: storeButtonSize,
+      x: panelX,
+      y: panelTopY,
+      width: panelWidth,
+      height: panelHeight,
     };
+
+    this.ctx.save();
+    drawRoundedRect(this.ctx, panelX, panelTopY, panelWidth, panelHeight, panelRadius);
+    this.ctx.fillStyle = 'rgba(58, 24, 74, 0.78)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+    this.ctx.restore();
 
     this.ctx.save();
     this.ctx.beginPath();
@@ -3640,8 +3679,8 @@ export default class GameScreen {
     this.ctx.lineWidth = Math.max(1, storeButtonSize * 0.018);
     this.ctx.stroke();
 
-    // Embossed inner bezel ring - the "coin face" boundary the paw print
-    // sits inside of.
+    // Embossed inner bezel ring - the "coin face" boundary the icon sits
+    // inside of.
     this.ctx.beginPath();
     this.ctx.arc(centerX, centerY, radius * 0.78, 0, Math.PI * 2);
     this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
@@ -3651,33 +3690,18 @@ export default class GameScreen {
     this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('\u{1F43E}', centerX, centerY + 1); // 🐾
+    this.ctx.fillText('\u{1F6CD}\u{FE0F}', centerX, centerY + 1); // 🛍️
     this.ctx.restore();
 
-    // "Store" caption in its own small pill, same dark-translucent chrome
-    // as the HUD box itself (see drawHud()) - guarantees legibility over
-    // the floor tiles regardless of what's directly underneath, rather than
-    // bare text at the mercy of whatever's drawn behind it. Sits above the
-    // coin, not below - the button now lives close to the bottom wall, and
-    // a label drawn underneath it would crowd or clip past the wall band.
+    // "Store" caption sits directly on the plum panel now, not its own
+    // nested pill - the panel already supplies the contrast a floating
+    // label used to need on its own.
     this.ctx.save();
     this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
-    const labelText = 'Store';
-    const labelPaddingX = storeButtonLabelFontSize * 0.7;
-    const labelHeight = storeButtonLabelFontSize * 1.7;
-    const labelWidth = this.ctx.measureText(labelText).width + labelPaddingX * 2;
-    const labelX = centerX - labelWidth / 2;
-    const labelY = this.storeButtonArea.y - labelHeight - storeButtonLabelFontSize * 0.4;
-    drawRoundedRect(this.ctx, labelX, labelY, labelWidth, labelHeight, labelHeight / 2);
-    this.ctx.fillStyle = 'rgba(20, 10, 30, 0.6)';
-    this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    this.ctx.lineWidth = 1;
-    this.ctx.stroke();
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillText(labelText, centerX, labelY + labelHeight / 2 + 1);
+    this.ctx.fillText('Store', centerX, panelBottomY - panelPaddingBottom - labelHeight / 2);
     this.ctx.restore();
   }
 
