@@ -1355,6 +1355,9 @@ export default class GameScreen {
     // and drawHud() actually draws something to hover over.
     this.hudStatAreas = [];
     this.hoveredHudStatIndex = null;
+    // Same hover-tooltip pattern as the HUD stat chips, for the store
+    // button's own hover tooltip (see drawStoreButton()/handleMouseMove()).
+    this.storeButtonHovered = false;
 
     this.running = false;
     this.catPaused = false;
@@ -2007,6 +2010,7 @@ export default class GameScreen {
     const { offsetX, offsetY } = event;
     const index = this.hudStatAreas.findIndex((area) => this.isClickInside(offsetX, offsetY, area));
     this.hoveredHudStatIndex = index === -1 ? null : index;
+    this.storeButtonHovered = this.isClickInside(offsetX, offsetY, this.storeButtonArea);
   }
 
   // "Play Again" now returns to character select rather than immediately
@@ -3564,9 +3568,9 @@ export default class GameScreen {
   }
 
   // Store button - a coin-medallion badge (milled edge, embossed inner
-  // bezel, a shopping-bag icon) sitting on its own backing panel, pinned
-  // bottom-center on the game board. The panel exists because the coin
-  // alone had no guaranteed contrast - it's drawn directly on whatever
+  // bezel, a mall/department-store icon) sitting on its own backing panel,
+  // pinned bottom-center on the game board. The panel exists because the
+  // coin alone had no guaranteed contrast - it's drawn directly on whatever
   // furniture the procedural kitchen layout happens to place underneath it,
   // and a real screenshot review showed it half-disappearing into a wood
   // counter (the HUD's own dark chip has the identical problem over the
@@ -3574,16 +3578,20 @@ export default class GameScreen {
   // Plum" was picked specifically because it's a hue the kitchen art itself
   // never produces (wood, stainless, cream tile), so it can't coincide with
   // the board regardless of what furniture lands there, at an opacity (0.78)
-  // bumped well past the HUD's own 0.6 for the same reason. A shopping bag
-  // replaced an earlier paw-print icon - cute as a signature once you know
-  // what the button does, but too small/muddy to read as "shop here" on
-  // first contact. Deliberately horizontally centered rather than tucked in
-  // a corner - this is meant to become the first of a row of bottom-center
-  // action buttons (more are planned), so any future sibling should offset
-  // off this same centerX rather than picking its own independent anchor.
-  // Gated on this.wallet exactly like the old in-HUD button was - no login
-  // means no economy UI at all. Deliberately static (no idle animation) -
-  // an earlier version bobbed up and down and that was flagged as unwanted.
+  // bumped well past the HUD's own 0.6 for the same reason. Renamed from the
+  // plain "Store" to "Barking-ham Plaza" (a Buckingham Palace pun fitting
+  // the dog-punny character names elsewhere - Poop, Dummy) - the panel width
+  // is measured against this text rather than assumed, since it's a lot
+  // longer than "Store" was. Deliberately horizontally centered rather than
+  // tucked in a corner - this is meant to become the first of a row of
+  // bottom-center action buttons (more are planned), so any future sibling
+  // should offset off this same centerX rather than picking its own
+  // independent anchor. Gated on this.wallet exactly like the old in-HUD
+  // button was - no login means no economy UI at all. The coin itself stays
+  // still at rest (an earlier idle-bob version was flagged as unwanted) but
+  // gets a playful wiggle-and-pop on hover, driven by this.storeButtonHovered
+  // (see handleMouseMove()) - animation reserved for an actual interaction
+  // rather than looping forever whether or not anyone's looking at it.
   drawStoreButton() {
     if (!this.wallet) {
       this.storeButtonArea = null;
@@ -3598,17 +3606,22 @@ export default class GameScreen {
     const edgeMargin = wallBandThickness + storeButtonMargin;
     const radius = storeButtonSize / 2;
     const centerX = this.canvas.width / 2;
+    const labelText = 'Barking-ham Plaza';
 
     // Panel geometry - sized around the one coin today, with modest
     // breathing room rather than pre-drawing empty slots for buttons that
     // don't exist yet. Bottom edge sits edgeMargin above the wall; the coin
-    // and "Store" caption stack inside it top to bottom.
+    // and caption stack inside it top to bottom.
     const panelPaddingX = storeButtonSize * 0.35;
     const panelPaddingTop = storeButtonSize * 0.18;
     const panelPaddingBottom = storeButtonSize * 0.16;
     const labelGap = storeButtonLabelFontSize * 0.5;
     const labelHeight = storeButtonLabelFontSize * 1.4;
-    const panelWidth = storeButtonSize + panelPaddingX * 2;
+    this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
+    const labelTextWidth = this.ctx.measureText(labelText).width;
+    // Whichever needs more room - the coin or "Barking-ham Plaza" itself
+    // (a lot wider than the old plain "Store") - decides the panel's width.
+    const panelWidth = Math.max(storeButtonSize + panelPaddingX * 2, labelTextWidth + panelPaddingX * 2);
     const panelHeight = panelPaddingTop + storeButtonSize + labelGap + labelHeight + panelPaddingBottom;
     const panelX = centerX - panelWidth / 2;
     const panelBottomY = this.canvas.height - edgeMargin;
@@ -3625,6 +3638,9 @@ export default class GameScreen {
       y: panelTopY,
       width: panelWidth,
       height: panelHeight,
+      centerX,
+      label: labelText,
+      description: 'Fetch the best deals in town!',
     };
 
     this.ctx.save();
@@ -3637,6 +3653,16 @@ export default class GameScreen {
     this.ctx.restore();
 
     this.ctx.save();
+    if (this.storeButtonHovered) {
+      // A quick wiggle-and-pop rather than a continuous idle animation -
+      // only runs while the mouse is actually over the button, so it reads
+      // as a response to attention rather than motion for its own sake.
+      const wiggleAngle = Math.sin(performance.now() / 150) * (Math.PI / 24);
+      this.ctx.translate(centerX, centerY);
+      this.ctx.rotate(wiggleAngle);
+      this.ctx.scale(1.08, 1.08);
+      this.ctx.translate(-centerX, -centerY);
+    }
     this.ctx.beginPath();
     this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     // A real gold-coin palette (pale-gold highlight -> rich gold -> bronze
@@ -3690,19 +3716,27 @@ export default class GameScreen {
     this.ctx.font = `${Math.round(storeButtonIconSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('\u{1F6CD}\u{FE0F}', centerX, centerY + 1); // 🛍️
+    this.ctx.fillText('\u{1F3EC}', centerX, centerY + 1); // 🏬
     this.ctx.restore();
 
-    // "Store" caption sits directly on the plum panel now, not its own
-    // nested pill - the panel already supplies the contrast a floating
-    // label used to need on its own.
+    // Caption sits directly on the plum panel now, not its own nested pill
+    // - the panel already supplies the contrast a floating label used to
+    // need on its own.
     this.ctx.save();
     this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillText('Store', centerX, panelBottomY - panelPaddingBottom - labelHeight / 2);
+    this.ctx.fillText(labelText, centerX, panelBottomY - panelPaddingBottom - labelHeight / 2);
     this.ctx.restore();
+
+    // Hover tooltip, same component the HUD stat chips use - drawn "above"
+    // rather than the HUD's own "below" placement, since this button sits
+    // near the bottom of the board and a tooltip below it would run off
+    // the canvas.
+    if (this.storeButtonHovered) {
+      this.drawHudTooltip(this.storeButtonArea, 'above');
+    }
   }
 
   // Draws a coin icon (a small crop of the real doober_coin.png art) plus
@@ -3744,15 +3778,18 @@ export default class GameScreen {
     return { iconWidth, gap, textWidth, totalWidth: iconWidth + gap + textWidth };
   }
 
-  // Small popover under a hovered HUD stat chip explaining what the
-  // metric is - a bold label line plus a word-wrapped description, same
-  // dark rounded-box chrome as the HUD itself. The description wraps
-  // (see wrapText()) against a max width that's itself clamped to a
-  // fraction of the live canvas width, rather than either a single
-  // unbroken line (which could overflow a narrow canvas) or a fixed pixel
-  // width (which wouldn't actually shrink on a small screen) - that's what
-  // makes this "responsive" rather than just bigger.
-  drawHudTooltip(area) {
+  // Small popover explaining whatever's hovered - a hovered HUD stat chip,
+  // or the store button (see drawStoreButton()) - a bold label line plus a
+  // word-wrapped description, same dark rounded-box chrome as the HUD
+  // itself. The description wraps (see wrapText()) against a max width
+  // that's itself clamped to a fraction of the live canvas width, rather
+  // than either a single unbroken line (which could overflow a narrow
+  // canvas) or a fixed pixel width (which wouldn't actually shrink on a
+  // small screen) - that's what makes this "responsive" rather than just
+  // bigger. `placement` defaults to 'below' (the HUD stat chips' own use,
+  // which always has room underneath); the store button passes 'above'
+  // since it sits near the bottom of the board.
+  drawHudTooltip(area, placement = 'below') {
     const ctx = this.ctx;
     const { hudTooltipFontSize, hudTooltipPadding, hudTooltipMaxWidth } = this.layout;
     const titleFontSize = hudTooltipFontSize;
@@ -3771,7 +3808,10 @@ export default class GameScreen {
     const boxWidth = Math.max(titleWidth, descWidth) + hudTooltipPadding * 2;
     const boxHeight =
       titleFontSize + hudTooltipPadding * 0.5 + descLines.length * lineHeight + hudTooltipPadding * 1.5;
-    const boxY = area.y + area.height + 8;
+    // 'above' for anything living near the bottom of the board (the store
+    // button) where the HUD's own default 'below' placement would run the
+    // tooltip off the canvas.
+    const boxY = placement === 'above' ? area.y - boxHeight - 8 : area.y + area.height + 8;
     const boxX = Math.max(
       8,
       Math.min(area.centerX - boxWidth / 2, this.canvas.width - boxWidth - 8)
