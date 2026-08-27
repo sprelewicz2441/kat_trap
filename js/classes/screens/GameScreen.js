@@ -3603,9 +3603,9 @@ export default class GameScreen {
       centerY,
       storeButtonSize * 0.75
     );
-    gradient.addColorStop(0, '#fff6d8');
-    gradient.addColorStop(0.35, '#ffcf5c');
-    gradient.addColorStop(1, '#d97e1a');
+    gradient.addColorStop(0, '#eef6fb');
+    gradient.addColorStop(0.35, '#6fa3c7');
+    gradient.addColorStop(1, '#264a63');
     this.ctx.fillStyle = gradient;
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     this.ctx.shadowBlur = 6;
@@ -3647,8 +3647,8 @@ export default class GameScreen {
     this.ctx.font = `bold ${Math.round(storeButtonLabelFontSize)}px Arial, sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'top';
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    this.ctx.fillStyle = '#3d7ba6';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     this.ctx.shadowBlur = 3;
     this.ctx.fillText('Store', centerX, this.storeButtonArea.y + storeButtonSize + 4);
     this.ctx.restore();
