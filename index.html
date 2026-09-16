@@ -213,11 +213,20 @@
        placeholder for now (matching Bloomingtails' own pre-real-art
        history) - eventual real art is meant to read like a convenience-
        store checkout counter, deferred until the split itself is solid.
-       Every row gets its own inline buy button (see
-       storeModal.js's buildPawgreensRow()) rather than routing through a
-       single shared action button the way Bloomingtails does - there's no
-       character preview to focus a single button's target on, so "which
-       item does this button act on" needs to live on the row itself. -->
+       Every row gets its own inline buy button (see storeModal.js's
+       buildShoppingListRow(), shared with #petShopPanel below) rather
+       than routing through a single shared action button the way
+       Bloomingtails does - there's no character preview to focus a
+       single button's target on, so "which item does this button act
+       on" needs to live on the row itself.
+
+       #petShopPanel ("Pet Shop Boys") is the third storefront - kitchen
+       decor (fish tank, bird cage, etc.), not any one character's
+       cosmetic/perk, so it reads from its own getDecorStore() fetch
+       (storeModal.js's decorState) rather than the per-character
+       getStore() both other panels share. Same plain-shopping-list shape
+       as Pawgreens (decor has no single character to preview a purchase
+       on either) - reuses its row markup/CSS wholesale. -->
   <div id="storeModal" hidden>
     <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
@@ -225,6 +234,7 @@
       <div id="storeTabs" role="tablist">
         <button id="storeTabBloomingtails" class="store-tab" type="button" role="tab" aria-selected="true"><img src="./assets/bloomingtails_logo.png" class="store-tab-logo" alt=""><span class="store-tab-label">Bloomingtails</span></button>
         <button id="storeTabPawgreens" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐾</span><span class="store-tab-label">Pawgreens</span></button>
+        <button id="storeTabPetShop" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐠</span><span class="store-tab-label">Pet Shop Boys</span></button>
       </div>
 
       <div id="bloomingtailsPanel" class="store-panel">
@@ -253,6 +263,14 @@
           <p id="pawgreensWalletLine"></p>
         </div>
         <div id="pawgreensItemsList"></div>
+      </div>
+
+      <div id="petShopPanel" class="store-panel" hidden>
+        <div id="petShopBackdrop">
+          <h2 id="petShopHeading">Pet Shop Boys <span id="petShopHeadingMark" aria-hidden="true">🐠</span></h2>
+          <p id="petShopWalletLine"></p>
+        </div>
+        <div id="petShopItemsList"></div>
       </div>
     </div>
   </div>

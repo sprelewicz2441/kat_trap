@@ -1,4 +1,13 @@
-import { equipItem, getStore, purchaseItem, sellItem, unequipItem } from './api.js';
+import {
+  equipItem,
+  getStore,
+  purchaseItem,
+  sellItem,
+  unequipItem,
+  getDecorStore,
+  purchaseDecorItem,
+  sellDecorItem,
+} from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
@@ -30,7 +39,7 @@ let currentTab = 'bloomingtails';
 // module-level so it survives a local re-render (arrow click, a
 // purchase/equip) without needing a fresh network fetch every time.
 // Pawgreens has no equivalent - every perk row is self-contained (see
-// buildPawgreensRow()), there's nothing to "preview" the way trying on an
+// buildShoppingListRow()), there's nothing to "preview" the way trying on an
 // outfit means something. Reset only when the modal is freshly opened.
 let previewedSlug = null;
 
@@ -40,6 +49,18 @@ let previewedSlug = null;
 // (which actually changes owned/equipped/coins) re-fetches via
 // renderItems(). null until the first successful renderItems() call.
 let currentState = null;
+
+// Pet Shop Boys' own equivalent of currentState above - a separate fetch
+// (getDecorStore(), not getStore(character)) since decor isn't scoped to a
+// character's catalog at all (see kpground-api's StoreItem.character).
+// `character`/`wallet` here are still the same ones openStoreModal() was
+// given though - decor purchases spend from that same character's wallet,
+// there's just no separate "which character's catalog" question for the
+// item list itself. Fetched eagerly alongside currentState in
+// openStoreModal() (not lazily on first tab switch) so switching to this
+// tab is a pure local redraw too, same "both/all panels share their own
+// fetch, tab switch is local" shape the other two panels already have.
+let decorState = null;
 
 // Sizes #storeCard to match the intro cutscene's own modal footprint
 // (Cutscene.js: modalMargin = 50 * getUIScale(canvasWidth), modal fills
@@ -181,24 +202,30 @@ export function setupStoreModal() {
 
   document.getElementById('storeTabBloomingtails').addEventListener('click', () => switchTab('bloomingtails'));
   document.getElementById('storeTabPawgreens').addEventListener('click', () => switchTab('pawgreens'));
+  document.getElementById('storeTabPetShop').addEventListener('click', () => switchTab('petshop'));
 }
 
-// Swaps which panel is visible without re-fetching - both panels already
-// share the one currentState fetch (see openStoreModal()/renderItems()),
-// so switching tabs is purely a local redraw.
+// Swaps which panel is visible without re-fetching - all three panels
+// already share their own fetch, made once up front (see openStoreModal()/
+// renderItems()/renderDecorItems()), so switching tabs is purely a local
+// redraw.
 function switchTab(tab) {
   if (tab === currentTab) return;
   currentTab = tab;
 
   document.getElementById('bloomingtailsPanel').hidden = tab !== 'bloomingtails';
   document.getElementById('pawgreensPanel').hidden = tab !== 'pawgreens';
+  document.getElementById('petShopPanel').hidden = tab !== 'petshop';
   document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', String(tab === 'bloomingtails'));
   document.getElementById('storeTabPawgreens').setAttribute('aria-selected', String(tab === 'pawgreens'));
+  document.getElementById('storeTabPetShop').setAttribute('aria-selected', String(tab === 'petshop'));
 
   if (tab === 'bloomingtails') {
     updateBloomingtailsPreview();
-  } else {
+  } else if (tab === 'pawgreens') {
     renderPawgreensList();
+  } else {
+    renderPetShopList();
   }
   // The scene's real box only exists once its panel is actually visible -
   // re-measure now that the flip above has taken effect.
@@ -250,51 +277,50 @@ const PEDESTAL_SIZE_MULTIPLIER = {
 };
 
 // Mouse's east-facing crop leaves a real, measured gap between the
-// character's own feet and the frame's native bottom edge (~42-64px out
-// of 327px, depending on which sprite sheet - checked directly off each
-// PNG's alpha channel), unlike cat/dog's crops where the feet already sit
-// flush against the very bottom of the frame. Plain bottom-anchoring
-// (see draw() below) therefore left the mouse looking like it was
-// hovering above the pedestal rather than standing on it. This nudges
-// the whole draw down into that native margin - in native (pre-scale)
-// pixels, so it scales proportionally with PEDESTAL_SIZE_MULTIPLIER
-// rather than over- or under-shooting at different sizes.
-//
-// The default look gets its own, bigger value (not just the same
-// PEDESTAL_VERTICAL_NUDGE reused) for two compounding reasons: its own
-// native margin is wider to begin with (~64px vs. a recolor's ~42px),
-// and PEDESTAL_DEFAULT_SIZE_BOOST below scales it up further, which
-// scales the *leftover* (un-nudged) gap up right along with it - the
-// colored cosmetics' own flat 30px nudge left the default look reading
-// as still floating even though the nudge was in fact being applied.
+// character's own feet and the frame's native bottom edge (~64px out of
+// 327px, checked directly off the alpha channel), unlike cat/dog's crops
+// where the feet already sit flush against the very bottom of the frame.
+// Plain bottom-anchoring (see draw() below) therefore left the mouse
+// looking like it was hovering above the pedestal rather than standing on
+// it. This nudges the whole draw down into that native margin - in native
+// (pre-scale) pixels, so it scales proportionally with
+// PEDESTAL_SIZE_MULTIPLIER rather than over- or under-shooting at
+// different sizes. One value now covers both the default look and every
+// cosmetic recolor - see PEDESTAL_DEFAULT_SIZE_BOOST's own comment below
+// for why that used to need a separate, bigger value here and no longer
+// does.
 const PEDESTAL_VERTICAL_NUDGE = {
   mouse: 30,
 };
 
-const PEDESTAL_DEFAULT_VERTICAL_NUDGE = {
-  mouse: 50,
-};
-
-// The default look's own sprite (hand-authored well before the store
-// existed) fills noticeably less of PORTRAITS' fixed crop box than the
-// tightly-extracted cosmetic recolors do, sitting through the exact same
-// crop rect and the exact same fit-to-box scale math - so at any given
-// PEDESTAL_SIZE_MULTIPLIER, the default look renders visibly smaller than
-// every purchased color, for all three characters. Measured directly off
-// each pair's alpha-channel content bbox (default vs. one of its own
-// recolors, same crop): cat's default fills ~86% of the crop's height
-// where a recolor fills 100%; dog's default fills ~82% of the crop's
-// width where a recolor fills ~93%; mouse's default fills ~62% of the
-// crop's height where a recolor fills ~75%. This multiplies on top of
-// PEDESTAL_SIZE_MULTIPLIER only when the default look is what's being
-// drawn (see getPedestalSizeMultiplier's isDefaultLook param) - the
-// ratio between "how full the default's own content is" and "how full a
-// recolor's own content is," on whichever axis (width/height) reads as
-// the more dominant size cue for that character's own pose.
+// Cosmetic recolor sheets (cat_v2_tutu_*.png, mouse_v2_tutu_*.png) used to
+// be extracted per-frame - tight alpha bbox crop, independently resized to
+// fill the native frame - with no shared anchor/scale across frames or
+// against the hand-authored default sprite. That let each recolor's frame
+// 0 (cat/dog) / frame 4 (mouse) - the exact frames PORTRAITS crops for
+// this pedestal - fill noticeably more of the frame than the default
+// does: cat's default filled ~86% of the crop's height where a recolor
+// filled 100%; mouse's default filled ~62% where a recolor filled ~75%.
+// PEDESTAL_DEFAULT_SIZE_BOOST used to paper over exactly that gap by
+// scaling the default look up further whenever it's what's being drawn
+// (see getPedestalSizeMultiplier's isDefaultLook param) - a display-only
+// patch that left the underlying asset mismatch in place for gameplay
+// (Cat.js/Mouse.js draw() have no equivalent boost, so an equipped
+// cosmetic actually rendered bigger in-game than the default, clipping
+// ears at the top of the frame - reported live as "shoes above heads" in
+// the walk-cycle animation).
+//
+// Fixed at the asset level instead (see CLAUDE.md's Currency & economy
+// section, cosmetics bullet, for the normalization script): every cat/
+// mouse recolor frame is now re-cropped and re-anchored to match the
+// default sprite's own alpha-channel bbox for that exact frame index
+// (same content height, same bottom edge, same horizontal center), so the
+// default and every recolor now fill their shared crop rect identically.
+// Dog's own recolors were checked against the same script and came back
+// within ~5% of the default already (no visible clipping), so they were
+// left untouched - dog keeps its own small width-based boost below.
 const PEDESTAL_DEFAULT_SIZE_BOOST = {
-  cat: 1.17,
   dog: 1.14,
-  mouse: 1.21,
 };
 
 function getPedestalSizeMultiplier(character, isDefaultLook) {
@@ -328,8 +354,7 @@ function drawPedestalPortrait(character, item) {
       getPedestalSizeMultiplier(character, isDefaultLook);
     const dw = crop.sw * scale;
     const dh = crop.sh * scale;
-    const nudgeMap = isDefaultLook ? PEDESTAL_DEFAULT_VERTICAL_NUDGE : PEDESTAL_VERTICAL_NUDGE;
-    const verticalNudge = (nudgeMap[character] ?? PEDESTAL_VERTICAL_NUDGE[character] ?? 0) * scale;
+    const verticalNudge = (PEDESTAL_VERTICAL_NUDGE[character] ?? 0) * scale;
     // Bottom-anchored, horizontally centered - "standing on the pedestal"
     // rather than centered in the canvas, so the character's feet line up
     // with the pedestal in the backdrop photo. verticalNudge shifts that
@@ -483,13 +508,20 @@ function wireItemButton(btn, character, wallet, item) {
   } else {
     btn.disabled = false;
     btn.innerHTML = `Buy ${COIN_ICON_HTML}${item.cost}`;
+    // Pet Shop Boys decor buys through its own endpoint (not scoped to a
+    // character's catalog - see kpground-api's StoreItem.character), but
+    // `character` still means the same thing everywhere: whose wallet
+    // pays. Branching on item_type here (rather than a second copy of this
+    // whole branch) is what keeps decor purchases going through the exact
+    // same button-state/error-handling code as cosmetics/perks.
+    const purchase = item.item_type === 'decor' ? purchaseDecorItem : purchaseItem;
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Buying...';
       try {
-        const updatedWallet = await purchaseItem(character, item.slug);
+        const updatedWallet = await purchase(character, item.slug);
         if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
-        await refreshAfterChange(updatedWallet);
+        await refreshAfterChange(item, updatedWallet);
       } catch (err) {
         btn.disabled = false;
         btn.textContent = err.message || 'Purchase failed';
@@ -547,24 +579,28 @@ function wireSellButton(sellBtn, character, item) {
   sellBtn.hidden = false;
   sellBtn.disabled = false;
   sellBtn.innerHTML = `Sell for ${COIN_ICON_HTML}${sellPriceFor(item)}`;
+  // Same item_type branch wireItemButton()'s own buy button uses above -
+  // decor sells through its own endpoint too.
+  const sell = item.item_type === 'decor' ? sellDecorItem : sellItem;
   sellBtn.onclick = async () => {
     sellBtn.disabled = true;
     sellBtn.textContent = 'Selling...';
     try {
-      const updatedWallet = await sellItem(character, item.slug);
+      const updatedWallet = await sell(character, item.slug);
       if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
       // Selling an equipped cosmetic reverts it to the default look on
       // the backend too (see sell_item()) - mirrors the equip-toggle
       // button's own onOutfitChangeCallback(character, null) call for
       // unequip, so the live in-game sprite reverts immediately instead
-      // of only picking up the change on next reload.
+      // of only picking up the change on next reload. A no-op for decor,
+      // which is never equipped.
       if (item.equipped && onOutfitChangeCallback) onOutfitChangeCallback(character, null);
       // Popup + sound fire before refreshAfterChange() redraws the panel
       // (which can hide/replace this exact button), while sellBtn's
       // position is still the real one the popup should float up from.
       spawnCoinPopup(sellBtn, sellPriceFor(item));
       playSellChaChingSound();
-      await refreshAfterChange(updatedWallet);
+      await refreshAfterChange(item, updatedWallet);
     } catch (err) {
       sellBtn.disabled = false;
       sellBtn.textContent = err.message || 'Sell failed';
@@ -581,6 +617,12 @@ function wireSellButton(sellBtn, character, item) {
 function updateBloomingtailsPreview() {
   if (!currentState) return;
   const { character, wallet, items } = currentState;
+  // Re-set on every local redraw, not just after renderItems()'s own
+  // fetch - a Pet Shop Boys purchase/sell updates currentState.wallet too
+  // (see refreshAfterChange()) without going through renderItems(), so
+  // this can't rely on that alone to stay fresh once this tab is switched
+  // back to.
+  document.getElementById('storeWalletLine').innerHTML = walletLineHtml(wallet);
   const cosmetics = getCosmeticsWithDefault(items);
   // The default entry is always present, so this only stays null while
   // currentState itself hasn't loaded yet.
@@ -634,12 +676,16 @@ function cycleOutfit(direction) {
   updateBloomingtailsPreview();
 }
 
-// A perk's row in the Pawgreens list - self-contained (name, description,
-// and its own working Buy/Owned/locked button) since there's no character
-// preview to focus a single shared action button's target on the way
-// Bloomingtails has. Reuses wireItemButton() for the actual state/click
-// logic so purchase behavior can't drift between the two stores.
-function buildPawgreensRow(item, character, wallet) {
+// A single row in either plain-shopping-list panel (Pawgreens' perks or
+// Pet Shop Boys' decor) - self-contained (name, description, and its own
+// working Buy/Owned/locked button) since neither has a character preview
+// to focus a single shared action button's target on the way Bloomingtails
+// has. Reuses wireItemButton()/wireSellButton() for the actual state/click
+// logic so purchase/sell behavior can't drift between any of the three
+// stores - the class names stay "pawgreens-item*" (Pawgreens had this
+// layout first) rather than a generic rename, since renaming CSS classes
+// used only for layout would be a bigger diff for no behavioral benefit.
+function buildShoppingListRow(item, character, wallet) {
   const row = document.createElement('div');
   row.className = 'pawgreens-item';
 
@@ -689,7 +735,51 @@ function renderPawgreensList() {
     listEl.textContent = 'Nothing here yet - check back soon!';
     return;
   }
-  perks.forEach((item) => listEl.appendChild(buildPawgreensRow(item, character, wallet)));
+  perks.forEach((item) => listEl.appendChild(buildShoppingListRow(item, character, wallet)));
+}
+
+// Pet Shop Boys' own equivalent of renderPawgreensList() above - a local
+// redraw from decorState, no re-fetch. Every item here is already
+// item_type='decor' (see getDecorStore()), so unlike renderPawgreensList()
+// there's no client-side item_type filter needed.
+function renderPetShopList() {
+  if (!decorState) return;
+  const { character, wallet, items } = decorState;
+  // Same "re-set on every local redraw" reasoning as
+  // updateBloomingtailsPreview()'s own #storeWalletLine line - a
+  // Bloomingtails/Pawgreens purchase updates decorState.wallet too (see
+  // refreshAfterChange()) without going through renderDecorItems().
+  document.getElementById('petShopWalletLine').innerHTML = walletLineHtml(wallet);
+  const listEl = document.getElementById('petShopItemsList');
+  listEl.innerHTML = '';
+  if (items.length === 0) {
+    listEl.textContent = 'Nothing here yet - check back soon!';
+    return;
+  }
+  items.forEach((item) => listEl.appendChild(buildShoppingListRow(item, character, wallet)));
+}
+
+// Pet Shop Boys' own equivalent of renderItems() above - a separate fetch
+// (getDecorStore(), not getStore(character)) since decor isn't part of
+// any character's own catalog. Called once from openStoreModal() (so the
+// tab is ready before it's ever switched to) and again from
+// refreshAfterChange() whenever a decor purchase/sell actually changes
+// owned state.
+async function renderDecorItems(character, wallet) {
+  document.getElementById('petShopWalletLine').innerHTML = walletLineHtml(wallet);
+
+  let items;
+  try {
+    items = await getDecorStore();
+  } catch (err) {
+    decorState = { character, wallet, items: [] };
+    document.getElementById('petShopItemsList').textContent = 'Could not load the store right now.';
+    return;
+  }
+
+  decorState = { character, wallet, items };
+  renderPetShopList();
+  applyModalSizing();
 }
 
 // Re-fetches the catalog and rebuilds both panels' data - called on open
@@ -737,19 +827,41 @@ async function renderItems(character, wallet) {
 }
 
 // Only a purchase/equip actually needs a fresh network fetch (owned/
-// equipped/coins all changed) - re-derives character from currentState
-// rather than threading it through every action-button handler separately.
-// freshWallet: the wallet a purchase/sell call just returned, if any -
-// equip/unequip don't touch coins so they have none to pass. Without this,
-// a purchase's own updated wallet only ever reached GameScreen's HUD (via
-// onWalletUpdateCallback); this modal's own currentState.wallet - which
-// #storeWalletLine and every item's affordability/lock check read from -
-// kept showing the pre-purchase coin count for the rest of the session,
-// making a second buy look wrongly affordable or wrongly locked until the
-// store was closed and reopened.
-function refreshAfterChange(freshWallet) {
+// equipped/coins all changed) - re-derives character from currentState/
+// decorState rather than threading it through every action-button handler
+// separately. freshWallet: the wallet a purchase/sell call just returned,
+// if any - equip/unequip don't touch coins so they have none to pass.
+// Without this, a purchase's own updated wallet only ever reached
+// GameScreen's HUD (via onWalletUpdateCallback); this modal's own
+// currentState.wallet - which #storeWalletLine and every item's
+// affordability/lock check read from - kept showing the pre-purchase coin
+// count for the rest of the session, making a second buy look wrongly
+// affordable or wrongly locked until the store was closed and reopened.
+//
+// `item` (the thing that was just bought/sold/equipped, or undefined for
+// the equip/unequip call sites that predate Pet Shop Boys) decides *which*
+// store's own catalog actually needs re-fetching - cosmetics/perks share
+// one (currentState), decor has its own (decorState) - but every one of
+// the three spends from the exact same character's one wallet, so
+// freshWallet is applied to whichever of currentState/decorState already
+// exists regardless of which store the change happened in. Otherwise
+// buying a fish tank while Bloomingtails/Pawgreens still show the
+// pre-purchase coin count (or vice versa) until the store's closed and
+// reopened - the same staleness bug this function already exists to
+// prevent, just for a third store now sharing the same wallet.
+function refreshAfterChange(item, freshWallet) {
+  if (freshWallet) {
+    if (currentState) currentState.wallet = freshWallet;
+    if (decorState) decorState.wallet = freshWallet;
+  }
+
+  if (item && item.item_type === 'decor') {
+    if (!decorState) return Promise.resolve();
+    return renderDecorItems(decorState.character, decorState.wallet);
+  }
+
   if (!currentState) return Promise.resolve();
-  return renderItems(currentState.character, freshWallet || currentState.wallet);
+  return renderItems(currentState.character, currentState.wallet);
 }
 
 // wallet: the character's current wallet (from GameScreen's this.wallet),
@@ -771,8 +883,10 @@ export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange
   currentTab = 'bloomingtails';
   document.getElementById('bloomingtailsPanel').hidden = false;
   document.getElementById('pawgreensPanel').hidden = true;
+  document.getElementById('petShopPanel').hidden = true;
   document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', 'true');
   document.getElementById('storeTabPawgreens').setAttribute('aria-selected', 'false');
+  document.getElementById('storeTabPetShop').setAttribute('aria-selected', 'false');
 
   modal.hidden = false;
   // Sized *after* unhiding, not before - a hidden element lays out at
@@ -782,4 +896,9 @@ export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange
   window.addEventListener('orientationchange', applyModalSizing);
   document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: true } }));
   renderItems(character, wallet);
+  // Fetched eagerly alongside renderItems() above (not lazily on first
+  // switch to this tab) - see decorState's own comment for why: it keeps
+  // "switching tabs is a pure local redraw" true for all three panels,
+  // not just the first two.
+  renderDecorItems(character, wallet);
 }

@@ -33,13 +33,15 @@ import {
   getWallets,
   getStore,
   getEquipped,
+  getDecorStore,
   submitRound,
   kathrynQuickLogin,
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=23';
+import { openStoreModal } from '../../utils/storeModal.js?v=25';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
+import { DECOR_TYPES, getFreestandingDecorTypes } from '../../utils/decorTypes.js?v=1';
 import CoinBadgeButton from '../../utils/canvasButton.js?v=1';
 import { drawTooltip } from '../../utils/tooltip.js?v=1';
 
@@ -682,8 +684,16 @@ const WALL_FURNITURE_TYPES = ['cabinet', 'sink', 'stove', 'fridge'];
 // (Furniture.startShake(), see updateTableBump() below) rather than the
 // plant's knock-over, since a dining table shouldn't visibly tip over the
 // way a small potted plant does.
-const CAT_NON_BLOCKING_FURNITURE_TYPES = ['plant', 'cart', 'shelf', 'table'];
-const DOG_NON_BLOCKING_FURNITURE_TYPES = ['plant'];
+// Pet Shop Boys decor pieces default to solid (see DECOR_TYPES'
+// catBlocks/dogBlocks, both default true - a fish tank/bird cage doesn't
+// invite ducking past the way the plant does) - these two derive whichever
+// slugs opt out of that default, so a future decor entry that *should* be
+// passable (setting catBlocks/dogBlocks: false in decorTypes.js) needs no
+// change here to take effect.
+const DECOR_CAT_NON_BLOCKING_TYPES = Object.values(DECOR_TYPES).filter((d) => d.catBlocks === false).map((d) => d.slug);
+const DECOR_DOG_NON_BLOCKING_TYPES = Object.values(DECOR_TYPES).filter((d) => d.dogBlocks === false).map((d) => d.slug);
+const CAT_NON_BLOCKING_FURNITURE_TYPES = ['plant', 'cart', 'shelf', 'table', ...DECOR_CAT_NON_BLOCKING_TYPES];
+const DOG_NON_BLOCKING_FURNITURE_TYPES = ['plant', ...DECOR_DOG_NON_BLOCKING_TYPES];
 // Multiplier on top of the cat's normal speed while wandering blind (no
 // line of sight to the mouse) — not a BASE_* pixel value since it's a ratio
 // applied to the already-scaled this.cat.speed, so it stays proportionate
@@ -1499,6 +1509,15 @@ export default class GameScreen {
     // as this.wallet. Perks only ever apply to the character whose wallet
     // paid for them - see PUNCH_KNOCKBACK_PERK_MULTIPLIER's own comment.
     this.ownedPerkSlugs = new Set();
+    // Pet Shop Boys decor the player owns (see init()'s getDecorStore()
+    // fetch, js/utils/decorTypes.js) - global, not per controlledEntity
+    // (unlike ownedPerkSlugs above), since decor lives in the shared
+    // kitchen rather than on one character. Read once by
+    // generateKitchenFurniture() below when it (re)builds the room; an
+    // empty Set here just means this reset's kitchen renders with no Pet
+    // Shop Boys decor, same degrade-gracefully shape as every other
+    // economy fetch in this file.
+    this.ownedDecorSlugs = new Set();
     // Equipped 'outfit'-slot cosmetic per character (cat/mouse/dog), keyed
     // by character regardless of controlledEntity - a purchased look is
     // worn by that character whenever it's on screen, not just when it's
@@ -1705,6 +1724,21 @@ export default class GameScreen {
         );
       })
       .catch((err) => console.warn('Could not load perks:', err.message));
+
+    // Pet Shop Boys ownership - global, not per controlledEntity (see
+    // this.ownedDecorSlugs's own comment), so this is one fetch total
+    // rather than per-character like getEquipped() below. Read by
+    // generateKitchenFurniture() the *next* time it runs (this round's
+    // kitchen, generated in resetGameObjects() before this fetch had a
+    // chance to resolve, doesn't retroactively gain decor mid-round - see
+    // CLAUDE.md's Mobile responsiveness section on furniture/spawn layout
+    // already being a "computed once, not live" thing for the same
+    // reason).
+    getDecorStore()
+      .then((items) => {
+        this.ownedDecorSlugs = new Set(items.filter((item) => item.owned).map((item) => item.slug));
+      })
+      .catch((err) => console.warn('Could not load owned decor:', err.message));
 
     // Cosmetic equip state, one fetch per character (not just
     // controlledEntity) - the dog's own tutu, say, should show whenever
@@ -5533,6 +5567,73 @@ export default class GameScreen {
     // occupied) is left as a no-op, same "an empty spot is a normal kitchen,
     // not a bug" philosophy already applied to the dining set and the
     // (since-removed) corner counter.
+
+    // 8. Pet Shop Boys decor: owned, placement:'freestanding' items from
+    // js/utils/decorTypes.js (fish tank, bird cage today) - same corner-
+    // preferred/wall-fallback family as the shelf/cart/plant above, but
+    // generalized into one shared search function instead of a hand-copied
+    // block per item. That copy-per-item style was a deliberate choice for
+    // the fixed trio above (see the shelf's own comment: "a few similar
+    // lines per freestanding piece rather than an early abstraction over
+    // three call sites") - it stops being the right call once the catalog
+    // is store-driven and open-ended rather than fixed at three, which is
+    // exactly what this whole feature needs (see decorTypes.js's own header
+    // comment). Runs after the shelf/cart/plant so those three keep first
+    // pick of the corners; decor items fill in whatever's left, sorted
+    // biggest-on-screen-footprint-first among themselves - the same
+    // "biggest piece needs first pick" lesson the shelf/cart ordering above
+    // already learned the hard way (see CLAUDE.md's Lessons learned),
+    // applied here as a sort instead of manual ordering since the list
+    // itself isn't fixed.
+    const placeFreestandingDecorItem = (spec, itemScale, type, spriteSrc) => {
+      const itemWidth = spec.width * itemScale;
+      const itemHeight = spec.height * itemScale;
+      const WALL_MARGIN = 6 * scale;
+      const cornerCandidates = [
+        { x: wallBandThickness + WALL_MARGIN, y: wallBandThickness + WALL_MARGIN },
+        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: wallBandThickness + WALL_MARGIN },
+        { x: wallBandThickness + WALL_MARGIN, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight },
+        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight },
+      ];
+      for (let i = cornerCandidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cornerCandidates[i], cornerCandidates[j]] = [cornerCandidates[j], cornerCandidates[i]];
+      }
+      for (const candidate of cornerCandidates) {
+        if (!overlaps(candidate.x, candidate.y, itemWidth, itemHeight) && !blocksSpawn(candidate.x, candidate.y, itemWidth, itemHeight)) {
+          furniture.push(new Furniture(candidate.x, candidate.y, type, spriteSrc, 0, spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
+          return;
+        }
+      }
+
+      let attempts = 0;
+      while (attempts < 100) {
+        const wall = Math.floor(Math.random() * 4);
+        const alongTop = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.width - 2 * (wallBandThickness + WALL_MARGIN) - itemWidth);
+        const alongSide = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.height - 2 * (wallBandThickness + WALL_MARGIN) - itemHeight);
+        const x = wall === 2 ? wallBandThickness + WALL_MARGIN
+          : wall === 3 ? this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth
+          : alongTop;
+        const y = wall === 0 ? wallBandThickness + WALL_MARGIN
+          : wall === 1 ? this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight
+          : alongSide;
+
+        if (!overlaps(x, y, itemWidth, itemHeight) && !blocksSpawn(x, y, itemWidth, itemHeight)) {
+          furniture.push(new Furniture(x, y, type, spriteSrc, 0, spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
+          return;
+        }
+        attempts++;
+      }
+      // Same no-op-if-no-room philosophy as the shelf/cart/plant above -
+      // a decor piece the player owns just doesn't appear this reset if
+      // the room's too full, rather than forcing an overlap.
+    };
+
+    getFreestandingDecorTypes()
+      .filter((decor) => this.ownedDecorSlugs.has(decor.slug))
+      .map((decor) => ({ ...decor, itemScale: diningScale * decor.scaleMultiplier }))
+      .sort((a, b) => (b.width * b.height * b.itemScale ** 2) - (a.width * a.height * a.itemScale ** 2))
+      .forEach((decor) => placeFreestandingDecorItem(decor, decor.itemScale, decor.slug, decor.spriteSrc));
 
     return furniture;
   }

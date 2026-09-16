@@ -179,6 +179,31 @@ export function unequipItem(character, slot) {
   });
 }
 
+// Pet Shop Boys - the shared decor catalog. Unlike getStore()/purchaseItem()
+// above, these aren't under /store/<character>/ - a decor item isn't any
+// one character's (see kpground-api's StoreItem.character docstring), so
+// `character` here only ever means "whose wallet pays/gets refunded," sent
+// in the body instead of the URL. Ownership itself (the `owned` flag on
+// each item) is global, not per-character - see js/classes/screens/
+// GameScreen.js's own loadEconomyData() for how the owned list gets used.
+export function getDecorStore() {
+  return apiFetch('/api/kattrap/decor/');
+}
+
+export function purchaseDecorItem(character, itemSlug) {
+  return apiFetch('/api/kattrap/decor/purchase/', {
+    method: 'POST',
+    body: JSON.stringify({ character, item_slug: itemSlug }),
+  });
+}
+
+export function sellDecorItem(character, itemSlug) {
+  return apiFetch('/api/kattrap/decor/sell/', {
+    method: 'POST',
+    body: JSON.stringify({ character, item_slug: itemSlug }),
+  });
+}
+
 export function getDailyGiftStatus() {
   return apiFetch('/api/kattrap/daily-gift/status/');
 }

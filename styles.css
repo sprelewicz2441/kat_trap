@@ -967,6 +967,15 @@ body.in-game #settingsMenu {
   color: #fff;
 }
 
+/* Pet Shop Boys gets its own warm amber/terracotta identity - distinct
+   from Bloomingtails' purple and Pawgreens' green, in the same "each
+   storefront reads as its own place" spirit as those two. */
+#storeTabPetShop[aria-selected="true"] {
+  background: linear-gradient(135deg, #b5651d, #f0a860);
+  border-color: transparent;
+  color: #fff;
+}
+
 .store-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -1374,6 +1383,56 @@ body.in-game #settingsMenu {
 }
 
 #pawgreensItemsList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Pet Shop Boys - same plain-shopping-list shape as Pawgreens above (see
+   index.html's own comment on #petShopPanel for why), so this reuses that
+   layout wholesale rather than duplicating it: same `:not([hidden])` flex-
+   column override, and its rows reuse .pawgreens-item/.pawgreens-item-info
+   directly (see storeModal.js's buildShoppingListRow(), shared by both
+   panels) - only the backdrop/heading get Pet Shop Boys' own amber tint,
+   matching its tab's own accent color instead of Pawgreens' green. */
+#petShopPanel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+#petShopBackdrop {
+  flex-shrink: 0;
+  padding: 8px 24px 18px;
+  text-align: center;
+  background: linear-gradient(180deg, #fff3e6, #fbe2c2);
+  border-bottom: 2px solid rgba(181, 101, 29, 0.2);
+}
+
+#petShopHeading {
+  margin: 0 0 4px;
+  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #b5651d, #f0a860);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+#petShopHeadingMark {
+  font-size: 1.3rem;
+  vertical-align: 0.02em;
+}
+
+#petShopWalletLine {
+  margin: 0;
+  font: 700 1rem/1.3 Arial, sans-serif;
+  color: #8a5a1e;
+}
+
+#petShopItemsList {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
