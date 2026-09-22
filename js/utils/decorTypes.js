@@ -33,32 +33,75 @@
 export const DECOR_TYPES = {
   'fish-tank': {
     slug: 'fish-tank',
-    spriteSrc: './assets/decor_fish_tank.webp?v=1',
-    width: 641,
-    height: 741,
-    cropX: 30,
-    cropY: 140,
+    // Real generated art (2026-09-16, replacing the flat-vector
+    // placeholder) - third and final real-art pass, after two rounds of
+    // camera-angle correction. First pass: a real photographic perspective
+    // camera (however flatly framed) still had a genuine vanishing point/
+    // foreshortening that read as subtly "off" against this game's
+    // furniture, which is rendered as a true orthographic projection
+    // (zero perspective) - confirmed by direct comparison against
+    // kitchen_fridge_v3.webp/kitchen_counter_flowers.webp, which turned
+    // out to be mostly-top-down with only a small front-facing band
+    // (the fridge's actual door/handles are a small strip at the very
+    // bottom of the frame, not the large plain panel above it, which is
+    // its top surface - easy to misread at a glance). Second pass fixed
+    // the projection but still showed the fish in full side profile,
+    // inconsistent with a steeply-overhead camera. This final pass adds
+    // more decoration (plants, rocks, coral, a starfish) and views the
+    // fish from more of a top-down angle, matching the rest of the
+    // furniture's own top-down-with-a-little-front convention.
+    //
+    // Background-removed the same way every pass was: connected-component
+    // flood fill from a plain white background (still not a native
+    // transparent export - none of these generators support that),
+    // hysteresis-grown through the low-saturation shadow gradient so it
+    // doesn't get kept as opaque content, checked for (and clear of) any
+    // stray fragment (see Lessons learned).
+    spriteSrc: './assets/decor_fish_tank.webp?v=4',
+    width: 952,
+    height: 690,
+    cropX: 5,
+    cropY: 5,
     placement: 'freestanding',
-    // Tuned by eye against the cart/shelf's own on-screen size (a tank on
-    // its stand should read as real furniture, not small decor like the
-    // plant) - expect to retune once checked live, same as every other
-    // scale multiplier in this file's GameScreen.js counterparts.
-    scaleMultiplier: 0.3,
+    // Height-matched to the cart/shelf's own final on-screen height
+    // (CART_SPEC.height * 0.32 ≈ SHELF_SPEC.height * 0.35 ≈ 297) the same
+    // way their own multipliers were derived, rather than guessed fresh -
+    // a tank on its stand should read as real furniture, not small decor
+    // like the plant. Expect to retune once checked live, same as every
+    // other scale multiplier in this file's GameScreen.js counterparts.
+    scaleMultiplier: 0.43,
     catBlocks: true,
     dogBlocks: true,
   },
   'bird-cage': {
     slug: 'bird-cage',
-    spriteSrc: './assets/decor_bird_cage.webp?v=1',
-    width: 361,
-    height: 751,
-    cropX: 120,
-    cropY: 130,
+    // Real generated art (2026-09-16, replacing the flat-vector
+    // placeholder) - same iteration path as the fish tank (see its own
+    // comment above): a real photographic-perspective first pass, then an
+    // edit asking for a steeper top-down camera (which this generator
+    // nailed on the very next try, unlike the fish tank's extra round),
+    // then a third edit fixing a rendering-style regression the top-down
+    // edit introduced (the cage came back as a flat vector/cartoon
+    // illustration - visible outline strokes, flat color fills - rather
+    // than a photorealistic render, an easy defect to miss without
+    // comparing side by side against the kitchen's own photoreal assets).
+    // Background-removed the same connected-component-flood-fill way as
+    // every other kitchen asset (see Lessons learned) - a clean single
+    // component with no holes eaten through the wire lattice, a real risk
+    // for an object this open/see-through that didn't end up happening
+    // here.
+    spriteSrc: './assets/decor_bird_cage.webp?v=2',
+    width: 604,
+    height: 730,
+    cropX: 5,
+    cropY: 5,
     placement: 'freestanding',
-    // Narrower footprint than the fish tank at the same content height, so
-    // a slightly bigger multiplier still lands close to the same on-screen
-    // size rather than reading tiny next to it.
-    scaleMultiplier: 0.34,
+    // Height-matched to the fish tank's own final on-screen height (its
+    // own scaleMultiplier 0.43 * height 690 ≈ 297), same target every
+    // freestanding piece in this registry converges on, rather than
+    // guessed fresh. Expect to retune once checked live, same as every
+    // other scale multiplier in this file's GameScreen.js counterparts.
+    scaleMultiplier: 0.41,
     catBlocks: true,
     dogBlocks: true,
   },

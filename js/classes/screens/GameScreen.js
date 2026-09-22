@@ -39,9 +39,9 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=25';
+import { openStoreModal } from '../../utils/storeModal.js?v=27';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
-import { DECOR_TYPES, getFreestandingDecorTypes } from '../../utils/decorTypes.js?v=1';
+import { DECOR_TYPES, getFreestandingDecorTypes } from '../../utils/decorTypes.js?v=5';
 import CoinBadgeButton from '../../utils/canvasButton.js?v=1';
 import { drawTooltip } from '../../utils/tooltip.js?v=1';
 
@@ -564,6 +564,19 @@ const SHELF_SCALE_MULTIPLIER = 0.35;
 // tabletop corner posts. Exactly cabinet/cart's own per-wall rotation
 // values, not fridge's opposite (offset-by-180°) convention.
 const SHELF_ROTATIONS = { top: 0, bottom: 180, left: 270, right: 90 };
+
+// Pet Shop Boys' own equivalent of CART_ROTATIONS/SHELF_ROTATIONS/
+// FRIDGE_ROTATIONS above (all three already converged on this identical
+// mapping) - pulled out as its own shared constant rather than one more
+// copy, since this catalog is open-ended (see decorTypes.js) rather than
+// one named piece at a time. Used by generateKitchenFurniture()'s
+// placeFreestandingDecorItem() for every freestanding decor item, so a
+// piece with a real front/back (a fish tank's viewing glass, say) always
+// rotates to face into the room regardless of which wall/corner it lands
+// against - a bug caught live (the tank never rotated at all, same as the
+// plant, which doesn't need to since it has no front/back) before this
+// existed.
+const DECOR_WALL_ROTATIONS = { top: 0, bottom: 180, left: 270, right: 90 };
 
 const BASE_SPAWN_CLEARANCE = 60;
 // How close the cat/dog can get to the board edge — independent of the
@@ -3563,8 +3576,153 @@ export default class GameScreen {
       (updatedWallet) => {
         this.wallet = updatedWallet;
       },
-      (character, outfitItem) => this.applyEquippedOutfit(character, outfitItem)
+      (character, outfitItem) => this.applyEquippedOutfit(character, outfitItem),
+      (character, decorItem, owned) => this.handleDecorOwnershipChange(decorItem, owned)
     );
+  }
+
+  // Called by storeModal.js right after a Pet Shop Boys purchase/sell
+  // actually succeeds - keeps this.ownedDecorSlugs in sync immediately
+  // (rather than waiting for the next loadEconomyData() fetch) and places/
+  // removes the item in the *current* kitchen so the player sees it show
+  // up (or disappear) without needing to start a new round. `character`
+  // isn't needed here - decor ownership is global (see this.ownedDecorSlugs'
+  // own comment), only the coins spent/refunded were ever character-
+  // specific, and that already went through onWalletUpdateCallback.
+  handleDecorOwnershipChange(decorItem, owned) {
+    if (owned) {
+      this.ownedDecorSlugs.add(decorItem.slug);
+      this.placeDecorItemLive(decorItem.slug);
+    } else {
+      this.ownedDecorSlugs.delete(decorItem.slug);
+      // No attempt to restore whatever this item may have live-replaced
+      // (see placeDecorItemLive()'s own cabinet-fallback branch) - same
+      // "an empty spot/gap is a normal kitchen, not a bug" philosophy
+      // already applied to the wall gap and the dining set's own no-op
+      // fallback, just one wall module lighter this time.
+      const index = this.furniture.findIndex((f) => f.type === decorItem.slug);
+      if (index !== -1) this.furniture.splice(index, 1);
+    }
+  }
+
+  // Places one freestanding decor item into the *already-generated*
+  // kitchen (this.furniture), without regenerating the room - called right
+  // after a live purchase (see handleDecorOwnershipChange() above), not
+  // from generateKitchenFurniture() itself (that has its own, very similar
+  // but bulk/ordered version of this same search - see its own comment on
+  // why a purchase made mid-round can't just re-run that wholesale: it
+  // would reshuffle every other piece and character spawn out from under
+  // the player). Tries the same corner-then-wall-fallback search
+  // generateKitchenFurniture() uses, checked only against furniture that
+  // actually exists right now (not the initial spawn-safety check, which
+  // stops mattering once a round is already underway) - falls back to
+  // swapping into a plain 'cabinet' wall slot if no open corner/wall space
+  // remains, per explicit direction ("it can replace a generic counter
+  // piece if needed"), and simply does nothing if even that isn't
+  // available (an unplaced purchase still shows up on the *next* fresh
+  // kitchen via generateKitchenFurniture()'s own read of
+  // this.ownedDecorSlugs, so it's never permanently lost - just not
+  // visible in this exact room).
+  placeDecorItemLive(slug) {
+    const decor = DECOR_TYPES[slug];
+    if (!decor || decor.placement !== 'freestanding') return;
+
+    const { scale, diningScale, wallBandThickness } = this.layout;
+    const itemScale = diningScale * decor.scaleMultiplier;
+    const itemWidth = decor.width * itemScale;
+    const itemHeight = decor.height * itemScale;
+    const WALL_MARGIN = 6 * scale;
+    const SPACING = 10 * scale;
+
+    // Same margin-padded AABB check generateKitchenFurniture()'s own
+    // overlaps() uses, just against the furniture that actually exists
+    // right now instead of a local in-progress array.
+    const overlapsLiveFurniture = (x, y, width, height) => this.furniture.some((f) => (
+      !(x + width + SPACING < f.x ||
+        x > f.x + f.width + SPACING ||
+        y + height + SPACING < f.y ||
+        y > f.y + f.height + SPACING)
+    ));
+    // Also steer clear of wherever the cat/mouse/dog actually are right
+    // now - generation-time placement only checks *initial* spawn points
+    // (blocksSpawn()), which stopped being the relevant safety check the
+    // moment the round actually started and everyone moved.
+    const overlapsLiveEntity = (x, y, width, height) => [this.cat, this.mouse, this.dog].some((entity) => (
+      entity && aabbOverlap(x, y, width, height, entity.x, entity.y, entity.displayWidth, entity.displayHeight)
+    ));
+    const isClear = (x, y, width, height) => !overlapsLiveFurniture(x, y, width, height) && !overlapsLiveEntity(x, y, width, height);
+
+    const cornerCandidates = [
+      { x: wallBandThickness + WALL_MARGIN, y: wallBandThickness + WALL_MARGIN, wall: 'top' },
+      { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: wallBandThickness + WALL_MARGIN, wall: 'top' },
+      { x: wallBandThickness + WALL_MARGIN, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight, wall: 'bottom' },
+      { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight, wall: 'bottom' },
+    ];
+    for (let i = cornerCandidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cornerCandidates[i], cornerCandidates[j]] = [cornerCandidates[j], cornerCandidates[i]];
+    }
+    for (const candidate of cornerCandidates) {
+      if (isClear(candidate.x, candidate.y, itemWidth, itemHeight)) {
+        this.furniture.push(new Furniture(candidate.x, candidate.y, slug, decor.spriteSrc, DECOR_WALL_ROTATIONS[candidate.wall], decor.width, decor.height, itemScale, decor.cropX, decor.cropY));
+        return;
+      }
+    }
+
+    const WALL_NAMES_FOR_DECOR = ['top', 'bottom', 'left', 'right'];
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const wall = Math.floor(Math.random() * 4);
+      const wallName = WALL_NAMES_FOR_DECOR[wall];
+      const rotated = wall === 2 || wall === 3;
+      const footprintWidth = rotated ? itemHeight : itemWidth;
+      const footprintHeight = rotated ? itemWidth : itemHeight;
+      const alongTop = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.width - 2 * (wallBandThickness + WALL_MARGIN) - footprintWidth);
+      const alongSide = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.height - 2 * (wallBandThickness + WALL_MARGIN) - footprintHeight);
+      const x = wall === 2 ? wallBandThickness + WALL_MARGIN
+        : wall === 3 ? this.canvas.width - wallBandThickness - WALL_MARGIN - footprintWidth
+        : alongTop;
+      const y = wall === 0 ? wallBandThickness + WALL_MARGIN
+        : wall === 1 ? this.canvas.height - wallBandThickness - WALL_MARGIN - footprintHeight
+        : alongSide;
+
+      if (isClear(x, y, footprintWidth, footprintHeight)) {
+        this.furniture.push(new Furniture(x, y, slug, decor.spriteSrc, DECOR_WALL_ROTATIONS[wallName], decor.width, decor.height, itemScale, decor.cropX, decor.cropY));
+        return;
+      }
+    }
+
+    // No open corner/wall space at all - fall back to bumping a plain
+    // 'cabinet' filler out of its own wall slot, per explicit direction.
+    // Re-derives which wall that slot is on from its own rotation (every
+    // wall module's rotation already IS its wall's DECOR_WALL_ROTATIONS
+    // value - see makeModule()/buildWallVertical()), rescales the decor
+    // item so its depth-into-the-room matches the old module's (keeping
+    // the wall-band flush back edge intact) while keeping its position
+    // along the wall unchanged, rather than trying to force the two
+    // pieces' own on-screen size to match (they're differently
+    // proportioned objects, and this is a good-enough swap, not a seam-
+    // perfect substitution).
+    const REVERSE_WALL_ROTATIONS = { 0: 'top', 180: 'bottom', 270: 'left', 90: 'right' };
+    const cabinetIndex = this.furniture.findIndex((f) => f.type === 'cabinet');
+    if (cabinetIndex === -1) return;
+    const old = this.furniture[cabinetIndex];
+    const wallName = REVERSE_WALL_ROTATIONS[old.rotation] ?? 'top';
+    const isVertical = wallName === 'left' || wallName === 'right';
+
+    let newScale, x, y;
+    if (!isVertical) {
+      newScale = old.height / decor.height;
+      const newHeight = decor.height * newScale;
+      x = old.x;
+      y = wallName === 'top' ? wallBandThickness : this.canvas.height - wallBandThickness - newHeight;
+    } else {
+      newScale = old.width / decor.height;
+      const newDepth = decor.height * newScale;
+      y = old.y;
+      x = wallName === 'left' ? wallBandThickness : this.canvas.width - wallBandThickness - newDepth;
+    }
+
+    this.furniture.splice(cabinetIndex, 1, new Furniture(x, y, slug, decor.spriteSrc, old.rotation, decor.width, decor.height, newScale, decor.cropX, decor.cropY));
   }
 
   // Shared geometry for the HUD box (top-center, wide) and its
@@ -5589,11 +5747,22 @@ export default class GameScreen {
       const itemWidth = spec.width * itemScale;
       const itemHeight = spec.height * itemScale;
       const WALL_MARGIN = 6 * scale;
+      // Corner candidates are always top/bottom-oriented, same as the
+      // cart's own placement above (see its own comment) - native
+      // landscape footprint resting against whichever horizontal wall
+      // that corner is on, never rotated to portrait against the
+      // vertical wall at that same corner. Each candidate's own `wall`
+      // drives DECOR_WALL_ROTATIONS below, so the item's front (a fish
+      // tank's viewing glass, say) actually faces into the room - always
+      // rendering at rotation 0 regardless of which wall it landed on
+      // (the plant's own convention, copied here at first) was a real bug
+      // caught live: a rotation-less item looks backwards against the
+      // bottom/left/right walls, only ever correct by accident on top.
       const cornerCandidates = [
-        { x: wallBandThickness + WALL_MARGIN, y: wallBandThickness + WALL_MARGIN },
-        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: wallBandThickness + WALL_MARGIN },
-        { x: wallBandThickness + WALL_MARGIN, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight },
-        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight },
+        { x: wallBandThickness + WALL_MARGIN, y: wallBandThickness + WALL_MARGIN, wall: 'top' },
+        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: wallBandThickness + WALL_MARGIN, wall: 'top' },
+        { x: wallBandThickness + WALL_MARGIN, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight, wall: 'bottom' },
+        { x: this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth, y: this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight, wall: 'bottom' },
       ];
       for (let i = cornerCandidates.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -5601,25 +5770,37 @@ export default class GameScreen {
       }
       for (const candidate of cornerCandidates) {
         if (!overlaps(candidate.x, candidate.y, itemWidth, itemHeight) && !blocksSpawn(candidate.x, candidate.y, itemWidth, itemHeight)) {
-          furniture.push(new Furniture(candidate.x, candidate.y, type, spriteSrc, 0, spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
+          furniture.push(new Furniture(candidate.x, candidate.y, type, spriteSrc, DECOR_WALL_ROTATIONS[candidate.wall], spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
           return;
         }
       }
 
       let attempts = 0;
+      const WALL_NAMES_FOR_DECOR = ['top', 'bottom', 'left', 'right'];
       while (attempts < 100) {
         const wall = Math.floor(Math.random() * 4);
-        const alongTop = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.width - 2 * (wallBandThickness + WALL_MARGIN) - itemWidth);
-        const alongSide = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.height - 2 * (wallBandThickness + WALL_MARGIN) - itemHeight);
+        const wallName = WALL_NAMES_FOR_DECOR[wall];
+        // A left/right rotation (90/270) swaps the on-screen footprint to
+        // portrait (see Furniture's own width/height-swap-on-rotation
+        // logic) - same reasoning as the cart's own wall-fallback loop:
+        // the placement math has to use that same swapped footprint for
+        // left/right, not the item's native landscape width/height, or
+        // the positioned box wouldn't match what Furniture actually ends
+        // up drawing/colliding as.
+        const rotated = wall === 2 || wall === 3;
+        const footprintWidth = rotated ? itemHeight : itemWidth;
+        const footprintHeight = rotated ? itemWidth : itemHeight;
+        const alongTop = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.width - 2 * (wallBandThickness + WALL_MARGIN) - footprintWidth);
+        const alongSide = wallBandThickness + WALL_MARGIN + Math.random() * Math.max(0, this.canvas.height - 2 * (wallBandThickness + WALL_MARGIN) - footprintHeight);
         const x = wall === 2 ? wallBandThickness + WALL_MARGIN
-          : wall === 3 ? this.canvas.width - wallBandThickness - WALL_MARGIN - itemWidth
+          : wall === 3 ? this.canvas.width - wallBandThickness - WALL_MARGIN - footprintWidth
           : alongTop;
         const y = wall === 0 ? wallBandThickness + WALL_MARGIN
-          : wall === 1 ? this.canvas.height - wallBandThickness - WALL_MARGIN - itemHeight
+          : wall === 1 ? this.canvas.height - wallBandThickness - WALL_MARGIN - footprintHeight
           : alongSide;
 
-        if (!overlaps(x, y, itemWidth, itemHeight) && !blocksSpawn(x, y, itemWidth, itemHeight)) {
-          furniture.push(new Furniture(x, y, type, spriteSrc, 0, spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
+        if (!overlaps(x, y, footprintWidth, footprintHeight) && !blocksSpawn(x, y, footprintWidth, footprintHeight)) {
+          furniture.push(new Furniture(x, y, type, spriteSrc, DECOR_WALL_ROTATIONS[wallName], spec.width, spec.height, itemScale, spec.cropX, spec.cropY));
           return;
         }
         attempts++;

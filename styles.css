@@ -1020,50 +1020,45 @@ body.in-game #settingsMenu {
 /* Gradient scrims behind the overlaid text/UI - the console-game
    convention for legible chrome over busy art, rather than a flat panel
    that would hide most of the photo. Anchored to the scene's own top/
-   bottom edges, full width.
-
-   pointer-events:none on the scrim itself, re-enabled only on the actual
-   buttons inside it (not *every* child - see below) - #storeOverlayBottom's
-   height is driven by its own content (name/badge/button/sell-button,
-   auto-height, growing upward from `bottom: 0`), while
-   #storePrevOutfitBtn/#storeNextOutfitBtn sit at a fixed `top: 50%` of the
-   scene, entirely independent of that height. An owned cosmetic stacks an
-   extra "Owned" badge *and* a sell button on top of the plain name+button
-   an unowned/default one shows, tall enough on a real landscape-phone
-   viewport (do the math: a 390px-tall touch viewport clamps the card to
-   applyModalSizing()'s 340px floor, leaving only a ~282px scene once the
-   touch-shrunk tab bar is subtracted - the arrows then sit at y 119-163,
-   while an owned item's overlay content stack runs to ~148px tall, putting
-   its own top edge at y=134, a real ~29px overlap with the arrows' own
-   circles) to visually cover the arrows. Since it comes later in the DOM,
-   it paints over them; with no pointer-events set at all, it silently ate
-   the click with zero console error (reported live as the arrows
-   "stopping working," only for owned items, only once actually measured on
-   a touch-sized viewport rather than a merely-shortened desktop window).
-   Letting clicks pass through the scrim itself fixes this regardless of
-   how tall the content stack ever grows, rather than trying to keep the
-   arrows and this box's height from ever overlapping again. */
-#storeOverlayTop,
-#storeOverlayBottom {
+   bottom edges, full width. Shared by every browse-with-arrows storefront
+   (Bloomingtails' own dressing-room scene, Pet Shop Boys' equivalent) via
+   .store-scene-overlay below - this used to be a per-store ID rule
+   duplicated wholesale, which is exactly how the z-index fix documented
+   just below got missed on Pet Shop Boys' own copy the first time (see
+   Lessons learned): fixing shared mechanics once, in one class, is what
+   makes that class of drift structurally impossible instead of just
+   currently absent. Only each store's own gradient colors/direction and
+   top/bottom-specific padding stay on the per-store IDs below. */
+.store-scene-overlay {
   position: absolute;
   left: 0;
   right: 0;
   padding: 14px 24px;
   text-align: center;
   pointer-events: none;
+  /* One step *below* .store-browse-arrow's own z-index:2 (see that rule's
+     own comment for the actual bug this pairing fixes). Without an
+     explicit z-index on both sides, this overlay and the arrows would
+     fall back to DOM order for stacking - which is exactly what let this
+     overlay's own later-in-the-DOM content win in the first place. */
+  z-index: 1;
 }
 
-/* Only the actual buttons need clicks - #storePreviewName and the owned
-   badge are plain display text with no handler of their own. A first pass
-   re-enabled pointer-events on *every* direct child of #storeOverlayBottom,
-   which included that name label - a block-level <p> spanning the overlay's
-   full width, so wherever its own row happened to fall inside the overlap
-   computed above, it silently re-captured the click instead of letting it
-   pass through to the arrow underneath (confirmed live: only the outer
-   edges of each arrow's circle - the part furthest from that text row -
-   kept working). Scoping this to `button` only removes that second
-   pass-through gap without reintroducing the original bug. */
-#storeOverlayBottom button {
+/* Only the actual buttons inside an overlay need clicks - a name label or
+   owned badge is plain display text with no handler of their own, and
+   should let a click at that same screen position fall through to
+   whatever's positioned underneath (the arrows, in this case - see
+   .store-browse-arrow's own comment for why *that* rule is what actually
+   makes the arrows still clickable, not this one alone). A first pass at
+   this fix re-enabled pointer-events on *every* direct child of the
+   Bloomingtails overlay, which included the name label - a block-level
+   <p> spanning the overlay's full width, so wherever its own row happened
+   to overlap the arrows it silently re-captured the click instead of
+   letting it pass through (confirmed live: only the outer edges of each
+   arrow's circle - the part furthest from that text row - kept working).
+   Scoping this to `button` only removes that second pass-through gap
+   without reintroducing the original one. */
+.store-scene-overlay button {
   pointer-events: auto;
 }
 
@@ -1183,12 +1178,31 @@ body.in-game #settingsMenu {
   filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.35));
 }
 
-/* Outfit-browsing arrows - flank the pedestal, vertically centered, so
-   they read as "flip through the rack." Hidden entirely (not just
-   disabled) via the `hidden` attribute when a character has zero active
-   cosmetics, toggled from storeModal.js's updateBloomingtailsPreview(). */
-#storePrevOutfitBtn,
-#storeNextOutfitBtn {
+/* Browsing arrows - flank the previewed item, vertically centered, so
+   they read as "flip through the rack" (Bloomingtails' outfits) or
+   "browse the catalog" (Pet Shop Boys' decor). Shared by every browse-
+   with-arrows storefront via .store-browse-arrow - only each store's own
+   accent color stays on its own ID below. Hidden entirely (not just
+   disabled) via the `hidden` attribute when there's nothing to browse,
+   toggled from storeModal.js's updateBloomingtailsPreview()/
+   updatePetShopPreview().
+
+   z-index:2, one full step above .store-scene-overlay's own z-index:1 -
+   this is the actual fix for the real bug this class of button has hit
+   twice now (once on Bloomingtails, confirmed live as "arrows stopping
+   working" for an owned item; then again on Pet Shop Boys' own copy,
+   confirmed live the same way after a live decor purchase). The overlay's
+   own pointer-events scoping (see .store-scene-overlay's comment) only
+   ever covered *non-button* content (a name label) overlapping an arrow -
+   it does nothing when a real button (the Owned/Sell row's own sell
+   button) is what grows tall enough to overlap, since that button
+   legitimately has pointer-events:auto and, being later in the DOM, paints
+   on top and wins the click regardless. An explicit z-index here is what
+   actually guarantees an arrow stays on top - and therefore clickable -
+   no matter how tall the overlay's own content ever grows, which is what
+   the pointer-events fix alone was never able to promise despite an
+   earlier version of this file's own comment claiming it did. */
+.store-browse-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -1200,12 +1214,29 @@ body.in-game #settingsMenu {
   border-radius: 50%;
   border: none;
   background: rgba(255, 255, 255, 0.75);
-  color: #6a1fc2;
   font-size: 1.2rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   transition: transform 0.12s ease, background 0.12s ease;
+  z-index: 2;
+}
+
+.store-browse-arrow:hover {
+  background: #ffffff;
+}
+
+.store-browse-arrow:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+.store-browse-arrow[hidden] {
+  display: none;
+}
+
+#storePrevOutfitBtn,
+#storeNextOutfitBtn {
+  color: #6a1fc2;
 }
 
 #storePrevOutfitBtn {
@@ -1214,21 +1245,6 @@ body.in-game #settingsMenu {
 
 #storeNextOutfitBtn {
   right: 10px;
-}
-
-#storePrevOutfitBtn:hover,
-#storeNextOutfitBtn:hover {
-  background: #ffffff;
-}
-
-#storePrevOutfitBtn:active,
-#storeNextOutfitBtn:active {
-  transform: translateY(-50%) scale(0.9);
-}
-
-#storePrevOutfitBtn[hidden],
-#storeNextOutfitBtn[hidden] {
-  display: none;
 }
 
 /* Just the previewed cosmetic's name - this is a "what am I looking at"
@@ -1392,54 +1408,177 @@ body.in-game #settingsMenu {
   gap: 10px;
 }
 
-/* Pet Shop Boys - same plain-shopping-list shape as Pawgreens above (see
-   index.html's own comment on #petShopPanel for why), so this reuses that
-   layout wholesale rather than duplicating it: same `:not([hidden])` flex-
-   column override, and its rows reuse .pawgreens-item/.pawgreens-item-info
-   directly (see storeModal.js's buildShoppingListRow(), shared by both
-   panels) - only the backdrop/heading get Pet Shop Boys' own amber tint,
-   matching its tab's own accent color instead of Pawgreens' green. */
-#petShopPanel:not([hidden]) {
-  display: flex;
-  flex-direction: column;
+/* Pet Shop Boys - browsed like Bloomingtails (arrows + one shared action
+   button over a full-bleed scene), not a Pawgreens-style list, per explicit
+   direction ("more like Bloomingtails than Pawgreens... browse through
+   with arrows, like the outfits"). Mirrors #storePedestalScene's own
+   structure/overlay-scrim/arrow techniques closely (see those rules'
+   own comments above for the reasoning behind each one - not repeated
+   here) with two real differences: no character to try things on, so
+   #petShopPreviewImage is a plain <img> product shot instead of a
+   cropped sprite-sheet canvas; and the backdrop is a plain gradient
+   (no dedicated pet-shop-interior photo exists yet, unlike
+   assets/store_dressing_room.webp) tinted to this store's own amber
+   accent instead of Bloomingtails' purple/pink boutique gradient. */
+#petShopScene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 30%, #4a3420, #1f160d);
 }
 
-#petShopBackdrop {
-  flex-shrink: 0;
-  padding: 8px 24px 18px;
-  text-align: center;
-  background: linear-gradient(180deg, #fff3e6, #fbe2c2);
-  border-bottom: 2px solid rgba(181, 101, 29, 0.2);
+#petShopOverlayTop {
+  top: 0;
+  padding-bottom: 20px;
+  background: linear-gradient(180deg, rgba(30, 18, 6, 0.85) 0%, rgba(30, 18, 6, 0.5) 65%, rgba(30, 18, 6, 0) 100%);
+}
+
+#petShopOverlayBottom {
+  bottom: 0;
+  padding-top: 28px;
+  background: linear-gradient(0deg, rgba(30, 18, 6, 0.72), rgba(30, 18, 6, 0));
 }
 
 #petShopHeading {
   margin: 0 0 4px;
-  font: 800 1.9rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
-  background: linear-gradient(135deg, #b5651d, #f0a860);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font: 800 1.6rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  color: #ffd9a0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 #petShopHeadingMark {
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   vertical-align: 0.02em;
 }
 
 #petShopWalletLine {
   margin: 0;
   font: 700 1rem/1.3 Arial, sans-serif;
-  color: #8a5a1e;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-#petShopItemsList {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 14px 20px 20px;
+/* The item itself - a plain product shot, not a character portrait, so
+   it's centered in the scene rather than bottom-anchored on a pedestal
+   (there's no floor/feet to line up with). object-fit:contain so every
+   item's own native aspect ratio (a tall tank vs. a wide cage) fits the
+   same box without stretching. */
+#petShopPreviewImage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 55%;
+  max-height: 55%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45));
+}
+
+#petShopPreviewImage[hidden] {
+  display: none;
+}
+
+/* Shared browsing-arrow mechanics/z-index fix live on .store-browse-arrow
+   above - only this store's own amber accent color and side offsets stay
+   here. */
+#petShopPrevBtn,
+#petShopNextBtn {
+  color: #b5651d;
+}
+
+#petShopPrevBtn {
+  left: 10px;
+}
+
+#petShopNextBtn {
+  right: 10px;
+}
+
+#petShopPreviewName {
+  margin: 0 0 2px;
+  text-align: center;
+  min-height: 1.5em;
+  font: 700 1.3rem/1.3 Arial, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+#petShopPreviewDescription {
+  margin: 0 0 10px;
+  text-align: center;
+  font: 500 0.82rem/1.3 Arial, sans-serif;
+  color: #ffe9cc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Same shared-row treatment as #storeOwnedSellRow above. */
+#petShopOwnedSellRow {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 10px;
+}
+
+#petShopOwnedSellRow[hidden] {
+  display: none;
+}
+
+#petShopPreviewOwnedBadge {
+  display: inline-block;
+  margin: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.18);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  color: #ffe27a;
+  font: 700 0.75rem/1.4 Arial, sans-serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+#petShopPreviewOwnedBadge[hidden] {
+  display: none;
+}
+
+#petShopActionBtn {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  font-size: 1.1rem;
+}
+
+#petShopActionBtn[hidden] {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  #petShopOverlayBottom {
+    padding-top: 14px;
+  }
+
+  #petShopPreviewName {
+    margin: 0 0 2px;
+    font-size: 1.05rem;
+  }
+
+  #petShopPreviewDescription {
+    margin: 0 0 6px;
+    font-size: 0.72rem;
+  }
+
+  #petShopActionBtn {
+    padding: 8px 14px;
+    font-size: 0.95rem;
+  }
+
+  #petShopPreviewImage {
+    max-width: 45%;
+    max-height: 45%;
+  }
 }
 
 .pawgreens-item {

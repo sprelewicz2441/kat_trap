@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=28">
+  <link rel="stylesheet" href="./styles.css?v=30">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -224,9 +224,19 @@
        decor (fish tank, bird cage, etc.), not any one character's
        cosmetic/perk, so it reads from its own getDecorStore() fetch
        (storeModal.js's decorState) rather than the per-character
-       getStore() both other panels share. Same plain-shopping-list shape
-       as Pawgreens (decor has no single character to preview a purchase
-       on either) - reuses its row markup/CSS wholesale. -->
+       getStore() both other panels share. Browsed like Bloomingtails
+       (#petShopPrevBtn/#petShopNextBtn cycle through the catalog one
+       item at a time, one shared #petShopActionBtn drives Buy/Owned/
+       locked for whatever's currently shown - see
+       storeModal.js's updatePetShopPreview()/cyclePetShopItem()), not
+       a Pawgreens-style list - explicit direction was "more like
+       Bloomingtails than Pawgreens." The one real difference from
+       Bloomingtails: there's no character to try things on, so
+       #petShopPreviewImage is a plain product shot of the item itself
+       (a flat <img>, not a cropped sprite-sheet canvas) rather than a
+       pedestal portrait, and #petShopScene's own backdrop is a plain
+       gradient for now (no dedicated "pet shop interior" photo exists
+       yet, unlike Bloomingtails' dressing-room art). -->
   <div id="storeModal" hidden>
     <div id="storeCard" role="dialog" aria-modal="true" aria-labelledby="storeHeading">
       <button id="storeCloseBtn" aria-label="Close store" type="button">&times;</button>
@@ -239,14 +249,14 @@
 
       <div id="bloomingtailsPanel" class="store-panel">
         <div id="storePedestalScene">
-          <div id="storeOverlayTop">
+          <div id="storeOverlayTop" class="store-scene-overlay">
             <h2 id="storeHeading"><img src="./assets/bloomingtails_logo.png" alt="Bloomingtails"></h2>
             <p id="storeWalletLine"></p>
           </div>
-          <button id="storePrevOutfitBtn" aria-label="Previous outfit" type="button">&#10094;</button>
+          <button id="storePrevOutfitBtn" class="store-browse-arrow" aria-label="Previous outfit" type="button">&#10094;</button>
           <canvas id="storePedestalCanvas" width="240" height="240"></canvas>
-          <button id="storeNextOutfitBtn" aria-label="Next outfit" type="button">&#10095;</button>
-          <div id="storeOverlayBottom">
+          <button id="storeNextOutfitBtn" class="store-browse-arrow" aria-label="Next outfit" type="button">&#10095;</button>
+          <div id="storeOverlayBottom" class="store-scene-overlay">
             <p id="storePreviewName"></p>
             <div id="storeOwnedSellRow" hidden>
               <span id="storePreviewOwnedBadge" class="store-owned-badge" hidden>&#10003; Owned</span>
@@ -266,11 +276,24 @@
       </div>
 
       <div id="petShopPanel" class="store-panel" hidden>
-        <div id="petShopBackdrop">
-          <h2 id="petShopHeading">Pet Shop Boys <span id="petShopHeadingMark" aria-hidden="true">🐠</span></h2>
-          <p id="petShopWalletLine"></p>
+        <div id="petShopScene">
+          <div id="petShopOverlayTop" class="store-scene-overlay">
+            <h2 id="petShopHeading">Pet Shop Boys <span id="petShopHeadingMark" aria-hidden="true">🐠</span></h2>
+            <p id="petShopWalletLine"></p>
+          </div>
+          <button id="petShopPrevBtn" class="store-browse-arrow" aria-label="Previous item" type="button">&#10094;</button>
+          <img id="petShopPreviewImage" alt="" hidden>
+          <button id="petShopNextBtn" class="store-browse-arrow" aria-label="Next item" type="button">&#10095;</button>
+          <div id="petShopOverlayBottom" class="store-scene-overlay">
+            <p id="petShopPreviewName"></p>
+            <p id="petShopPreviewDescription"></p>
+            <div id="petShopOwnedSellRow" hidden>
+              <span id="petShopPreviewOwnedBadge" class="store-owned-badge" hidden>&#10003; Owned</span>
+              <button id="petShopSellBtn" class="store-item-sell" type="button" hidden></button>
+            </div>
+            <button id="petShopActionBtn" class="store-item-buy" type="button"></button>
+          </div>
         </div>
-        <div id="petShopItemsList"></div>
       </div>
     </div>
   </div>

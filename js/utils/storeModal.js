@@ -26,6 +26,15 @@ let onWalletUpdateCallback = null;
 // until a refresh re-ran init()'s getEquipped() fetch.
 let onOutfitChangeCallback = null;
 
+// Called with (character, decorItem, owned) whenever a Pet Shop Boys
+// purchase or sell actually succeeds (owned=true/false respectively), so
+// GameScreen can place/remove the item in the *current* kitchen right
+// away (GameScreen.handleDecorOwnershipChange) instead of only showing up
+// on the next fresh layout - same "don't make the player wait for a
+// reload to see their purchase" reasoning as onOutfitChangeCallback above,
+// just for decor instead of cosmetics.
+let onDecorChangeCallback = null;
+
 // Which storefront panel is showing - 'bloomingtails' (cosmetics, the
 // dressing room) or 'pawgreens' (perks, a plain shopping list). Split per
 // explicit direction ("remove the non-clothes items from this store, we
@@ -42,6 +51,13 @@ let currentTab = 'bloomingtails';
 // buildShoppingListRow()), there's nothing to "preview" the way trying on an
 // outfit means something. Reset only when the modal is freshly opened.
 let previewedSlug = null;
+
+// Pet Shop Boys' own equivalent of previewedSlug above - browsed the same
+// way Bloomingtails' cosmetics are (arrows cycle through one item at a
+// time), per explicit direction ("more like Bloomingtails than
+// Pawgreens... browse through with arrows, like the outfits"), rather
+// than Pawgreens' plain list. Reset only when the modal is freshly opened.
+let previewedDecorSlug = null;
 
 // The last real fetch's own (character, wallet, items) - arrow clicks
 // only need to change *which* cosmetic is previewed and redraw, not
@@ -139,6 +155,7 @@ export function setupStoreModal() {
     document.dispatchEvent(new CustomEvent('storemodaltoggle', { detail: { open: false } }));
     onWalletUpdateCallback = null;
     onOutfitChangeCallback = null;
+    onDecorChangeCallback = null;
   };
 
   // Same console-style whoosh played on open (see openStoreModal(), and
@@ -200,6 +217,12 @@ export function setupStoreModal() {
   document.getElementById('storePrevOutfitBtn').addEventListener('click', () => cycleOutfit(-1));
   document.getElementById('storeNextOutfitBtn').addEventListener('click', () => cycleOutfit(1));
 
+  // Pet Shop Boys' own browsing arrows - same cycle-by-one-item gesture
+  // as the outfit arrows above, over decorState's catalog instead of
+  // currentState's cosmetics.
+  document.getElementById('petShopPrevBtn').addEventListener('click', () => cyclePetShopItem(-1));
+  document.getElementById('petShopNextBtn').addEventListener('click', () => cyclePetShopItem(1));
+
   document.getElementById('storeTabBloomingtails').addEventListener('click', () => switchTab('bloomingtails'));
   document.getElementById('storeTabPawgreens').addEventListener('click', () => switchTab('pawgreens'));
   document.getElementById('storeTabPetShop').addEventListener('click', () => switchTab('petshop'));
@@ -225,7 +248,7 @@ function switchTab(tab) {
   } else if (tab === 'pawgreens') {
     renderPawgreensList();
   } else {
-    renderPetShopList();
+    updatePetShopPreview();
   }
   // The scene's real box only exists once its panel is actually visible -
   // re-measure now that the flip above has taken effect.
@@ -521,6 +544,10 @@ function wireItemButton(btn, character, wallet, item) {
       try {
         const updatedWallet = await purchase(character, item.slug);
         if (onWalletUpdateCallback) onWalletUpdateCallback(updatedWallet);
+        // Decor-only - places the item in the *current* kitchen right
+        // away rather than waiting for the next fresh layout (see
+        // onDecorChangeCallback's own comment above).
+        if (item.item_type === 'decor' && onDecorChangeCallback) onDecorChangeCallback(character, item, true);
         await refreshAfterChange(item, updatedWallet);
       } catch (err) {
         btn.disabled = false;
@@ -595,6 +622,11 @@ function wireSellButton(sellBtn, character, item) {
       // of only picking up the change on next reload. A no-op for decor,
       // which is never equipped.
       if (item.equipped && onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+      // Removes the item from the *current* kitchen right away - same
+      // live-sync reasoning as the purchase side above, just the removal
+      // half (otherwise a sold decor piece would keep showing in the room
+      // until the next fresh layout, looking owned when it no longer is).
+      if (item.item_type === 'decor' && onDecorChangeCallback) onDecorChangeCallback(character, item, false);
       // Popup + sound fire before refreshAfterChange() redraws the panel
       // (which can hide/replace this exact button), while sellBtn's
       // position is still the real one the popup should float up from.
@@ -676,15 +708,17 @@ function cycleOutfit(direction) {
   updateBloomingtailsPreview();
 }
 
-// A single row in either plain-shopping-list panel (Pawgreens' perks or
-// Pet Shop Boys' decor) - self-contained (name, description, and its own
-// working Buy/Owned/locked button) since neither has a character preview
-// to focus a single shared action button's target on the way Bloomingtails
-// has. Reuses wireItemButton()/wireSellButton() for the actual state/click
-// logic so purchase/sell behavior can't drift between any of the three
-// stores - the class names stay "pawgreens-item*" (Pawgreens had this
-// layout first) rather than a generic rename, since renaming CSS classes
-// used only for layout would be a bigger diff for no behavioral benefit.
+// One row in a plain-shopping-list panel - Pawgreens' own perks today
+// (Pet Shop Boys used to share this too, before it moved to a Bloomingtails-
+// style browse-with-arrows layout instead - see updatePetShopPreview()/
+// cyclePetShopItem() - per explicit direction that decor should read more
+// like trying on an outfit than shopping a list). Self-contained (name,
+// description, and its own working Buy/Owned/locked button) since Pawgreens
+// has no character preview to focus a single shared action button's
+// target on the way Bloomingtails has. Reuses wireItemButton()/
+// wireSellButton() for the actual state/click logic so purchase/sell
+// behavior can't drift between stores - kept generically named/shaped in
+// case a future list-style store wants it again.
 function buildShoppingListRow(item, character, wallet) {
   const row = document.createElement('div');
   row.className = 'pawgreens-item';
@@ -738,11 +772,14 @@ function renderPawgreensList() {
   perks.forEach((item) => listEl.appendChild(buildShoppingListRow(item, character, wallet)));
 }
 
-// Pet Shop Boys' own equivalent of renderPawgreensList() above - a local
-// redraw from decorState, no re-fetch. Every item here is already
-// item_type='decor' (see getDecorStore()), so unlike renderPawgreensList()
-// there's no client-side item_type filter needed.
-function renderPetShopList() {
+// Pet Shop Boys' own equivalent of updateBloomingtailsPreview() above - a
+// local redraw from decorState for whatever `previewedDecorSlug` currently
+// points at, no re-fetch. Unlike Bloomingtails there's no synthetic
+// "default" entry to fall back to (every decor item is a real purchase,
+// nothing is "always owned") and no sprite-sheet crop math - each item is
+// one flat product-shot image, so this sets a plain <img> src rather than
+// drawing to a canvas.
+function updatePetShopPreview() {
   if (!decorState) return;
   const { character, wallet, items } = decorState;
   // Same "re-set on every local redraw" reasoning as
@@ -750,13 +787,59 @@ function renderPetShopList() {
   // Bloomingtails/Pawgreens purchase updates decorState.wallet too (see
   // refreshAfterChange()) without going through renderDecorItems().
   document.getElementById('petShopWalletLine').innerHTML = walletLineHtml(wallet);
-  const listEl = document.getElementById('petShopItemsList');
-  listEl.innerHTML = '';
-  if (items.length === 0) {
-    listEl.textContent = 'Nothing here yet - check back soon!';
-    return;
+
+  const item = items.find((i) => i.slug === previewedDecorSlug) || null;
+
+  const imageEl = document.getElementById('petShopPreviewImage');
+  imageEl.hidden = !item;
+  if (item) {
+    imageEl.src = item.sprite_src;
+    imageEl.alt = item.name;
   }
-  items.forEach((item) => listEl.appendChild(buildShoppingListRow(item, character, wallet)));
+
+  const btn = document.getElementById('petShopActionBtn');
+  btn.hidden = !item;
+  const sellBtn = document.getElementById('petShopSellBtn');
+  if (item) {
+    wireItemButton(btn, character, wallet, item);
+    wireSellButton(sellBtn, character, item);
+  } else {
+    sellBtn.hidden = true;
+  }
+
+  document.getElementById('petShopPreviewName').textContent = item
+    ? item.name
+    : decorState.error
+      ? 'Could not load the store right now.'
+      : (items.length === 0 ? 'Nothing here yet - check back soon!' : '');
+  document.getElementById('petShopPreviewDescription').textContent = item ? item.description : '';
+
+  const ownedBadge = document.getElementById('petShopPreviewOwnedBadge');
+  ownedBadge.hidden = !item || !item.owned;
+  // Same "row mirrors the badge's own state" reasoning as
+  // #storeOwnedSellRow's own comment above.
+  document.getElementById('petShopOwnedSellRow').hidden = ownedBadge.hidden;
+
+  const hasItems = items.length > 0;
+  document.getElementById('petShopPrevBtn').hidden = !hasItems;
+  document.getElementById('petShopNextBtn').hidden = !hasItems;
+}
+
+// Moves the preview to the next/previous decor item - same wrap-around
+// behavior as cycleOutfit() above.
+function cyclePetShopItem(direction) {
+  if (!decorState) return;
+  const { items } = decorState;
+  if (items.length === 0) return;
+
+  const currentIndex = items.findIndex((item) => item.slug === previewedDecorSlug);
+  const nextIndex =
+    currentIndex === -1
+      ? (direction > 0 ? 0 : items.length - 1)
+      : (currentIndex + direction + items.length) % items.length;
+
+  previewedDecorSlug = items[nextIndex].slug;
+  updatePetShopPreview();
 }
 
 // Pet Shop Boys' own equivalent of renderItems() above - a separate fetch
@@ -772,13 +855,22 @@ async function renderDecorItems(character, wallet) {
   try {
     items = await getDecorStore();
   } catch (err) {
-    decorState = { character, wallet, items: [] };
-    document.getElementById('petShopItemsList').textContent = 'Could not load the store right now.';
+    decorState = { character, wallet, items: [], error: true };
+    previewedDecorSlug = null;
+    updatePetShopPreview();
     return;
   }
 
-  decorState = { character, wallet, items };
-  renderPetShopList();
+  decorState = { character, wallet, items, error: false };
+
+  // Same "keep whatever was already previewed if it still exists"
+  // fallback renderItems() uses for cosmetics - falls back to the first
+  // item rather than "the equipped one" (decor has no equip concept).
+  if (!items.some((item) => item.slug === previewedDecorSlug)) {
+    previewedDecorSlug = items.length > 0 ? items[0].slug : null;
+  }
+
+  updatePetShopPreview();
   applyModalSizing();
 }
 
@@ -871,15 +963,21 @@ function refreshAfterChange(item, freshWallet) {
 // onOutfitChange: called with (character, outfitItem|null) after a
 // successful equip/unequip, so the caller can update the live in-game
 // sprite immediately (see onOutfitChangeCallback's own comment above).
-export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange) {
+// onDecorChange: called with (character, decorItem, owned) after a
+// successful Pet Shop Boys purchase/sell, so the caller can place/remove
+// the item in the live kitchen immediately (see onDecorChangeCallback's
+// own comment above).
+export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange, onDecorChange) {
   const modal = document.getElementById('storeModal');
   if (!modal) return;
   playStoreWhooshSound();
   onWalletUpdateCallback = onWalletUpdate;
   onOutfitChangeCallback = onOutfitChange;
+  onDecorChangeCallback = onDecorChange;
   // A fresh open shouldn't remember what a *previous* character's store
   // session had on the pedestal, or which tab they'd wandered to last.
   previewedSlug = null;
+  previewedDecorSlug = null;
   currentTab = 'bloomingtails';
   document.getElementById('bloomingtailsPanel').hidden = false;
   document.getElementById('pawgreensPanel').hidden = true;

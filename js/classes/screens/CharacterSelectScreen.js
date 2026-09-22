@@ -1,4 +1,4 @@
-import GameScreen from './GameScreen.js?v=47';
+import GameScreen from './GameScreen.js?v=49';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {
