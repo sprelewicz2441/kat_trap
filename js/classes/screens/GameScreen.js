@@ -16,7 +16,7 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=2';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';

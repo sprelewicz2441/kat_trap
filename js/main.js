@@ -1,5 +1,5 @@
 import ScreenManager from './classes/screens/ScreenManager.js';
-import SetupScreen from './classes/screens/SetupScreen.js';
+import SetupScreen from './classes/screens/SetupScreen.js?v=2';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchControls.js';
 import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';

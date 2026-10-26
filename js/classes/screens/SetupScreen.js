@@ -1,4 +1,4 @@
-import CharacterSelectScreen from './CharacterSelectScreen.js';
+import ModeSelectScreen from './ModeSelectScreen.js?v=1';
 import { isTouch } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { kathrynQuickLogin } from '../../utils/api.js';
@@ -272,11 +272,11 @@ export default class SetupScreen {
   }
 
   // Shared by both auth paths once a token actually exists - stops the
-  // animation loop/listeners and hands off to character select, exactly
-  // what the old single Start Game button did on click.
+  // animation loop/listeners and hands off to mode select (Classic vs.
+  // Adventures), which leads on to character select.
   proceedToCharacterSelect() {
     this.cleanup();
-    this.screenManager.setScreen(new CharacterSelectScreen(this.screenManager, this.canvas));
+    this.screenManager.setScreen(new ModeSelectScreen(this.screenManager, this.canvas));
   }
 
   addEventListeners() {

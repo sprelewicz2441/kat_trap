@@ -1,4 +1,5 @@
-import GameScreen from './GameScreen.js?v=49';
+import GameScreen from './GameScreen.js?v=50';
+import BossBattleScreen from './BossBattleScreen.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {
@@ -42,6 +43,8 @@ const BASE_SUBLABEL_FONT_SIZE = 20;
 // canvasShapes.js.
 const BASE_TITLE_GAP = 70;
 
+const ADVENTURE_SUBTITLES = { cat: 'Punch the boss', mouse: 'Outsmart the boss' };
+
 const OPTIONS = [
   { entity: 'cat', name: CHARACTER_NAMES.CAT, role: 'Cat', enabled: true, subtitle: 'Chase the mouse' },
   { entity: 'mouse', name: CHARACTER_NAMES.MOUSE, role: 'Mouse', enabled: true, subtitle: 'Escape the cat' },
@@ -81,7 +84,16 @@ export default class CharacterSelectScreen {
   // forwarded to the next GameScreen as `skipCutscenes` (see its own
   // constructor) so a replay doesn't re-watch the intro cutscenes every
   // round.
-  constructor(screenManager, canvas, isReplay = false) {
+  //
+  // `mode` is 'classic' (the original chase game, all three characters) or
+  // 'adventure' (boss battle, see BossBattleScreen.js) - adventure only
+  // offers Cat and Mouse, since the Dog is the one locked in the boss's
+  // cage.
+  constructor(screenManager, canvas, isReplay = false, mode = 'classic') {
+    this.mode = mode;
+    this.options = mode === 'adventure'
+      ? OPTIONS.filter((o) => o.entity !== 'dog').map((o) => ({ ...o, subtitle: ADVENTURE_SUBTITLES[o.entity] }))
+      : OPTIONS;
     this.screenManager = screenManager;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
@@ -143,7 +155,7 @@ export default class CharacterSelectScreen {
     // rather than the row fitting horizontally while text spills its card.
     const sideMargin = 20 * uiScale;
     const availableWidth = width - sideMargin * 2;
-    const naiveTotalWidth = (BASE_CARD_WIDTH * OPTIONS.length + BASE_CARD_GAP * (OPTIONS.length - 1)) * uiScale;
+    const naiveTotalWidth = (BASE_CARD_WIDTH * this.options.length + BASE_CARD_GAP * (this.options.length - 1)) * uiScale;
     const fitScale = naiveTotalWidth > availableWidth ? availableWidth / naiveTotalWidth : 1;
     const effectiveScale = uiScale * fitScale;
 
@@ -166,7 +178,7 @@ export default class CharacterSelectScreen {
     const cardWidth = BASE_CARD_WIDTH * effectiveScale;
     const cardHeight = BASE_CARD_HEIGHT * effectiveScale;
     const gap = BASE_CARD_GAP * effectiveScale;
-    const totalWidth = cardWidth * OPTIONS.length + gap * (OPTIONS.length - 1);
+    const totalWidth = cardWidth * this.options.length + gap * (this.options.length - 1);
     let x = width / 2 - totalWidth / 2;
     const y = height / 2 - cardHeight / 2;
 
@@ -193,14 +205,15 @@ export default class CharacterSelectScreen {
     ctx.shadowOffsetY = 2 * effectiveScale;
     ctx.lineWidth = Math.max(2, 4 * effectiveScale);
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
-    ctx.strokeText('Choose Your Character', width / 2, titleY);
+    const title = this.mode === 'adventure' ? 'Choose Your Fighter' : 'Choose Your Character';
+    ctx.strokeText(title, width / 2, titleY);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('Choose Your Character', width / 2, titleY);
+    ctx.fillText(title, width / 2, titleY);
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    this.buttonAreas = OPTIONS.map((option, index) => {
+    this.buttonAreas = this.options.map((option, index) => {
       // Hit-testing always uses this original (unlifted) area — only the
       // drawing below shifts for hover/press, so a card lifting toward the
       // cursor can't push its own hit box out from under it.
@@ -322,6 +335,10 @@ export default class CharacterSelectScreen {
 
       this.cleanup();
       this.canvas.style.cursor = 'default';
+      if (this.mode === 'adventure') {
+        this.screenManager.setScreen(new BossBattleScreen(this.screenManager, this.canvas, hit.option.entity));
+        return;
+      }
       this.screenManager.setScreen(new GameScreen(this.screenManager, this.canvas, this.ctx, hit.option.entity, this.isReplay));
     };
     this.canvas.addEventListener('click', this.clickHandler);
