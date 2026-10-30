@@ -1,4 +1,4 @@
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=3';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=4';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 

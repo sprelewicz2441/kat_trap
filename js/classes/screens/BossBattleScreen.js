@@ -1,10 +1,10 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=2';
+import ModeSelectScreen from './ModeSelectScreen.js?v=3';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js?v=1';
-import { isLoggedIn, getEquipped } from '../../utils/api.js';
+import { isLoggedIn, getEquipped, getWallets, submitRound, queuePendingRound } from '../../utils/api.js';
 import { isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
 
 // "Adventures" mode: a Punch-Out-style boss fight. The player (Cat or
@@ -48,6 +48,16 @@ const PUNCH_FX_MS = 340; // fist flight + impact burst, longer than the body lun
 const PUNCH_FIST_FLIGHT = 0.38; // fraction of PUNCH_FX_MS spent flying out
 const PUNCH_FIST_RETURN = 0.62; // fraction at which the fist has fully retracted
 const PLAYER_STAGGER_MS = 450; // after punching into a guard
+
+// Rewards ride on submitRound()'s `coinsCollected` argument as a bonus on top
+// of the flat win/loss payout kpground-api already gives (no backend change).
+// The server clamps that argument to MAX_COINS_COLLECTED_PER_ROUND (50), so
+// the win bonus tops out there: 20 + 5 per heart left, at 5 hearts = 45.
+const WIN_BONUS_BASE = 20;
+const WIN_BONUS_PER_HEART = 5;
+// A loss pays a small bonus scaled by how much of the boss's HP got chewed
+// through, 0..LOSS_BONUS_MAX - far below a win, but a good attempt still earns.
+const LOSS_BONUS_MAX = 6;
 
 const INTRO_ROUND_MS = 1100;
 const INTRO_TOTAL_MS = 1900;
@@ -150,7 +160,21 @@ export default class BossBattleScreen {
     this.dogImg.src = getSpriteSrc('dog');
     this.playerImg = new Image();
     this.playerImg.src = getSpriteSrc(character);
+    // Economy hookup, same "no login, no economy UI" degrade as GameScreen:
+    // rewardBreakdown stays null (modal skips the rewards line) unless the
+    // wallet snapshot loaded, and the round is queued offline if it can't
+    // be submitted. walletAtStart is diffed against submitRound()'s response
+    // rather than duplicating the server's reward constants here.
+    this.walletAtStart = null;
+    this.rewardBreakdown = null;
+    this.resultSubmitted = false;
     if (isLoggedIn()) {
+      getWallets()
+        .then((wallets) => {
+          const w = wallets.find((x) => x.character === character);
+          if (w) this.walletAtStart = { coins: w.coins, xp: w.xp, level: w.level };
+        })
+        .catch((err) => console.warn('Could not load wallet for boss battle:', err.message));
       getEquipped(character)
         .then((equipped) => {
           if (equipped.outfit) this.playerImg.src = getSpriteSrc(character, equipped.outfit);
@@ -421,7 +445,48 @@ export default class BossBattleScreen {
       this.stage = 'lost';
       this.stageTime = 0;
       playLoseSound();
+      this.submitResult(false);
     }
+  }
+
+  // Called once per fight, the moment it's decided. Pending placeholder is
+  // set synchronously (when a wallet snapshot exists) so the modal reserves
+  // its rewards line before the response arrives.
+  submitResult(isWin) {
+    if (this.resultSubmitted) return;
+    this.resultSubmitted = true;
+
+    const damageFrac = clamp01(1 - this.boss.hp / BOSS_MAX_HP);
+    const bonus = isWin
+      ? WIN_BONUS_BASE + WIN_BONUS_PER_HEART * Math.max(0, this.player.hearts)
+      : Math.floor(LOSS_BONUS_MAX * damageFrac);
+    const result = isWin ? 'win' : 'loss';
+
+    this.rewardBreakdown = this.walletAtStart ? { status: 'pending' } : null;
+
+    if (!isLoggedIn()) {
+      queuePendingRound(this.character, result, bonus);
+      return;
+    }
+    submitRound(this.character, result, bonus)
+      .then((wallet) => {
+        const start = this.walletAtStart;
+        if (!start) return;
+        const leveledUp = wallet.level > start.level;
+        this.rewardBreakdown = {
+          status: 'ready',
+          coins: wallet.coins - start.coins,
+          leveledUp,
+          newLevel: wallet.level,
+          // Same reasoning as GameScreen: a raw xp diff is wrong across a level boundary.
+          xp: leveledUp ? null : wallet.xp - start.xp,
+        };
+      })
+      .catch((err) => {
+        console.warn('Boss round submission failed, queuing for retry:', err.message);
+        queuePendingRound(this.character, result, bonus);
+        if (this.rewardBreakdown) this.rewardBreakdown = { status: 'error' };
+      });
   }
 
   tryPunch() {
@@ -492,6 +557,7 @@ export default class BossBattleScreen {
     this.boss.state = 'defeated';
     this.boss.queue = [];
     playWinSound();
+    this.submitResult(true);
   }
 
   updateVictory() {
@@ -1231,7 +1297,8 @@ export default class BossBattleScreen {
     ctx.fillRect(0, 0, w, h);
 
     const cardW = Math.min(w * 0.8, 520 * ui);
-    const cardH = 300 * ui;
+    const rewards = this.rewardBreakdown;
+    const cardH = (rewards ? 340 : 300) * ui;
     const cardX = (w - cardW) / 2;
     const cardY = (h - cardH) / 2;
     const grad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
@@ -1269,13 +1336,28 @@ export default class BossBattleScreen {
     const subtitle = won
       ? `${this.fighter.name} beat ${BOSS_NAME} and freed ${CHARACTER_NAMES.DOG}!`
       : `${BOSS_NAME} won this round.`;
-    ctx.fillText(subtitle, w / 2, cardY + cardH * 0.42, cardW * 0.9);
+    ctx.fillText(subtitle, w / 2, cardY + cardH * (rewards ? 0.37 : 0.42), cardW * 0.9);
+
+    if (rewards) {
+      let line;
+      if (rewards.status === 'pending') line = 'Counting up your reward...';
+      else if (rewards.status === 'error') line = 'Reward saved - it will arrive when you reconnect.';
+      else {
+        const parts = [`+${rewards.coins} coins`];
+        if (rewards.leveledUp) parts.push(`LEVEL UP! Lv ${rewards.newLevel}`);
+        else if (rewards.xp > 0) parts.push(`+${rewards.xp} XP`);
+        line = parts.join('   ·   ');
+      }
+      ctx.font = `900 ${Math.round(26 * ui)}px Impact, 'Arial Black', sans-serif`;
+      ctx.fillStyle = '#fffde7';
+      ctx.fillText(line, w / 2, cardY + cardH * 0.54, cardW * 0.9);
+    }
     ctx.shadowBlur = 0;
 
     const btnW = cardW * 0.4;
     const btnH = 52 * ui;
     const gap = cardW * 0.05;
-    const btnY = cardY + cardH * 0.64;
+    const btnY = cardY + cardH * (rewards ? 0.68 : 0.64);
     const buttons = [
       { label: won ? 'Play Again' : 'Try Again', colors: ['#ffb238', '#fb8c00'], action: () => this.restart() },
       { label: 'Menu', colors: ['#8a2be2', '#6a1fc2'], action: () => this.backToMenu() },
