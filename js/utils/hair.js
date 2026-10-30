@@ -41,8 +41,7 @@ export const HAIR_PORTRAIT_FRAME = {
 //     image's horizontal center from the head anchor's x, `dy` is the image's
 //     TOP edge relative to the anchor's y (negative = above the head top). The
 //     image's height follows its own aspect ratio.
-// Real art goes in this registry as it's generated, e.g.
-//   'twin-buns': { images: { cat: { src: './assets/hair_cat_twin-buns.png?v=1', width: 200, dx: 0, dy: -14 } } },
+// Real art goes in this registry as it's generated (see tools/prepare_hair_overlay.py).
 //
 // Placeholder procedural styles, each a list of primitives in coordinates
 // relative to the head anchor (x right, y down from the top of the head), so a
@@ -53,6 +52,10 @@ export const HAIR_PORTRAIT_FRAME = {
 // The default cat has a built-in purple tuft on top of its head, so a style
 // has to be big enough to cover it (about 100px wide, 50px tall at the top).
 export const HAIR_STYLES = {
+  // Real art. Two round buns on an arched band; the cat's own purple tuft still
+  // peeks up between them (the buns are far apart) - left in on purpose, it reads
+  // as baby hair. Placed from the tool's preview on the real cat frames.
+  'twin-buns': { images: { cat: { src: './assets/hair_cat_twin-buns.png?v=1', width: 210, dx: 0, dy: -2 } } },
   bow: [
     { type: 'poly', pts: [[0, 22], [-62, -8], [-62, 54]], fill: '#ff4f9a' },
     { type: 'poly', pts: [[0, 22], [62, -8], [62, 54]], fill: '#ff4f9a' },
