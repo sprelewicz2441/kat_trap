@@ -1,7 +1,8 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=4';
+import ModeSelectScreen from './ModeSelectScreen.js?v=5';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
-import { getUIScale } from '../../utils/scale.js?v=1';
+import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
+import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js?v=1';
 import { isLoggedIn, getEquipped, getWallets, submitRound, queuePendingRound } from '../../utils/api.js';
@@ -220,6 +221,14 @@ export default class BossBattleScreen {
   //  LIFECYCLE
   // ==============================
   init() {
+    // Reveals the touch D-pad/action buttons, hamburger menu, and hides the
+    // iOS home-screen hint (all gated on body.in-game in styles.css). Same
+    // add-in-init/remove-in-cleanup pairing GameScreen uses. Cat and Mouse
+    // both get the full punch/toot/meow set: punch = 👊, toot = special, and
+    // meow is a harmless taunt (see the meowHandler below).
+    document.body.classList.add('in-game');
+    setActionButtonsMode(this.character);
+
     this.punchHandler = () => this.tryPunch();
     this.tootHandler = () => this.trySpecial();
     this.meowHandler = () => this.playSound('meow'); // a taunt, no gameplay effect
@@ -250,6 +259,7 @@ export default class BossBattleScreen {
   }
 
   cleanup() {
+    document.body.classList.remove('in-game');
     document.removeEventListener('punch', this.punchHandler);
     document.removeEventListener('toot', this.tootHandler);
     document.removeEventListener('meow', this.meowHandler);
@@ -1211,7 +1221,7 @@ export default class BossBattleScreen {
     ctx.stroke();
 
     // Player hearts, bottom-left.
-    const heartSize = Math.round(30 * ui);
+    const heartSize = Math.max(22, Math.round(30 * ui));
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${heartSize}px Arial`;
@@ -1233,9 +1243,10 @@ export default class BossBattleScreen {
     const pulse = full ? 0.6 + 0.4 * Math.sin(this.t / 120) : 1;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.font = `bold ${Math.round(15 * ui)}px Arial`;
+    ctx.font = `bold ${Math.max(12, Math.round(15 * ui))}px Arial`;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(full ? 'SPECIAL READY — SPACE!' : 'SPECIAL', mX + mW, mY - 4);
+    const specialKey = isTouch() ? 'TAP 📯' : 'SPACE';
+    ctx.fillText(full ? `SPECIAL READY — ${specialKey}!` : 'SPECIAL', mX + mW, mY - 4);
     drawRoundedRect(ctx, mX, mY, mW, mH, mH / 2);
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fill();
@@ -1258,10 +1269,12 @@ export default class BossBattleScreen {
       ctx.globalAlpha = clamp01((HINT_VISIBLE_MS - this.stageTime) / 1000);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `bold ${Math.round(16 * ui)}px Arial`;
+      ctx.font = `bold ${Math.max(12, Math.round(16 * ui))}px Arial`;
       ctx.lineWidth = Math.max(3, 4 * ui);
       ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-      const hint = '← → dodge   ↓ duck   P punch   Space special';
+      const hint = isTouch()
+        ? 'Pad: ← → dodge   ↓ duck      👊 punch   📯 special'
+        : '← → dodge   ↓ duck   P punch   Space special';
       ctx.strokeText(hint, w / 2, h * 0.115);
       ctx.fillStyle = '#ffffff';
       ctx.fillText(hint, w / 2, h * 0.115);
