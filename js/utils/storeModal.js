@@ -9,7 +9,7 @@ import {
   sellDecorItem,
 } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
-import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=2';
+import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=3';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 
@@ -432,7 +432,9 @@ function drawPedestalPortrait(character, item, opts = {}) {
       // so shift back by the crop's offset within its source frame.
       ctx.translate((canvas.width - dw) / 2 - crop.sx * scale, canvas.height - dh + verticalNudge - crop.sy * scale);
       ctx.scale(scale, scale);
-      drawHair(ctx, character, hairSlug, hairFrame);
+      // draw() as onReady: a real-art style's PNG may still be loading on the
+      // first draw, so redraw the whole portrait once it arrives.
+      drawHair(ctx, character, hairSlug, hairFrame, draw);
       ctx.restore();
     }
   };
