@@ -1,5 +1,5 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=3';
+import ModeSelectScreen from './ModeSelectScreen.js?v=4';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
@@ -462,16 +462,22 @@ export default class BossBattleScreen {
       : Math.floor(LOSS_BONUS_MAX * damageFrac);
     const result = isWin ? 'win' : 'loss';
 
-    this.rewardBreakdown = this.walletAtStart ? { status: 'pending' } : null;
-
+    // Always shown on the modal: a logged-out/offline result reads as
+    // "saved for later" (it is queued below) rather than the card staying silent.
     if (!isLoggedIn()) {
+      this.rewardBreakdown = { status: 'error' };
       queuePendingRound(this.character, result, bonus);
       return;
     }
+    this.rewardBreakdown = { status: 'pending' };
     submitRound(this.character, result, bonus)
       .then((wallet) => {
         const start = this.walletAtStart;
-        if (!start) return;
+        if (!start) {
+          // Credited, but no start snapshot to diff against for exact numbers.
+          this.rewardBreakdown = { status: 'saved' };
+          return;
+        }
         const leveledUp = wallet.level > start.level;
         this.rewardBreakdown = {
           status: 'ready',
@@ -485,7 +491,7 @@ export default class BossBattleScreen {
       .catch((err) => {
         console.warn('Boss round submission failed, queuing for retry:', err.message);
         queuePendingRound(this.character, result, bonus);
-        if (this.rewardBreakdown) this.rewardBreakdown = { status: 'error' };
+        this.rewardBreakdown = { status: 'error' };
       });
   }
 
@@ -1341,6 +1347,7 @@ export default class BossBattleScreen {
     if (rewards) {
       let line;
       if (rewards.status === 'pending') line = 'Counting up your reward...';
+      else if (rewards.status === 'saved') line = 'Reward added to your wallet!';
       else if (rewards.status === 'error') line = 'Reward saved - it will arrive when you reconnect.';
       else {
         const parts = [`+${rewards.coins} coins`];
