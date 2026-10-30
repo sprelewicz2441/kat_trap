@@ -1,11 +1,11 @@
 import ScreenManager from './classes/screens/ScreenManager.js';
-import SetupScreen from './classes/screens/SetupScreen.js?v=8';
+import SetupScreen from './classes/screens/SetupScreen.js?v=9';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchControls.js';
 import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';
 import { setupHomeScreenHint } from './utils/homeScreenHint.js';
 import { setupLoginModal } from './utils/loginModal.js';
-import { setupStoreModal } from './utils/storeModal.js?v=27';
+import { setupStoreModal } from './utils/storeModal.js?v=28';
 import { isTouch } from './utils/scale.js?v=1';
 
 let gameCanvas, ctx, screenManager;

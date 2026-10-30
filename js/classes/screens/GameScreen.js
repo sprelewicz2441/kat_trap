@@ -16,7 +16,7 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=8';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=9';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
@@ -39,7 +39,7 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=27';
+import { openStoreModal } from '../../utils/storeModal.js?v=28';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
 import { DECOR_TYPES, getFreestandingDecorTypes } from '../../utils/decorTypes.js?v=5';
 import CoinBadgeButton from '../../utils/canvasButton.js?v=1';

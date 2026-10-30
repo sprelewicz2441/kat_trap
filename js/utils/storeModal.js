@@ -442,7 +442,10 @@ function buildDefaultCosmeticItem(realCosmetics) {
 // The one list every cycle/preview/pick-a-fallback path should read from -
 // the default entry always first, then whatever's actually in the store.
 function getCosmeticsWithDefault(items) {
-  const realCosmetics = items.filter((item) => item.item_type === 'cosmetic');
+  // Outfit-slot cosmetics only - hair-slot items (Mane Attraction) are a
+  // separate overlay equipped independently of an outfit, and would otherwise
+  // show up here as if they were full alternate looks.
+  const realCosmetics = items.filter((item) => item.item_type === 'cosmetic' && item.slot !== 'hair');
   return [buildDefaultCosmeticItem(realCosmetics), ...realCosmetics];
 }
 
