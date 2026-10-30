@@ -16,7 +16,7 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=7';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=8';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
@@ -1541,6 +1541,11 @@ export default class GameScreen {
     // silently discard a sprite swap already applied to the *first*
     // Cat/Mouse/Dog instance the moment that fetch resolved before then.
     this.equippedOutfits = {};
+    // Mane Attraction hairstyle per character (the 'hair' equip slot, see
+    // utils/hair.js), tracked the same way as equippedOutfits and for the same
+    // reason - resetGameObjects() reconstructs the entities and would otherwise
+    // drop a hairstyle a fetch had already applied to the replaced instance.
+    this.equippedHair = {};
     this.cutsceneManager = new CutsceneManager(screenManager, canvas, ctx);
 
     this.floorPattern = null;
@@ -1762,7 +1767,10 @@ export default class GameScreen {
     // this.equippedOutfits (covers the normal path, where it does).
     ['cat', 'mouse', 'dog'].forEach((character) => {
       getEquipped(character)
-        .then((equipped) => this.applyEquippedOutfit(character, equipped.outfit))
+        .then((equipped) => {
+          this.applyEquippedOutfit(character, equipped.outfit);
+          this.applyEquippedHair(character, equipped.hair);
+        })
         .catch((err) => console.warn(`Could not load ${character}'s equipped outfit:`, err.message));
     });
   }
@@ -1790,6 +1798,17 @@ export default class GameScreen {
     this.equippedOutfits[character] = outfitItem || null;
     const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;
     if (entity) entity.spriteSheet.src = getSpriteSrc(character, outfitItem);
+  }
+
+  // Hair counterpart to applyEquippedOutfit(): records `hairItem` (a StoreItem
+  // from the 'hair' slot, or null for none) and sets the entity's overlay style
+  // by the item's slug, which doubles as the key into utils/hair.js's
+  // HAIR_STYLES. Entities that don't draw hair yet (dog, mouse) just ignore the
+  // field.
+  applyEquippedHair(character, hairItem) {
+    this.equippedHair[character] = hairItem || null;
+    const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;
+    if (entity) entity.hairStyle = hairItem ? hairItem.slug : null;
   }
 
   resetGameObjects() {
@@ -1915,7 +1934,10 @@ export default class GameScreen {
     // yet, or that has nothing equipped) - see applyEquippedOutfit()'s own
     // comment for why this has to happen here too, not just once at fetch
     // time.
-    ['cat', 'mouse', 'dog'].forEach((character) => this.applyEquippedOutfit(character, this.equippedOutfits[character]));
+    ['cat', 'mouse', 'dog'].forEach((character) => {
+      this.applyEquippedOutfit(character, this.equippedOutfits[character]);
+      this.applyEquippedHair(character, this.equippedHair[character]);
+    });
 
     this.inputHandler = new InputHandler();
     // wallHitCallback is sound-only — see checkMouseEscapeOnWallHit()'s own
