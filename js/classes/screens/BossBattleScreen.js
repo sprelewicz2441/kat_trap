@@ -1,5 +1,5 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=1';
+import ModeSelectScreen from './ModeSelectScreen.js?v=2';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
@@ -44,6 +44,9 @@ const METER_PERFECT_DODGE = 15;
 
 const PLAYER_INVULN_MS = 900;
 const PLAYER_PUNCH_ANIM_MS = 180;
+const PUNCH_FX_MS = 340; // fist flight + impact burst, longer than the body lunge
+const PUNCH_FIST_FLIGHT = 0.38; // fraction of PUNCH_FX_MS spent flying out
+const PUNCH_FIST_RETURN = 0.62; // fraction at which the fist has fully retracted
 const PLAYER_STAGGER_MS = 450; // after punching into a guard
 
 const INTRO_ROUND_MS = 1100;
@@ -133,6 +136,7 @@ export default class BossBattleScreen {
     this.popups = [];
     this.shake = 0;
     this.specialFx = 0;
+    this.punchFx = null; // { age, kind: 'hit' | 'open' | 'blocked', laneX }
     this.phaseBanner = 0;
     this.cageOpen = 0; // 0 closed .. 1 fully raised
     this.dogProgress = 0; // 0 in cage .. 1 standing in the room
@@ -278,6 +282,10 @@ export default class BossBattleScreen {
     b.displayHp += (b.hp - b.displayHp) * Math.min(1, dt / 180);
     this.shake = Math.max(0, this.shake - dt);
     this.specialFx = Math.max(0, this.specialFx - dt);
+    if (this.punchFx) {
+      this.punchFx.age += dt;
+      if (this.punchFx.age >= PUNCH_FX_MS) this.punchFx = null;
+    }
     this.phaseBanner = Math.max(0, this.phaseBanner - dt);
     this.player.meterFlash = Math.max(0, this.player.meterFlash - dt);
     this.popups.forEach((p) => { p.age += dt; });
@@ -426,6 +434,9 @@ export default class BossBattleScreen {
     p.cooldown = this.fighter.cooldown;
     p.punchAnim = PLAYER_PUNCH_ANIM_MS;
     const b = this.boss;
+    const open = b.state === 'recover' || b.state === 'stun';
+    const kind = b.state === 'guard' ? 'blocked' : open ? 'open' : 'hit';
+    this.punchFx = { age: 0, kind, laneX: p.laneX };
 
     if (b.state === 'guard') {
       p.stagger = PLAYER_STAGGER_MS;
@@ -433,7 +444,6 @@ export default class BossBattleScreen {
       return;
     }
 
-    const open = b.state === 'recover' || b.state === 'stun';
     this.playSound('punch');
     p.meter = Math.min(METER_MAX, p.meter + (open ? METER_OPEN_HIT : METER_CHIP_HIT));
     this.damageBoss(this.fighter.damage * (open ? OPEN_HIT_MULTIPLIER : 1), open ? 'OPEN HIT!' : null);
@@ -518,6 +528,7 @@ export default class BossBattleScreen {
     this.drawAttackEffects(ctx, width, height);
     this.drawSpecialFx(ctx, width, height);
     this.drawPlayer(ctx, width, height);
+    this.drawPunchFx(ctx, width, height);
     this.drawPopups(ctx, width, height, ui);
     ctx.restore();
 
@@ -954,6 +965,120 @@ export default class BossBattleScreen {
     ctx.scale(scale, scale * scaleY);
     ctx.drawImage(img, portrait.sx, portrait.sy, portrait.sw, portrait.sh, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
+  }
+
+  // A glove flies from the player to the boss's chest, retracts, and leaves an
+  // impact burst where it landed (grey puff + sparks if the boss was guarding).
+  drawPunchFx(ctx, w, h) {
+    const fx = this.punchFx;
+    if (!fx) return;
+    const t = fx.age / PUNCH_FX_MS;
+    const rect = this.getBossRect(w, h);
+    const startX = w * 0.5 + fx.laneX * w;
+    const startY = h * 0.78;
+    const targetX = rect.cx;
+    const targetY = rect.feetY - rect.height * 0.45;
+
+    // Fist travel: fast out (ease-out), quicker back (ease-in), shrinking with distance.
+    let reach;
+    if (t < PUNCH_FIST_FLIGHT) reach = easeOutCubic(t / PUNCH_FIST_FLIGHT);
+    else if (t < PUNCH_FIST_RETURN) reach = 1 - ((t - PUNCH_FIST_FLIGHT) / (PUNCH_FIST_RETURN - PUNCH_FIST_FLIGHT)) ** 2;
+    else reach = 0;
+
+    const blocked = fx.kind === 'blocked';
+    // A blocked punch stops short, at the guard, instead of reaching the chest.
+    const maxReach = blocked ? 0.82 : 1;
+    const r = reach * maxReach;
+    const fx0 = startX + (targetX - startX) * r;
+    const fy0 = startY + (targetY - startY) * r;
+    const fistSize = h * (0.1 - 0.045 * r);
+
+    if (reach > 0) {
+      ctx.save();
+      ctx.translate(fx0, fy0);
+      // Motion streak behind the glove while it's flying out.
+      if (t < PUNCH_FIST_FLIGHT) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = Math.max(3, fistSize * 0.18);
+        ctx.lineCap = 'round';
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * fistSize * 0.35, fistSize * 0.6);
+          ctx.lineTo(i * fistSize * 0.3 - (targetX - startX) * 0.0, fistSize * 1.5);
+          ctx.stroke();
+        }
+      }
+      // Glove: red body, highlight, knuckle seams, white cuff.
+      ctx.fillStyle = '#e53935';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.lineWidth = Math.max(2, fistSize * 0.07);
+      ctx.beginPath();
+      ctx.arc(0, 0, fistSize * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(-fistSize * 0.15, -fistSize * 0.2, fistSize * 0.18, fistSize * 0.1, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.lineWidth = Math.max(1.5, fistSize * 0.04);
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * fistSize * 0.2, -fistSize * 0.45);
+        ctx.lineTo(i * fistSize * 0.2, -fistSize * 0.1);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffffff';
+      drawRoundedRect(ctx, -fistSize * 0.4, fistSize * 0.38, fistSize * 0.8, fistSize * 0.28, fistSize * 0.1);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Impact burst, starting the moment the fist arrives.
+    if (t >= PUNCH_FIST_FLIGHT * 0.9) {
+      const bt = clamp01((t - PUNCH_FIST_FLIGHT * 0.9) / (1 - PUNCH_FIST_FLIGHT * 0.9));
+      const ix = blocked ? fx0 : targetX;
+      const iy = blocked ? fy0 : targetY;
+      const radius = h * (0.05 + 0.1 * easeOutCubic(bt));
+      ctx.save();
+      ctx.translate(ix, iy);
+      ctx.globalAlpha = 1 - bt;
+      if (blocked) {
+        ctx.fillStyle = 'rgba(207, 216, 220, 0.8)';
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff59d';
+        ctx.lineWidth = Math.max(2, h * 0.006);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + 0.3;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * radius * 0.8, Math.sin(a) * radius * 0.8);
+          ctx.lineTo(Math.cos(a) * radius * 1.4, Math.sin(a) * radius * 1.4);
+          ctx.stroke();
+        }
+      } else {
+        // 8-point star; bigger and gold for an open hit, white-yellow for a chip hit.
+        const open = fx.kind === 'open';
+        const R = radius * (open ? 1.5 : 1);
+        ctx.fillStyle = open ? '#ffb300' : '#fff176';
+        ctx.strokeStyle = open ? '#ff6f00' : '#ffffff';
+        ctx.lineWidth = Math.max(2, h * 0.006);
+        ctx.beginPath();
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+          const rad = i % 2 === 0 ? R : R * 0.45;
+          const px = Math.cos(a) * rad;
+          const py = Math.sin(a) * rad;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   drawPopups(ctx, w, h, ui) {
