@@ -1,5 +1,5 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=5';
+import ModeSelectScreen from './ModeSelectScreen.js?v=6';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
 import { setActionButtonsMode } from '../../utils/touchControls.js';

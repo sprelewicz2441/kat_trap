@@ -1,4 +1,5 @@
 import { getSpriteSrc } from '../utils/outfits.js?v=1';
+import { drawHair } from '../utils/hair.js?v=1';
 
 // cat.png is a symmetric, front-facing portrait (confirmed by looking at
 // the actual pixel art — matching ears/whiskers, centered face), not a
@@ -91,6 +92,10 @@ export default class Cat {
     this.currentFrame = 0;
     this.frameSpeed = 10;
     this.frameCounter = 0;
+    // Equipped Mane Attraction hairstyle slug (see utils/hair.js), or null for the
+    // default look. Drawn as an overlay in draw() below, so it composes with any
+    // equipped outfit sheet instead of needing its own sheet per combination.
+    this.hairStyle = null;
 
     // Movement properties
     this.speed = 10 * scale; // Movement speed
@@ -289,6 +294,14 @@ export default class Cat {
       sx, sy, this.frameWidth, this.frameHeight, // Native source rectangle
       -width / 2, -height / 2, width, height // Centered, scaled destination rectangle
     );
+    // Hair rides the same transform as the sprite (directional lean, yuck wobble),
+    // drawn in native frame coordinates via the same non-uniform source->display
+    // scale the sprite itself gets, so it tracks the head through the walk cycle.
+    if (this.hairStyle) {
+      ctx.translate(-width / 2, -height / 2);
+      ctx.scale(width / this.frameWidth, height / this.frameHeight);
+      drawHair(ctx, 'cat', this.hairStyle, this.currentFrame);
+    }
     ctx.restore();
   }
 }

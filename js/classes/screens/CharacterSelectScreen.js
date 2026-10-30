@@ -1,5 +1,5 @@
-import GameScreen from './GameScreen.js?v=54';
-import BossBattleScreen from './BossBattleScreen.js?v=5';
+import GameScreen from './GameScreen.js?v=55';
+import BossBattleScreen from './BossBattleScreen.js?v=6';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {

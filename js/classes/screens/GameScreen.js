@@ -8,7 +8,7 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=7';
+import Cat from '../Cat.js?v=8';
 import Mouse from '../Mouse.js?v=4';
 import Dog from '../Dog.js?v=9';
 import InputHandler from '../InputHandler.js';
@@ -16,7 +16,7 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=6';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=7';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
