@@ -976,6 +976,20 @@ body.in-game #settingsMenu {
   color: #fff;
 }
 
+/* Mane Attraction (hair salon) - a hot-pink/magenta identity, distinct from
+   Bloomingtails' purple, Pawgreens' green and Pet Shop Boys' amber. */
+#storeTabSalon[aria-selected="true"] {
+  background: linear-gradient(135deg, #d6247d, #ff8fb1);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* .store-tab's own `display: flex` beats the UA `[hidden]` rule, so a tab
+   hidden for a character with no hair anchors yet needs this explicitly. */
+.store-tab[hidden] {
+  display: none;
+}
+
 .store-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -994,7 +1008,8 @@ body.in-game #settingsMenu {
    overlaid directly on top via #storeOverlayTop/#storeOverlayBottom's
    gradient scrims, rather than the photo being one inset box among
    several stacked elements above/below it. */
-#storePedestalScene {
+#storePedestalScene,
+#salonScene {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -1062,7 +1077,9 @@ body.in-game #settingsMenu {
   pointer-events: auto;
 }
 
-#storeOverlayTop {
+#storeOverlayTop,
+
+#salonOverlayTop {
   top: 0;
   padding-bottom: 20px;
   /* Stronger + slower fade than a plain two-stop gradient (was
@@ -1078,7 +1095,9 @@ body.in-game #settingsMenu {
   );
 }
 
-#storeOverlayBottom {
+#storeOverlayBottom,
+
+#salonOverlayBottom {
   bottom: 0;
   padding-top: 28px;
   background: linear-gradient(0deg, rgba(20, 10, 30, 0.68), rgba(20, 10, 30, 0));
@@ -1130,7 +1149,9 @@ body.in-game #settingsMenu {
   }
 }
 
-#storeWalletLine {
+#storeWalletLine,
+
+#salonWalletLine {
   margin: 0;
   font: 700 1rem/1.3 Arial, sans-serif;
   color: #fff;
@@ -1165,7 +1186,8 @@ body.in-game #settingsMenu {
    own marble pedestal - re-tune live after the "full background" layout
    change above, which shifts the scene's own aspect ratio and therefore
    where `cover`'s crop lands the pedestal in the visible frame. */
-#storePedestalCanvas {
+#storePedestalCanvas,
+#salonPedestalCanvas {
   position: absolute;
   left: 50%;
   /* 20% (was 15%) - the "full background" layout change moved the
@@ -1235,21 +1257,26 @@ body.in-game #settingsMenu {
 }
 
 #storePrevOutfitBtn,
-#storeNextOutfitBtn {
+#storeNextOutfitBtn,
+#salonPrevBtn,
+#salonNextBtn {
   color: #6a1fc2;
 }
 
-#storePrevOutfitBtn {
+#storePrevOutfitBtn,
+#salonPrevBtn {
   left: 10px;
 }
 
-#storeNextOutfitBtn {
+#storeNextOutfitBtn,
+#salonNextBtn {
   right: 10px;
 }
 
 /* Just the previewed cosmetic's name - this is a "what am I looking at"
    label over the pedestal, not a sales pitch. */
-#storePreviewName {
+#storePreviewName,
+#salonPreviewName {
   margin: 0 0 10px;
   text-align: center;
   min-height: 1.5em;
@@ -1268,7 +1295,8 @@ body.in-game #settingsMenu {
    the two are always shown/hidden together) rather than sizing it to
    zero, so an unowned/locked/buyable item's layout doesn't inherit a
    stray gap from an empty row. */
-#storeOwnedSellRow {
+#storeOwnedSellRow,
+#salonOwnedSellRow {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1276,7 +1304,9 @@ body.in-game #settingsMenu {
   margin: -4px 0 10px;
 }
 
-#storeOwnedSellRow[hidden] {
+#storeOwnedSellRow[hidden],
+
+#salonOwnedSellRow[hidden] {
   display: none;
 }
 
@@ -1286,7 +1316,8 @@ body.in-game #settingsMenu {
    longer saying "Buy", easy to miss. Muted purple/gold rather than the
    button's own green ("equipped")/orange ("buy") so it doesn't compete
    with either as a third color meaning a third thing. */
-#storePreviewOwnedBadge {
+#storePreviewOwnedBadge,
+#salonPreviewOwnedBadge {
   display: inline-block;
   margin: 0;
   padding: 2px 10px;
@@ -1298,14 +1329,17 @@ body.in-game #settingsMenu {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-#storePreviewOwnedBadge[hidden] {
+#storePreviewOwnedBadge[hidden],
+
+#salonPreviewOwnedBadge[hidden] {
   display: none;
 }
 
 /* The single Buy/Equip/Owned action for whatever's currently previewed -
    reuses .store-item-buy's own gradient/disabled/equipped styling (see
    below) via that same class in the markup, just full-width. */
-#storePedestalActionBtn {
+#storePedestalActionBtn,
+#salonActionBtn {
   display: block;
   width: 100%;
   max-width: 340px;
@@ -1314,7 +1348,9 @@ body.in-game #settingsMenu {
   font-size: 1.1rem;
 }
 
-#storePedestalActionBtn[hidden] {
+#storePedestalActionBtn[hidden],
+
+#salonActionBtn[hidden] {
   display: none;
 }
 
@@ -1327,22 +1363,29 @@ body.in-game #settingsMenu {
    #storePedestalCanvas also moves up (a bigger `bottom` percentage) to
    give it more clearance from this now-shorter bottom band. */
 @media (pointer: coarse) {
-  #storeOverlayBottom {
+  #storeOverlayBottom,
+  #salonOverlayBottom {
     padding-top: 14px;
   }
 
-  #storePreviewName {
+  #storePreviewName,
+
+  #salonPreviewName {
     margin: 0 0 4px;
     min-height: 1.2em;
     font-size: 1rem;
   }
 
-  #storePedestalActionBtn {
+  #storePedestalActionBtn,
+
+  #salonActionBtn {
     padding: 8px 14px;
     font-size: 0.9rem;
   }
 
-  #storePedestalCanvas {
+  #storePedestalCanvas,
+
+  #salonPedestalCanvas {
     bottom: 28%;
   }
 }
@@ -1406,6 +1449,28 @@ body.in-game #settingsMenu {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Mane Attraction's own text heading (Bloomingtails has a wordmark image,
+   this store has no logo art yet) - everything else about its scene shares
+   Bloomingtails' rules above via grouped selectors. */
+#salonHeading {
+  margin: 0 0 4px;
+  font: 800 1.6rem/1.15 'Arial Rounded MT Bold', 'Segoe UI', Arial, sans-serif;
+  color: #ffd0e6;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+#salonHeadingMark {
+  font-size: 1.2rem;
+  vertical-align: 0.02em;
+}
+
+@media (pointer: coarse) {
+  #salonHeading {
+    font-size: 1.15rem;
+    margin-bottom: 2px;
+  }
 }
 
 /* Pet Shop Boys - browsed like Bloomingtails (arrows + one shared action

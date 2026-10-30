@@ -9,6 +9,7 @@ import {
   sellDecorItem,
 } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
+import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=2';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 
@@ -35,6 +36,12 @@ let onOutfitChangeCallback = null;
 // just for decor instead of cosmetics.
 let onDecorChangeCallback = null;
 
+// Called with (character, hairItem|null) whenever a hair-slot equip/unequip
+// succeeds (Mane Attraction) - the hair counterpart to onOutfitChangeCallback,
+// kept separate since GameScreen applies the two slots through different
+// methods (applyEquippedOutfit vs. applyEquippedHair). See notifyEquipChange().
+let onHairChangeCallback = null;
+
 // Which storefront panel is showing - 'bloomingtails' (cosmetics, the
 // dressing room) or 'pawgreens' (perks, a plain shopping list). Split per
 // explicit direction ("remove the non-clothes items from this store, we
@@ -42,7 +49,7 @@ let onDecorChangeCallback = null;
 // panels share one modal shell and one network fetch (see currentState
 // below), just filtered client-side by item_type. Reset to
 // 'bloomingtails' every time the modal is freshly opened.
-let currentTab = 'bloomingtails';
+let currentTab = 'bloomingtails'; // or 'pawgreens' | 'petshop' | 'salon' (Mane Attraction, hair)
 
 // Which cosmetic is currently shown on the Bloomingtails pedestal -
 // module-level so it survives a local re-render (arrow click, a
@@ -58,6 +65,11 @@ let previewedSlug = null;
 // Pawgreens... browse through with arrows, like the outfits"), rather
 // than Pawgreens' plain list. Reset only when the modal is freshly opened.
 let previewedDecorSlug = null;
+
+// Mane Attraction's own previewedSlug equivalent - which hairstyle is on the
+// salon pedestal. Shares currentState's fetch (hair items are ordinary
+// cosmetics distinguished by slot === 'hair'), so no separate fetch/state.
+let previewedHairSlug = null;
 
 // The last real fetch's own (character, wallet, items) - arrow clicks
 // only need to change *which* cosmetic is previewed and redraw, not
@@ -96,9 +108,7 @@ let decorState = null;
 function applyModalSizing() {
   const canvas = document.getElementById('gameCanvas');
   const card = document.getElementById('storeCard');
-  const scene = document.getElementById('storePedestalScene');
-  const pedestalCanvas = document.getElementById('storePedestalCanvas');
-  if (!canvas || !card || !scene || !pedestalCanvas) return;
+  if (!canvas || !card) return;
 
   if (isTouch()) {
     // Sized off the true viewport, not just the canvas's own box - the
@@ -125,10 +135,14 @@ function applyModalSizing() {
     card.style.height = `${Math.max(340, canvas.height - margin * 2)}px`;
   }
 
-  // Only meaningful while Bloomingtails is the visible panel - the scene
+  // Only meaningful while Bloomingtails (or the salon, which shares its layout) is the visible panel - the scene
   // lays out at zero size while its panel is [hidden], so skip measuring
   // it then rather than sizing the canvas off a bogus zero-height rect.
-  if (currentTab !== 'bloomingtails') return;
+  if (currentTab !== 'bloomingtails' && currentTab !== 'salon') return;
+  const isSalon = currentTab === 'salon';
+  const scene = document.getElementById(isSalon ? 'salonScene' : 'storePedestalScene');
+  const pedestalCanvas = document.getElementById(isSalon ? 'salonPedestalCanvas' : 'storePedestalCanvas');
+  if (!scene || !pedestalCanvas) return;
   const sceneRect = scene.getBoundingClientRect();
   // The backdrop now fills the whole card (see styles.css - "make the
   // dressing room bigger... the full background") rather than a smaller
@@ -156,6 +170,7 @@ export function setupStoreModal() {
     onWalletUpdateCallback = null;
     onOutfitChangeCallback = null;
     onDecorChangeCallback = null;
+    onHairChangeCallback = null;
   };
 
   // Same console-style whoosh played on open (see openStoreModal(), and
@@ -223,9 +238,14 @@ export function setupStoreModal() {
   document.getElementById('petShopPrevBtn').addEventListener('click', () => cyclePetShopItem(-1));
   document.getElementById('petShopNextBtn').addEventListener('click', () => cyclePetShopItem(1));
 
+  // Mane Attraction's browsing arrows - same gesture over the hair-slot items.
+  document.getElementById('salonPrevBtn').addEventListener('click', () => cycleHair(-1));
+  document.getElementById('salonNextBtn').addEventListener('click', () => cycleHair(1));
+
   document.getElementById('storeTabBloomingtails').addEventListener('click', () => switchTab('bloomingtails'));
   document.getElementById('storeTabPawgreens').addEventListener('click', () => switchTab('pawgreens'));
   document.getElementById('storeTabPetShop').addEventListener('click', () => switchTab('petshop'));
+  document.getElementById('storeTabSalon').addEventListener('click', () => switchTab('salon'));
 }
 
 // Swaps which panel is visible without re-fetching - all three panels
@@ -239,6 +259,8 @@ function switchTab(tab) {
   document.getElementById('bloomingtailsPanel').hidden = tab !== 'bloomingtails';
   document.getElementById('pawgreensPanel').hidden = tab !== 'pawgreens';
   document.getElementById('petShopPanel').hidden = tab !== 'petshop';
+  document.getElementById('salonPanel').hidden = tab !== 'salon';
+  document.getElementById('storeTabSalon').setAttribute('aria-selected', String(tab === 'salon'));
   document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', String(tab === 'bloomingtails'));
   document.getElementById('storeTabPawgreens').setAttribute('aria-selected', String(tab === 'pawgreens'));
   document.getElementById('storeTabPetShop').setAttribute('aria-selected', String(tab === 'petshop'));
@@ -247,6 +269,8 @@ function switchTab(tab) {
     updateBloomingtailsPreview();
   } else if (tab === 'pawgreens') {
     renderPawgreensList();
+  } else if (tab === 'salon') {
+    updateSalonPreview();
   } else {
     updatePetShopPreview();
   }
@@ -360,9 +384,16 @@ function getPedestalSizeMultiplier(character, isDefaultLook) {
 // whatever's currently previewed, or null (an empty cosmetic catalog, or
 // a failed fetch) - still draws the character's own default look either
 // way, so the pedestal never sits empty.
-function drawPedestalPortrait(character, item) {
+//
+// opts.canvasId: which pedestal canvas to draw into (Mane Attraction has its
+// own, same size/position rules). opts.hairSlug: a hairstyle (utils/hair.js
+// key) to composite over the sprite - drawn in the sprite's native frame
+// coordinates through this same scale/offset, so it lands on the head exactly
+// the way Cat.draw() puts it there in gameplay.
+function drawPedestalPortrait(character, item, opts = {}) {
+  const { canvasId = 'storePedestalCanvas', hairSlug = null } = opts;
   const crop = PORTRAITS[character];
-  const canvas = document.getElementById('storePedestalCanvas');
+  const canvas = document.getElementById(canvasId);
   if (!canvas || !crop) return;
 
   const src = getSpriteSrc(character, item);
@@ -394,6 +425,16 @@ function drawPedestalPortrait(character, item) {
       dw,
       dh
     );
+    const hairFrame = HAIR_PORTRAIT_FRAME[character];
+    if (hairSlug && hairFrame !== undefined) {
+      ctx.save();
+      // Native-frame origin: the crop's own top-left maps to (left, top) below,
+      // so shift back by the crop's offset within its source frame.
+      ctx.translate((canvas.width - dw) / 2 - crop.sx * scale, canvas.height - dh + verticalNudge - crop.sy * scale);
+      ctx.scale(scale, scale);
+      drawHair(ctx, character, hairSlug, hairFrame);
+      ctx.restore();
+    }
   };
 
   if (img.complete && img.naturalWidth > 0) {
@@ -449,6 +490,51 @@ function getCosmeticsWithDefault(items) {
   return [buildDefaultCosmeticItem(realCosmetics), ...realCosmetics];
 }
 
+// Mane Attraction's equivalent of the synthetic "Original Look" entry: the
+// character's natural hair is always free and never a real StoreItem, and
+// "equipping" it is just unequip_slot('hair') (see wireItemButton()'s
+// isDefault branch, which reads item.slot).
+const DEFAULT_HAIR_SLUG = '__default_hair__';
+
+function buildDefaultHairItem(realHair) {
+  return {
+    slug: DEFAULT_HAIR_SLUG,
+    name: 'Natural Look',
+    item_type: 'cosmetic',
+    slot: 'hair',
+    sprite_src: null,
+    description: "This character's own hair - always free.",
+    cost: 0,
+    min_level: 1,
+    owned: true,
+    equipped: !realHair.some((item) => item.equipped),
+    isDefault: true,
+  };
+}
+
+function getHairWithDefault(items) {
+  const realHair = items.filter((item) => item.item_type === 'cosmetic' && item.slot === 'hair');
+  return [buildDefaultHairItem(realHair), ...realHair];
+}
+
+// What the character is actually wearing right now, for compositing: the
+// equipped outfit (so the salon preview shows hair on their real outfit) and
+// the equipped hairstyle slug (so Bloomingtails' pedestal shows it too).
+function getEquippedOutfitItem(items) {
+  return items.find((i) => i.item_type === 'cosmetic' && i.slot !== 'hair' && i.equipped) || null;
+}
+
+function getEquippedHairSlug(items) {
+  return items.find((i) => i.item_type === 'cosmetic' && i.slot === 'hair' && i.equipped)?.slug || null;
+}
+
+// Routes an equip/unequip result to the right slot's callback - outfit and
+// hair are applied by different GameScreen methods.
+function notifyEquipChange(character, item, equippedItem) {
+  const callback = item.slot === 'hair' ? onHairChangeCallback : onOutfitChangeCallback;
+  if (callback) callback(character, equippedItem);
+}
+
 // Shared Buy/Equip/Owned/locked logic for a single item - both
 // Bloomingtails' one pedestal button and each of Pawgreens' own per-row
 // buttons funnel through this so there's only one purchase/equip/state
@@ -474,7 +560,7 @@ function wireItemButton(btn, character, wallet, item) {
         btn.disabled = true;
         try {
           await unequipItem(character, item.slot);
-          if (onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+          notifyEquipChange(character, item, null);
           await refreshAfterChange();
         } catch (err) {
           btn.disabled = false;
@@ -501,10 +587,10 @@ function wireItemButton(btn, character, wallet, item) {
       try {
         if (item.equipped) {
           await unequipItem(character, item.slot);
-          if (onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+          notifyEquipChange(character, item, null);
         } else {
           await equipItem(character, item.slug);
-          if (onOutfitChangeCallback) onOutfitChangeCallback(character, item);
+          notifyEquipChange(character, item, item);
         }
         await refreshAfterChange();
       } catch (err) {
@@ -624,7 +710,7 @@ function wireSellButton(sellBtn, character, item) {
       // unequip, so the live in-game sprite reverts immediately instead
       // of only picking up the change on next reload. A no-op for decor,
       // which is never equipped.
-      if (item.equipped && onOutfitChangeCallback) onOutfitChangeCallback(character, null);
+      if (item.equipped) notifyEquipChange(character, item, null);
       // Removes the item from the *current* kitchen right away - same
       // live-sync reasoning as the purchase side above, just the removal
       // half (otherwise a sold decor piece would keep showing in the room
@@ -663,7 +749,7 @@ function updateBloomingtailsPreview() {
   // currentState itself hasn't loaded yet.
   const item = cosmetics.find((i) => i.slug === previewedSlug) || null;
 
-  drawPedestalPortrait(character, item);
+  drawPedestalPortrait(character, item, { hairSlug: getEquippedHairSlug(items) });
 
   const btn = document.getElementById('storePedestalActionBtn');
   btn.hidden = !item;
@@ -709,6 +795,56 @@ function cycleOutfit(direction) {
 
   previewedSlug = cosmetics[nextIndex].slug;
   updateBloomingtailsPreview();
+}
+
+// Mane Attraction's equivalent of updateBloomingtailsPreview() - a local
+// redraw (no fetch) of the salon pedestal for whatever `previewedHairSlug`
+// points at, composited over the character's currently-equipped outfit.
+// Previewing an unowned hairstyle just shows it on the pedestal ("try before
+// you buy"); the shared wireItemButton() handles buy/try-on/wearing.
+function updateSalonPreview() {
+  if (!currentState) return;
+  const { character, wallet, items } = currentState;
+  document.getElementById('salonWalletLine').innerHTML = walletLineHtml(wallet);
+  const hairs = getHairWithDefault(items);
+  const item = hairs.find((i) => i.slug === previewedHairSlug) || null;
+
+  drawPedestalPortrait(character, getEquippedOutfitItem(items), {
+    canvasId: 'salonPedestalCanvas',
+    hairSlug: item && !item.isDefault ? item.slug : null,
+  });
+
+  const btn = document.getElementById('salonActionBtn');
+  btn.hidden = !item;
+  const sellBtn = document.getElementById('salonSellBtn');
+  if (item) {
+    wireItemButton(btn, character, wallet, item);
+    wireSellButton(sellBtn, character, item);
+  } else {
+    sellBtn.hidden = true;
+  }
+
+  document.getElementById('salonPreviewName').textContent = item ? item.name : '';
+
+  const ownedBadge = document.getElementById('salonPreviewOwnedBadge');
+  ownedBadge.hidden = !item || item.isDefault || !item.owned;
+  document.getElementById('salonOwnedSellRow').hidden = ownedBadge.hidden;
+
+  const hasHair = hairs.length > 1;
+  document.getElementById('salonPrevBtn').hidden = !hasHair;
+  document.getElementById('salonNextBtn').hidden = !hasHair;
+}
+
+function cycleHair(direction) {
+  if (!currentState) return;
+  const hairs = getHairWithDefault(currentState.items);
+  const currentIndex = hairs.findIndex((item) => item.slug === previewedHairSlug);
+  const nextIndex =
+    currentIndex === -1
+      ? (direction > 0 ? 0 : hairs.length - 1)
+      : (currentIndex + direction + hairs.length) % hairs.length;
+  previewedHairSlug = hairs[nextIndex].slug;
+  updateSalonPreview();
 }
 
 // One row in a plain-shopping-list panel - Pawgreens' own perks today
@@ -893,6 +1029,8 @@ async function renderItems(character, wallet) {
     previewedSlug = null;
     if (currentTab === 'bloomingtails') {
       updateBloomingtailsPreview();
+    } else if (currentTab === 'salon') {
+      updateSalonPreview();
     } else {
       document.getElementById('pawgreensItemsList').textContent = 'Could not load the store right now.';
     }
@@ -911,8 +1049,15 @@ async function renderItems(character, wallet) {
     previewedSlug = cosmetics.find((item) => item.equipped).slug;
   }
 
+  const hairs = getHairWithDefault(items);
+  if (!hairs.some((item) => item.slug === previewedHairSlug)) {
+    previewedHairSlug = hairs.find((item) => item.equipped).slug;
+  }
+
   if (currentTab === 'bloomingtails') {
     updateBloomingtailsPreview();
+  } else if (currentTab === 'salon') {
+    updateSalonPreview();
   } else {
     renderPawgreensList();
   }
@@ -969,22 +1114,30 @@ function refreshAfterChange(item, freshWallet) {
 // onDecorChange: called with (character, decorItem, owned) after a
 // successful Pet Shop Boys purchase/sell, so the caller can place/remove
 // the item in the live kitchen immediately (see onDecorChangeCallback's
-// own comment above).
-export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange, onDecorChange) {
+// own comment above). onHairChange: called with (character, hairItem|null)
+// after a successful hair-slot equip/unequip (Mane Attraction), same idea.
+export function openStoreModal(character, wallet, onWalletUpdate, onOutfitChange, onDecorChange, onHairChange) {
   const modal = document.getElementById('storeModal');
   if (!modal) return;
   playStoreWhooshSound();
   onWalletUpdateCallback = onWalletUpdate;
   onOutfitChangeCallback = onOutfitChange;
   onDecorChangeCallback = onDecorChange;
+  onHairChangeCallback = onHairChange;
   // A fresh open shouldn't remember what a *previous* character's store
   // session had on the pedestal, or which tab they'd wandered to last.
   previewedSlug = null;
   previewedDecorSlug = null;
+  previewedHairSlug = null;
   currentTab = 'bloomingtails';
   document.getElementById('bloomingtailsPanel').hidden = false;
   document.getElementById('pawgreensPanel').hidden = true;
   document.getElementById('petShopPanel').hidden = true;
+  document.getElementById('salonPanel').hidden = true;
+  document.getElementById('storeTabSalon').setAttribute('aria-selected', 'false');
+  // The salon only exists for characters with head anchors (utils/hair.js) -
+  // dog/mouse have none yet, so the tab stays hidden for them.
+  document.getElementById('storeTabSalon').hidden = !HAIR_ANCHORS[character];
   document.getElementById('storeTabBloomingtails').setAttribute('aria-selected', 'true');
   document.getElementById('storeTabPawgreens').setAttribute('aria-selected', 'false');
   document.getElementById('storeTabPetShop').setAttribute('aria-selected', 'false');

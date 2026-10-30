@@ -40,7 +40,7 @@
        editing the file, matching the exact "stale cached copy" symptom that
        convention exists to prevent elsewhere. Bump this on every future
        edit to styles.css. -->
-  <link rel="stylesheet" href="./styles.css?v=30">
+  <link rel="stylesheet" href="./styles.css?v=31">
   <!-- `async` (not a bare module, which behaves like `defer`) is load-
        bearing here: any non-async script — module or not — waits for every
        preceding stylesheet in the document to finish loading before it's
@@ -245,6 +245,7 @@
         <button id="storeTabBloomingtails" class="store-tab" type="button" role="tab" aria-selected="true"><img src="./assets/bloomingtails_logo.png" class="store-tab-logo" alt=""><span class="store-tab-label">Bloomingtails</span></button>
         <button id="storeTabPawgreens" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐾</span><span class="store-tab-label">Pawgreens</span></button>
         <button id="storeTabPetShop" class="store-tab" type="button" role="tab" aria-selected="false"><span class="store-tab-icon" aria-hidden="true">🐠</span><span class="store-tab-label">Pet Shop Boys</span></button>
+        <button id="storeTabSalon" class="store-tab" type="button" role="tab" aria-selected="false" hidden><span class="store-tab-icon" aria-hidden="true">✂️</span><span class="store-tab-label">Mane Attraction</span></button>
       </div>
 
       <div id="bloomingtailsPanel" class="store-panel">
@@ -263,6 +264,33 @@
               <button id="storePedestalSellBtn" class="store-item-sell" type="button" hidden></button>
             </div>
             <button id="storePedestalActionBtn" class="store-item-buy" type="button"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mane Attraction (hair salon): the same browse-with-arrows pedestal
+           layout as Bloomingtails (its ID rules in styles.css are shared via
+           grouped selectors, not duplicated), but for the 'hair' equip slot -
+           hair is drawn as an overlay on the character's current outfit
+           (js/utils/hair.js), so the pedestal canvas composites sprite +
+           hairstyle. The tab (#storeTabSalon) stays hidden for characters
+           with no head anchors yet (storeModal.js's openStoreModal()). -->
+      <div id="salonPanel" class="store-panel" hidden>
+        <div id="salonScene">
+          <div id="salonOverlayTop" class="store-scene-overlay">
+            <h2 id="salonHeading">Mane Attraction <span id="salonHeadingMark" aria-hidden="true">✂️</span></h2>
+            <p id="salonWalletLine"></p>
+          </div>
+          <button id="salonPrevBtn" class="store-browse-arrow" aria-label="Previous hairstyle" type="button">&#10094;</button>
+          <canvas id="salonPedestalCanvas" width="240" height="240"></canvas>
+          <button id="salonNextBtn" class="store-browse-arrow" aria-label="Next hairstyle" type="button">&#10095;</button>
+          <div id="salonOverlayBottom" class="store-scene-overlay">
+            <p id="salonPreviewName"></p>
+            <div id="salonOwnedSellRow" hidden>
+              <span id="salonPreviewOwnedBadge" class="store-owned-badge" hidden>&#10003; Owned</span>
+              <button id="salonSellBtn" class="store-item-sell" type="button" hidden></button>
+            </div>
+            <button id="salonActionBtn" class="store-item-buy" type="button"></button>
           </div>
         </div>
       </div>

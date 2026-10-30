@@ -25,6 +25,13 @@ export const HAIR_ANCHORS = {
   ],
 };
 
+// Which sprite frame the store/character-select portrait crop shows (see
+// outfits.js's PORTRAITS - cat's crop is frame 0), so a composited portrait
+// anchors hair with that same frame's entry above.
+export const HAIR_PORTRAIT_FRAME = {
+  cat: 0,
+};
+
 // Placeholder procedural styles, each a list of primitives in coordinates
 // relative to the head anchor (x right, y down from the top of the head), so a
 // style is independent of frame bob. Real styles will be transparent PNGs drawn
