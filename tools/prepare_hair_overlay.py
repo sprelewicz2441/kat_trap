@@ -102,11 +102,16 @@ def write_preview(overlay, path, display_width, dx, dy, cat_sheet):
     ratio = overlay.height / overlay.width
     ov = overlay.resize((int(display_width), max(1, int(display_width * ratio))), Image.LANCZOS)
     frames = [0, 1, 4]
-    out = Image.new('RGBA', (CAT_FRAME_W * len(frames), CAT_FRAME_H), (120, 160, 170, 255))
+    # Headroom above the sprite frame: tall styles legitimately extend past the
+    # frame's top edge (the game canvas and the store portrait both have room),
+    # so a flush-cropped preview would clip them and hide the real result.
+    pad = 90
+    out = Image.new('RGBA', (CAT_FRAME_W * len(frames), CAT_FRAME_H + pad), (120, 160, 170, 255))
     for k, i in enumerate(frames):
-        frame = sheet.crop((0, i * CAT_FRAME_H, CAT_FRAME_W, (i + 1) * CAT_FRAME_H))
+        frame = Image.new('RGBA', (CAT_FRAME_W, CAT_FRAME_H + pad), (0, 0, 0, 0))
+        frame.alpha_composite(sheet.crop((0, i * CAT_FRAME_H, CAT_FRAME_W, (i + 1) * CAT_FRAME_H)), (0, pad))
         ax, ay = CAT_ANCHORS[i]
-        frame.alpha_composite(ov, (int(round(ax + dx - ov.width / 2)), int(round(ay + dy))))
+        frame.alpha_composite(ov, (int(round(ax + dx - ov.width / 2)), int(round(ay + dy)) + pad))
         out.alpha_composite(frame, (CAT_FRAME_W * k, 0))
     out.save(path)
 

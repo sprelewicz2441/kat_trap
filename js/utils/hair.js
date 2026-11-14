@@ -56,15 +56,15 @@ export const HAIR_STYLES = {
   // peeks up between them (the buns are far apart) - left in on purpose, it reads
   // as baby hair. Placed from the tool's preview on the real cat frames.
   'twin-buns': { images: { cat: { src: './assets/hair_cat_twin-buns.png?v=1', width: 210, dx: 0, dy: -2 } } },
-  bow: [
-    { type: 'poly', pts: [[0, 22], [-62, -8], [-62, 54]], fill: '#ff4f9a' },
-    { type: 'poly', pts: [[0, 22], [62, -8], [62, 54]], fill: '#ff4f9a' },
-    { type: 'ellipse', x: 0, y: 22, rx: 18, ry: 28, fill: '#d81b78' },
-  ],
-  pompadour: [
-    { type: 'ellipse', x: 0, y: 36, rx: 66, ry: 40, fill: '#7b3fe4' },
-    { type: 'ellipse', x: -28, y: 22, rx: 30, ry: 24, fill: '#9a63f0' },
-  ],
+  // Real art for the rest, all drawn by tools/make_hair_art.py (SVG -> PNG) and
+  // placed from tools/prepare_hair_overlay.py's preview on the real cat frames.
+  // Tall styles (mohawk, puff, top knot) rise well above the sprite frame on
+  // purpose - the game canvas and the 240px store portrait both have headroom.
+  bow: { images: { cat: { src: './assets/hair_cat_bow.png?v=1', width: 130, dx: 0, dy: -10 } } },
+  pompadour: { images: { cat: { src: './assets/hair_cat_pompadour.png?v=1', width: 150, dx: 0, dy: -20 } } },
+  mohawk: { images: { cat: { src: './assets/hair_cat_mohawk.png?v=1', width: 130, dx: 0, dy: -52 } } },
+  puff: { images: { cat: { src: './assets/hair_cat_puff.png?v=1', width: 160, dx: 0, dy: -42 } } },
+  topknot: { images: { cat: { src: './assets/hair_cat_topknot.png?v=1', width: 112, dx: 0, dy: -70 } } },
 };
 
 // One Image per src, loaded once. Page-lifetime cache - hair art is small and
