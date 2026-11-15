@@ -1,5 +1,5 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=11';
+import ModeSelectScreen from './ModeSelectScreen.js?v=12';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
 import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
@@ -97,14 +97,28 @@ function clamp01(v) {
 }
 
 export default class BossBattleScreen {
-  constructor(screenManager, canvas, character = 'cat') {
+  // options.embedded: the fight is running INSIDE a GameScreen (the in-round
+  // "Bruno kidnaps the dog" event - see GameScreen.startBossEvent()) instead of
+  // being its own top-level screen. Differences: it doesn't own the body.in-game
+  // class or touch-button mode (GameScreen still does), it doesn't submit its
+  // own round (the bonus is handed back via onExit and rides on the round's own
+  // coinsCollected tally), and its end-of-fight buttons return to the kitchen
+  // instead of restarting/leaving to the menu.
+  // onExit({ won, bonus }) | onExit({ restart: true }) is how it hands control back.
+  constructor(screenManager, canvas, character = 'cat', options = {}) {
+    this.embedded = !!options.embedded;
+    this.onExit = options.onExit || (() => {});
     this.screenManager = screenManager;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.character = character;
     this.fighter = FIGHTERS[character] || FIGHTERS.cat;
 
-    this.inputHandler = new InputHandler();
+    // Embedded fights borrow GameScreen's own InputHandler instead of making a
+    // second one: two live handlers would each dispatch 'punch'/'toot'/'meow' for
+    // the same key press, double-firing every action.
+    this.ownsInputHandler = !options.inputHandler;
+    this.inputHandler = options.inputHandler || new InputHandler();
     this.paused = false;
     this.lastTimestamp = null;
     this.t = 0; // animation clock (ms), frozen while paused
@@ -169,13 +183,18 @@ export default class BossBattleScreen {
     this.walletAtStart = null;
     this.rewardBreakdown = null;
     this.resultSubmitted = false;
+    this.resultBonus = 0;
     if (isLoggedIn()) {
-      getWallets()
-        .then((wallets) => {
-          const w = wallets.find((x) => x.character === character);
-          if (w) this.walletAtStart = { coins: w.coins, xp: w.xp, level: w.level };
-        })
-        .catch((err) => console.warn('Could not load wallet for boss battle:', err.message));
+      // Embedded fights never diff a wallet - their bonus is folded into the
+      // surrounding round's own submission instead (see submitResult()).
+      if (!this.embedded) {
+        getWallets()
+          .then((wallets) => {
+            const w = wallets.find((x) => x.character === character);
+            if (w) this.walletAtStart = { coins: w.coins, xp: w.xp, level: w.level };
+          })
+          .catch((err) => console.warn('Could not load wallet for boss battle:', err.message));
+      }
       getEquipped(character)
         .then((equipped) => {
           if (equipped.outfit) this.playerImg.src = getSpriteSrc(character, equipped.outfit);
@@ -226,8 +245,10 @@ export default class BossBattleScreen {
     // add-in-init/remove-in-cleanup pairing GameScreen uses. Cat and Mouse
     // both get the full punch/toot/meow set: punch = 👊, toot = special, and
     // meow is a harmless taunt (see the meowHandler below).
-    document.body.classList.add('in-game');
-    setActionButtonsMode(this.character);
+    if (!this.embedded) {
+      document.body.classList.add('in-game');
+      setActionButtonsMode(this.character);
+    }
 
     this.punchHandler = () => this.tryPunch();
     this.tootHandler = () => this.trySpecial();
@@ -259,7 +280,7 @@ export default class BossBattleScreen {
   }
 
   cleanup() {
-    document.body.classList.remove('in-game');
+    if (!this.embedded) document.body.classList.remove('in-game');
     document.removeEventListener('punch', this.punchHandler);
     document.removeEventListener('toot', this.tootHandler);
     document.removeEventListener('meow', this.meowHandler);
@@ -267,7 +288,7 @@ export default class BossBattleScreen {
     this.canvas.removeEventListener('click', this.clickHandler);
     this.canvas.removeEventListener('mousemove', this.moveHandler);
     this.canvas.style.cursor = 'default';
-    this.inputHandler.cleanup();
+    if (this.ownsInputHandler) this.inputHandler.cleanup();
   }
 
   isInside(rect, x, y) {
@@ -275,6 +296,10 @@ export default class BossBattleScreen {
   }
 
   restart() {
+    if (this.embedded) {
+      this.onExit({ restart: true });
+      return;
+    }
     this.screenManager.setScreen(new BossBattleScreen(this.screenManager, this.canvas, this.character));
   }
 
@@ -471,6 +496,15 @@ export default class BossBattleScreen {
       ? WIN_BONUS_BASE + WIN_BONUS_PER_HEART * Math.max(0, this.player.hearts)
       : Math.floor(LOSS_BONUS_MAX * damageFrac);
     const result = isWin ? 'win' : 'loss';
+
+    if (this.embedded) {
+      // No API call here: GameScreen adds this bonus to the round's own
+      // coinsCollected tally (server clamps that to 50 total) so the whole
+      // round - kitchen chase plus boss fight - is still ONE submitRound().
+      this.resultBonus = bonus;
+      this.rewardBreakdown = { status: 'round', coins: bonus };
+      return;
+    }
 
     // Always shown on the modal: a logged-out/offline result reads as
     // "saved for later" (it is queued below) rather than the card staying silent.
@@ -1359,7 +1393,8 @@ export default class BossBattleScreen {
 
     if (rewards) {
       let line;
-      if (rewards.status === 'pending') line = 'Counting up your reward...';
+      if (rewards.status === 'round') line = rewards.coins > 0 ? `+${rewards.coins} bonus coins for this round!` : 'No bonus this time - get him next time!';
+      else if (rewards.status === 'pending') line = 'Counting up your reward...';
       else if (rewards.status === 'saved') line = 'Reward added to your wallet!';
       else if (rewards.status === 'error') line = 'Reward saved - it will arrive when you reconnect.';
       else {
@@ -1378,12 +1413,25 @@ export default class BossBattleScreen {
     const btnH = 52 * ui;
     const gap = cardW * 0.05;
     const btnY = cardY + cardH * (rewards ? 0.68 : 0.64);
-    const buttons = [
-      { label: won ? 'Play Again' : 'Try Again', colors: ['#ffb238', '#fb8c00'], action: () => this.restart() },
-      { label: 'Menu', colors: ['#8a2be2', '#6a1fc2'], action: () => this.backToMenu() },
-    ];
+    const buttons = this.embedded
+      ? [
+          // Embedded: a loss can be retried on the spot; either way the player
+          // can head back to the kitchen (Bruno lets the dog go regardless).
+          ...(won ? [] : [{ label: 'Try Again', colors: ['#ffb238', '#fb8c00'], action: () => this.restart() }]),
+          {
+            label: 'Back to Kitchen',
+            colors: ['#8a2be2', '#6a1fc2'],
+            action: () => this.onExit({ won, bonus: this.resultBonus }),
+          },
+        ]
+      : [
+          { label: won ? 'Play Again' : 'Try Again', colors: ['#ffb238', '#fb8c00'], action: () => this.restart() },
+          { label: 'Menu', colors: ['#8a2be2', '#6a1fc2'], action: () => this.backToMenu() },
+        ];
     this.modalButtons = buttons.map((btn, i) => {
-      const rect = { x: w / 2 - gap / 2 - btnW + i * (btnW + gap), y: btnY, width: btnW, height: btnH, action: btn.action };
+      // Centered for however many buttons there are (embedded wins show just one).
+      const rowW = buttons.length * btnW + (buttons.length - 1) * gap;
+      const rect = { x: w / 2 - rowW / 2 + i * (btnW + gap), y: btnY, width: btnW, height: btnH, action: btn.action };
       const hovered = i === this.hoveredButton;
       const g = ctx.createLinearGradient(0, rect.y, 0, rect.y + btnH);
       g.addColorStop(0, btn.colors[0]);

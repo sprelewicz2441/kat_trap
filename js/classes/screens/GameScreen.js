@@ -16,7 +16,9 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=12';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=13';
+import BossBattleScreen from './BossBattleScreen.js?v=12';
+import BossAbduction from '../cutscenes/BossAbduction.js';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js';
@@ -1315,6 +1317,21 @@ const SOUND_KEYS = {
   TABLE_SHAKE: 'tableShake',
 };
 
+// In-round boss event: Bruno the Brute (see BossBattleScreen.js) can crash the
+// kitchen, snatch the dog, and drag the player into a boss fight. Timing is
+// measured in *active play* milliseconds (frozen while paused/overlaid), so a
+// player sitting in the store doesn't burn through the countdown.
+const BOSS_EVENT = {
+  FIRST_MIN_MS: 20000,
+  FIRST_MAX_MS: 60000,
+  REPEAT_MIN_MS: 45000,
+  REPEAT_MAX_MS: 90000,
+  // Don't interrupt the dog-stun moment or a mouse that's about to escape - retry shortly.
+  POSTPONE_MS: 2500,
+  RETURN_MS: 1700,
+  CHEAT_KEY: 'b',
+};
+
 const MESSAGES = {
   DOG_CAUGHT: `${CHARACTER_NAMES.DOG} caught ${CHARACTER_NAMES.CAT}!`,
   CAT_CAUGHT_MOUSE: `${CHARACTER_NAMES.CAT} caught ${CHARACTER_NAMES.MOUSE}!`,
@@ -1373,6 +1390,15 @@ export default class GameScreen {
     this.doobers = [];
     this.coinsCollectedThisRound = 0;
     this.lastDooberSpawnTime = 0;
+    // In-round boss event (see startBossEvent()): null when idle, else
+    // { phase: 'abduction' | 'fight' | 'return', ... }. bossFight is the
+    // embedded BossBattleScreen while phase === 'fight'.
+    this.bossEvent = null;
+    this.bossFight = null;
+    this.pendingBossFight = null;
+    this.playTimeMs = 0;
+    this.lastBossTickTs = null;
+    this.nextBossEventAt = this.randomBossDelay(BOSS_EVENT.FIRST_MIN_MS, BOSS_EVENT.FIRST_MAX_MS);
     // The 'coin' doober type's art (see drawCoinDooberContent()) - one
     // shared Image loaded once per GameScreen instance and reused for
     // every coin doober drawn, rather than a new Image() per spawn.
@@ -1663,6 +1689,7 @@ export default class GameScreen {
     this.canvas.addEventListener('mouseleave', this.mouseLeaveHandler);
 
     this.tootHandler = () => {
+      if (this.bossEvent) return; // the boss fight (or its cutscene) owns input
       this.playSound(SOUND_KEYS.TOOT);
       this.handleToot();
     };
@@ -1675,6 +1702,7 @@ export default class GameScreen {
       // for no visible effect. Repurposed instead: in Dog mode, 'p' drops a
       // poop pile — the dog's own direct way to stall the cat (see
       // handleDogPoop()) — rather than sharing the punch sound/effect.
+      if (this.bossEvent) return;
       if (this.controlledEntity === 'dog') {
         this.handleDogPoop();
       } else {
@@ -1685,9 +1713,20 @@ export default class GameScreen {
     document.addEventListener('punch', this.punchHandler);
 
     this.meowHandler = () => {
+      if (this.bossEvent) return;
       this.playSound(SOUND_KEYS.MOUSE_ESCAPE);
     };
     document.addEventListener('meow', this.meowHandler);
+
+    // Cheat key: summon Bruno right now (same path as the random trigger).
+    this.bossCheatHandler = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== BOSS_EVENT.CHEAT_KEY && e.key !== BOSS_EVENT.CHEAT_KEY.toUpperCase()) return;
+      const tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      this.startBossEvent();
+    };
+    window.addEventListener('keydown', this.bossCheatHandler);
 
     if (this.skipCutscenes) {
       // resetGameObjects() already ran once above — startCutscenes()'s own
@@ -2105,7 +2144,9 @@ export default class GameScreen {
     // button hit box while the cutscene's own "Next" button happens to
     // occupy the same screen space was a real, reproduced bug (confirmed
     // on a narrow/touch canvas, where the two can genuinely overlap).
-    if (this.cutscenesActive) return;
+    // Same rule for the boss event: its fight owns the canvas's clicks, and the
+    // HUD/store hit areas are stale then.
+    if (this.cutscenesActive || this.bossEvent) return;
 
     const { offsetX, offsetY } = event;
 
@@ -2147,7 +2188,7 @@ export default class GameScreen {
   // HUD stat tooltip had the identical latent bug and is guarded here for
   // the same reason.
   handleMouseMove(event) {
-    if (this.cutscenesActive || isTouch()) {
+    if (this.cutscenesActive || this.bossEvent || isTouch()) {
       this.hoveredHudStatIndex = null;
       return;
     }
@@ -2194,6 +2235,11 @@ export default class GameScreen {
     document.removeEventListener('musicmutechange', this.musicMuteChangeHandler);
     document.removeEventListener('settingsmenutoggle', this.settingsMenuToggleHandler);
     document.removeEventListener('storemodaltoggle', this.storeModalToggleHandler);
+    window.removeEventListener('keydown', this.bossCheatHandler);
+    if (this.bossFight) this.bossFight.cleanup();
+    this.bossFight = null;
+    this.pendingBossFight = null;
+    this.bossEvent = null;
     this.canvas.removeEventListener('click', this.clickHandler);
     this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
     this.canvas.removeEventListener('mouseleave', this.mouseLeaveHandler);
@@ -2231,7 +2277,20 @@ export default class GameScreen {
   }
 
   update(timestamp) {
+    // The boss event suspends the whole board (this.running is false for it, via
+    // pauseForOverlay()), so it gets its own update path ahead of that gate.
+    if (this.bossFight) {
+      this.bossFight.update(timestamp);
+      return;
+    }
+    if (this.bossEvent) {
+      this.updateBossEvent(timestamp);
+      return;
+    }
+
     if (!this.running) return;
+    this.tickBossEventTimer(timestamp);
+    if (this.bossEvent) return; // the timer just fired
 
     // Reset before this tick's movement runs — tryMoveCat() (called from
     // either moveCat() or updateCatAI() below, possibly more than once in
@@ -3420,6 +3479,191 @@ export default class GameScreen {
     }
   }
 
+  // ==============================
+  //  BOSS EVENT (Bruno snatches the dog -> embedded boss fight)
+  // ==============================
+  randomBossDelay(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  // Counts active play time and fires the event once the random delay is up.
+  tickBossEventTimer(timestamp) {
+    const dt = this.lastBossTickTs == null ? 0 : Math.min(50, timestamp - this.lastBossTickTs);
+    this.lastBossTickTs = timestamp;
+    this.playTimeMs += dt;
+    if (this.playTimeMs < this.nextBossEventAt) return;
+
+    // Not mid-stun, and not while the mouse is about to escape - try again shortly.
+    if (this.catPaused || document.body.dataset.mouseDanger === 'high') {
+      this.nextBossEventAt = this.playTimeMs + BOSS_EVENT.POSTPONE_MS;
+      return;
+    }
+    this.startBossEvent();
+  }
+
+  // Which of the two fighters takes on Bruno: the player's own cat/mouse, or the
+  // mouse (the dog's teammate) when the player *is* the captured dog.
+  getBossFighter() {
+    return this.controlledEntity === 'cat' ? 'cat' : 'mouse';
+  }
+
+  createBossFight() {
+    return new BossBattleScreen(this.screenManager, this.canvas, this.getBossFighter(), {
+      embedded: true,
+      inputHandler: this.inputHandler,
+      onExit: (result) => this.onBossFightExit(result),
+    });
+  }
+
+  // Entry point for both the random trigger and the cheat key. No-ops if the
+  // moment is wrong (already in an event, round over, cutscenes, or paused).
+  startBossEvent() {
+    if (this.bossEvent || this.bossFight || this.gameOver || this.cutscenesActive || !this.running || !this.dog) {
+      return false;
+    }
+    // Freezes the board and silences the dog's bark/poop timers, the same way
+    // the settings menu does; resumed in finishBossEvent().
+    this.pauseForOverlay();
+
+    this.pendingBossFight = this.createBossFight();
+    const fight = this.pendingBossFight;
+    const dog = this.dog;
+    this.bossEvent = {
+      phase: 'abduction',
+      lastTs: null,
+      dogOrigin: { x: dog.x, y: dog.y },
+      returnT: 0,
+      won: false,
+      abduction: new BossAbduction({
+        width: this.canvas.width,
+        height: this.canvas.height,
+        ui: getUIScale(this.canvas.width),
+        dogRect: { x: dog.x, y: dog.y, width: dog.displayWidth, height: dog.displayHeight },
+        // Reuse the fight's own boss art so the cutscene Bruno is the fight Bruno.
+        drawBossBody: (c, w, h) => fight.drawBossBody(c, w, h),
+        onCue: (name) => {
+          if (name === 'warn' || name === 'charge') this.playSound(SOUND_KEYS.DOG_BARK);
+          else if (name === 'slam') this.playSound(SOUND_KEYS.PUNCH);
+          else if (name === 'title') this.playSound(SOUND_KEYS.GOTCHA);
+        },
+      }),
+    };
+    return true;
+  }
+
+  updateBossEvent(timestamp) {
+    const ev = this.bossEvent;
+    const dt = ev.lastTs == null ? 16 : Math.min(50, timestamp - ev.lastTs);
+    ev.lastTs = timestamp;
+    // A second overlay (settings menu) is open on top of our own pause: freeze.
+    if (this.pausingOverlayCount > 1) return;
+
+    if (ev.phase === 'abduction') {
+      const abd = ev.abduction;
+      abd.update(dt);
+      const { dx, dy } = abd.dogOffset();
+      this.dog.x = ev.dogOrigin.x + dx;
+      this.dog.y = ev.dogOrigin.y + dy;
+      if (abd.done) {
+        // Back to where the dog was grabbed - that's where it reappears afterwards.
+        this.dog.x = ev.dogOrigin.x;
+        this.dog.y = ev.dogOrigin.y;
+        this.beginBossFight();
+      }
+    } else if (ev.phase === 'return') {
+      ev.returnT += dt;
+      if (ev.returnT >= BOSS_EVENT.RETURN_MS) this.finishBossEvent(timestamp);
+    }
+  }
+
+  beginBossFight() {
+    const fight = this.pendingBossFight;
+    this.pendingBossFight = null;
+    this.bossFight = fight;
+    this.bossEvent.phase = 'fight';
+    fight.init();
+  }
+
+  onBossFightExit(result) {
+    if (this.bossFight) this.bossFight.cleanup();
+    this.bossFight = null;
+    if (result.restart) {
+      this.pendingBossFight = this.createBossFight();
+      this.beginBossFight();
+      return;
+    }
+    // The fight's bonus rides on this round's own coin tally (see
+    // BossBattleScreen.submitResult()); the server clamps the total.
+    this.coinsCollectedThisRound += result.bonus || 0;
+    this.bossEvent.phase = 'return';
+    this.bossEvent.returnT = 0;
+    this.bossEvent.won = !!result.won;
+  }
+
+  finishBossEvent(timestamp) {
+    this.bossEvent = null;
+    this.lastBossTickTs = null;
+    this.nextBossEventAt = this.playTimeMs + this.randomBossDelay(BOSS_EVENT.REPEAT_MIN_MS, BOSS_EVENT.REPEAT_MAX_MS);
+    // Give the freed dog and cat a beat to separate before a collision can re-stun.
+    this.dogCollisionCooldown = timestamp + DOG_COLLISION_COOLDOWN;
+    this.resumeForOverlay();
+  }
+
+  // The dog is owned by the abduction overlay / the fight while captured; it
+  // pops back in (a quick overshoot scale) once the player is back in the kitchen.
+  drawDogUnlessCaptured() {
+    const ev = this.bossEvent;
+    if (!ev) {
+      this.dog.draw(this.ctx);
+      return;
+    }
+    if (ev.phase !== 'return') return;
+    const t = Math.min(1, ev.returnT / 450);
+    const c1 = 1.70158;
+    const scale = Math.max(0.01, 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2));
+    const cx = this.dog.x + this.dog.displayWidth / 2;
+    const cy = this.dog.y + this.dog.displayHeight / 2;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -cy);
+    this.dog.draw(ctx);
+    ctx.restore();
+  }
+
+  // Fade-in from the fight's black plus a "dog is free" banner.
+  drawBossReturn(ctx) {
+    const ev = this.bossEvent;
+    const { width, height } = this.canvas;
+    const ui = getUIScale(width);
+    const fade = 1 - Math.min(1, ev.returnT / 450);
+    if (fade > 0) {
+      ctx.fillStyle = `rgba(0,0,0,${fade})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+    const inP = Math.min(1, Math.max(0, (ev.returnT - 200) / 250));
+    const outP = Math.min(1, Math.max(0, (ev.returnT - (BOSS_EVENT.RETURN_MS - 350)) / 350));
+    const alpha = inP * (1 - outP);
+    if (alpha <= 0) return;
+    const text = ev.won
+      ? `${CHARACTER_NAMES.DOG} is free!`
+      : `Bruno let ${CHARACTER_NAMES.DOG} go... for now!`;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${Math.round(46 * ui)}px Impact, 'Arial Black', sans-serif`;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(4, 8 * ui);
+    ctx.strokeStyle = 'rgba(30,0,40,0.85)';
+    const y = height * 0.3 - (1 - inP) * 20 * ui;
+    ctx.strokeText(text, width / 2, y);
+    ctx.fillStyle = ev.won ? '#b6ff6b' : '#ffd54f';
+    ctx.fillText(text, width / 2, y);
+    ctx.restore();
+  }
+
   // Shared by every pausing overlay (settings menu, store modal - see
   // their toggle handlers in init()) rather than each hand-rolling its own
   // running/bark/poop pause logic. This exists because that duplication
@@ -3524,6 +3768,26 @@ export default class GameScreen {
   }
 
   render() {
+    if (this.cutscenesActive) return;
+    if (this.bossFight) {
+      this.bossFight.render();
+      return;
+    }
+
+    const ev = this.bossEvent;
+    const abduction = ev && ev.phase === 'abduction' ? ev.abduction : null;
+    const ctx = this.ctx;
+    const shake = abduction ? abduction.shakeAmount() : 0;
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 2 * shake, (Math.random() - 0.5) * 2 * shake);
+    this.renderBoard();
+    if (abduction) abduction.renderWorld(ctx, () => this.dog.draw(ctx));
+    ctx.restore();
+    if (abduction) abduction.renderScreen(ctx);
+    if (ev && ev.phase === 'return') this.drawBossReturn(ctx);
+  }
+
+  renderBoard() {
     // CutsceneManager runs its own independent requestAnimationFrame loop
     // (see cutscenes/CutsceneManager.js) that clears and redraws this same
     // canvas every frame, completely separate from this render() call -
@@ -4341,7 +4605,7 @@ export default class GameScreen {
   }
 
   drawGameObjects() {
-    this.dog.draw(this.ctx);
+    this.drawDogUnlessCaptured();
 
     // Drawn here (not in render()'s own top-level sequence) specifically so
     // it lands behind the cat's own sprite — drawing it after the cat, like
