@@ -1,5 +1,5 @@
 import ScreenManager from './classes/screens/ScreenManager.js';
-import SetupScreen from './classes/screens/SetupScreen.js?v=16';
+import SetupScreen from './classes/screens/SetupScreen.js?v=17';
 import { setupOrientationGate } from './utils/orientationGate.js';
 import { setupTouchControls, MIN_TOUCH_CONTROL_GUTTER } from './utils/touchControls.js';
 import { setupSettingsMenu, MIN_DESKTOP_SETTINGS_GUTTER } from './utils/settingsMenu.js';
@@ -7,6 +7,7 @@ import { setupHomeScreenHint } from './utils/homeScreenHint.js';
 import { setupLoginModal } from './utils/loginModal.js';
 import { setupStoreModal } from './utils/storeModal.js?v=33';
 import { isTouch } from './utils/scale.js?v=1';
+import { enableHiDPI } from './utils/hidpi.js?v=1';
 
 let gameCanvas, ctx, screenManager;
 
@@ -118,6 +119,9 @@ function gameLoop(timestamp) {
 function init() {
   gameCanvas = document.getElementById('gameCanvas');
   ctx = gameCanvas.getContext('2d');
+  // Must run before the first resizeCanvas() so every size write goes through
+  // its width/height shadow (see hidpi.js).
+  enableHiDPI(gameCanvas);
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
   // Rotating a phone doesn't reliably fire a plain 'resize' the way resizing

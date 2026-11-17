@@ -1,5 +1,6 @@
-import ModeSelectScreen from './ModeSelectScreen.js?v=15';
+import ModeSelectScreen from './ModeSelectScreen.js?v=16';
 import { isTouch } from '../../utils/scale.js?v=1';
+import { getPixelRatio } from '../../utils/hidpi.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { kathrynQuickLogin } from '../../utils/api.js';
 import { openLoginModal } from '../../utils/loginModal.js';
@@ -231,12 +232,15 @@ export default class SetupScreen {
 
     for (let y = 0; y < this.canvas.height; y += waveHeight) {
       const offset = waveAmplitude * Math.sin((y + this.animationOffset) * waveFrequency);
+      // Self-copy: the SOURCE rect is in the canvas's real backing pixels,
+      // which are logical x pixel ratio on high-DPI displays (utils/hidpi.js).
+      const r = getPixelRatio();
       this.ctx.drawImage(
         this.canvas,
         0,
-        y,
-        this.canvas.width,
-        waveHeight,
+        y * r,
+        this.canvas.width * r,
+        waveHeight * r,
         offset,
         y,
         this.canvas.width,

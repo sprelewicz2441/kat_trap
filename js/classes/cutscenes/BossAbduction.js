@@ -208,11 +208,18 @@ export default class BossAbduction {
     const bw = Math.max(1, Math.round(this.bossW));
     const bh = Math.max(1, Math.round(this.bossH));
     const layer = this.bossLayer;
-    if (layer.width !== bw || layer.height !== bh) {
-      layer.width = bw;
-      layer.height = bh;
+    // Compose at the on-screen pixel density (the main canvas is pre-scaled
+    // for high-DPI displays, see utils/hidpi.js) so the boss isn't upscaled.
+    const ct = ctx.getTransform();
+    const s = Math.min(3, Math.max(1, Math.hypot(ct.a, ct.b)));
+    const pw = Math.max(1, Math.round(bw * s));
+    const ph = Math.max(1, Math.round(bh * s));
+    if (layer.width !== pw || layer.height !== ph) {
+      layer.width = pw;
+      layer.height = ph;
     }
     const lctx = layer.getContext('2d');
+    lctx.setTransform(pw / bw, 0, 0, ph / bh, 0, 0);
     lctx.clearRect(0, 0, bw, bh);
     this.drawBossBody(lctx, bw, bh);
 
