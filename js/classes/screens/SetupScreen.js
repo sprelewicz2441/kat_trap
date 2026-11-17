@@ -1,4 +1,4 @@
-import ModeSelectScreen from './ModeSelectScreen.js?v=13';
+import ModeSelectScreen from './ModeSelectScreen.js?v=14';
 import { isTouch } from '../../utils/scale.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { kathrynQuickLogin } from '../../utils/api.js';

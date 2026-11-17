@@ -16,8 +16,8 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=14';
-import BossBattleScreen from './BossBattleScreen.js?v=13';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=15';
+import BossBattleScreen from './BossBattleScreen.js?v=14';
 import BossAbduction from '../cutscenes/BossAbduction.js?v=2';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
@@ -2107,7 +2107,7 @@ export default class GameScreen {
       new Cutscene(this.ctx, catAnimation, `Meet ${CHARACTER_NAMES.CAT}, the best cat!`, () => this.playSound(SOUND_KEYS.MOUSE_ESCAPE))
     );
     this.cutsceneManager.addCutscene(
-      new Cutscene(this.ctx, mouseAnimation, `This is ${CHARACTER_NAMES.MOUSE}, the butt!`, () => this.playSound(SOUND_KEYS.WALL_HIT))
+      new Cutscene(this.ctx, mouseAnimation, `This is ${CHARACTER_NAMES.MOUSE}, the sneakiest mouse ever!`, () => this.playSound(SOUND_KEYS.WALL_HIT))
     );
     this.cutsceneManager.addCutscene(
       new Cutscene(this.ctx, dogAnimation, `Say hello to ${CHARACTER_NAMES.DOG}, the dumb dog!`, () => this.playSound(SOUND_KEYS.DOG_BARK))
