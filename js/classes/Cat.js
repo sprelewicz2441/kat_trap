@@ -1,5 +1,5 @@
 import { getSpriteSrc } from '../utils/outfits.js?v=1';
-import { drawHair } from '../utils/hair.js?v=6';
+import { drawHair } from '../utils/hair.js?v=7';
 
 // cat.png is a symmetric, front-facing portrait (confirmed by looking at
 // the actual pixel art — matching ears/whiskers, centered face), not a
@@ -289,6 +289,15 @@ export default class Cat {
     // downsample instead of an aliased/pixelated one — same lesson as
     // Furniture.js's own smoothing fix.
 
+    // Back hair layer (long hair/braids/ponytail) goes behind the sprite, in
+    // the same native-frame space as the front layer below.
+    if (this.hairStyle) {
+      ctx.save();
+      ctx.translate(-width / 2, -height / 2);
+      ctx.scale(width / this.frameWidth, height / this.frameHeight);
+      drawHair(ctx, 'cat', this.hairStyle, this.currentFrame, undefined, 'back');
+      ctx.restore();
+    }
     ctx.drawImage(
       this.spriteSheet,
       sx, sy, this.frameWidth, this.frameHeight, // Native source rectangle

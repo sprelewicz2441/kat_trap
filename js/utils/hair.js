@@ -65,6 +65,13 @@ export const HAIR_STYLES = {
   mohawk: { images: { cat: { src: './assets/hair_cat_mohawk.png?v=1', width: 130, dx: 0, dy: -52 } } },
   puff: { images: { cat: { src: './assets/hair_cat_puff.png?v=1', width: 160, dx: 0, dy: -42 } } },
   topknot: { images: { cat: { src: './assets/hair_cat_topknot.png?v=1', width: 112, dx: 0, dy: -70 } } },
+  // Human-style hair (tools/make_human_hair.py): a front layer (bangs/cap,
+  // covers the tuft) plus a `back` layer that hangs behind the head and body.
+  // Geometry is computed by the tool from where it was drawn on frame 0.
+  princess: { images: { cat: { src: './assets/hair_cat_princess.png?v=1', width: 139.3, dx: -1, dy: -12.7, back: { src: './assets/hair_cat_princess_back.png?v=1', width: 244, dx: -1, dy: -17 } } } },
+  bob: { images: { cat: { src: './assets/hair_cat_bob.png?v=1', width: 128.7, dx: -1, dy: -14.3, back: { src: './assets/hair_cat_bob_back.png?v=1', width: 248.7, dx: -1, dy: -16.7 } } } },
+  ponytail: { images: { cat: { src: './assets/hair_cat_ponytail.png?v=1', width: 126, dx: -1, dy: -28, back: { src: './assets/hair_cat_ponytail_back.png?v=1', width: 133.7, dx: 56.8, dy: -53.7 } } } },
+  braids: { images: { cat: { src: './assets/hair_cat_braids.png?v=1', width: 133.3, dx: -1, dy: -12.7, back: { src: './assets/hair_cat_braids_back.png?v=1', width: 246, dx: -1, dy: -14.7 } } } },
 };
 
 // One Image per src, loaded once. Page-lifetime cache - hair art is small and
@@ -158,16 +165,28 @@ function drawPrimitive(ctx, p) {
 // coordinates, exactly what the sprite's own drawImage source rect uses. No-ops
 // for an unknown character/style/frame so a bad equip value can never break the
 // sprite draw underneath. `onReady`: see drawImageStyle().
-export function drawHair(ctx, character, style, frame, onReady) {
+//
+// `layer`: 'front' (default) is drawn AFTER the sprite; 'back' is drawn BEFORE
+// it, for hair that hangs behind the head/body (long hair, braids, ponytail -
+// an image entry's optional `back: { src, width, dx, dy }`, same geometry
+// rules). Callers that support it draw back, sprite, front; a style with no
+// back layer makes the 'back' call a no-op.
+export function drawHair(ctx, character, style, frame, onReady, layer = 'front') {
   const anchor = HAIR_ANCHORS[character]?.[frame];
   const def = HAIR_STYLES[style];
   if (!anchor || !def) return;
+  const isBack = layer === 'back';
+  let image = null;
+  if (!Array.isArray(def)) {
+    image = def.images?.[character];
+    if (image && isBack) image = image.back;
+    if (!image) return;
+  } else if (isBack) {
+    return;
+  }
   ctx.save();
   ctx.translate(anchor.x, anchor.y);
-  if (Array.isArray(def)) {
-    def.forEach((p) => drawPrimitive(ctx, p));
-  } else if (def.images?.[character]) {
-    drawImageStyle(ctx, def.images[character], onReady);
-  }
+  if (image) drawImageStyle(ctx, image, onReady);
+  else def.forEach((p) => drawPrimitive(ctx, p));
   ctx.restore();
 }

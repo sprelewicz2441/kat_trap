@@ -1,11 +1,11 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=16';
+import ModeSelectScreen from './ModeSelectScreen.js?v=17';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js?v=1';
-import { drawHair, HAIR_PORTRAIT_FRAME } from '../../utils/hair.js?v=6';
+import { drawHair, HAIR_PORTRAIT_FRAME } from '../../utils/hair.js?v=7';
 import { isLoggedIn, getEquipped, getWallets, submitRound, queuePendingRound } from '../../utils/api.js';
 import { isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
 
@@ -1092,17 +1092,23 @@ export default class BossBattleScreen {
     ctx.translate(cx, baseY - punchP * h * 0.05);
     ctx.rotate(staggerTilt + lost * 0.9);
     ctx.scale(scale, scale * scaleY);
-    ctx.drawImage(img, portrait.sx, portrait.sy, portrait.sw, portrait.sh, -drawW / 2, -drawH, drawW, drawH);
     // Hair rides the same transform (duck squash, punch lunge, stagger tilt).
     // Same native-frame origin math as storeModal's pedestal portrait: shift
     // back by the crop's offset within its source frame, then scale native px.
+    // Back layer under the sprite, front layer over it.
     const hairFrame = HAIR_PORTRAIT_FRAME[this.character];
-    if (this.hairSlug && hairFrame !== undefined) {
+    const withHair = this.hairSlug && hairFrame !== undefined;
+    const hairPass = (layer) => {
       const k = drawH / portrait.sh;
+      ctx.save();
       ctx.translate(-drawW / 2 - portrait.sx * k, -drawH - portrait.sy * k);
       ctx.scale(k, k);
-      drawHair(ctx, this.character, this.hairSlug, hairFrame);
-    }
+      drawHair(ctx, this.character, this.hairSlug, hairFrame, undefined, layer);
+      ctx.restore();
+    };
+    if (withHair) hairPass('back');
+    ctx.drawImage(img, portrait.sx, portrait.sy, portrait.sw, portrait.sh, -drawW / 2, -drawH, drawW, drawH);
+    if (withHair) hairPass('front');
     ctx.restore();
   }
 
