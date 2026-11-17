@@ -1,6 +1,6 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=12';
-import { CHARACTER_NAMES } from '../../utils/characterNames.js';
+import ModeSelectScreen from './ModeSelectScreen.js?v=13';
+import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
@@ -25,7 +25,7 @@ import { isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
 // Separate from GameScreen on purpose - that class is already ~5800 lines
 // and none of its chase/furniture/economy machinery applies here.
 
-const BOSS_NAME = 'Bruno the Brute';
+const BOSS_NAME = 'Buttface';
 const BOSS_MAX_HP = 100;
 const BOSS_ART_SRC = './assets/boss_dog.png';
 

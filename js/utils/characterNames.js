@@ -3,6 +3,6 @@
 // (button labels) so the two can never drift apart.
 export const CHARACTER_NAMES = {
   CAT: 'Mia',
-  MOUSE: 'Poop',
-  DOG: 'Dummy',
+  MOUSE: 'Sneaky',
+  DOG: 'Snowflake',
 };

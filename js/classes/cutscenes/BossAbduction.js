@@ -1,4 +1,4 @@
-import { CHARACTER_NAMES } from '../../utils/characterNames.js';
+import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 
 // "Bruno the Brute crashes the kitchen and snatches the dog" - the animated
@@ -25,7 +25,7 @@ const CARRY_END = 3250;
 const TOTAL = 4600;
 const FADE_MS = 350;
 
-const BOSS_NAME = 'Bruno the Brute';
+const BOSS_NAME = 'Buttface';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const easeInQuad = (t) => t * t;

@@ -1,6 +1,6 @@
-import GameScreen from './GameScreen.js?v=62';
-import BossBattleScreen from './BossBattleScreen.js?v=12';
-import { CHARACTER_NAMES } from '../../utils/characterNames.js';
+import GameScreen from './GameScreen.js?v=63';
+import BossBattleScreen from './BossBattleScreen.js?v=13';
+import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { getUIScale } from '../../utils/scale.js?v=1';
 import {
   drawCatEarCard, drawCatEarInner,

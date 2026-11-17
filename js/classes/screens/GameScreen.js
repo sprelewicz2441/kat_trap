@@ -16,12 +16,12 @@ import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=13';
-import BossBattleScreen from './BossBattleScreen.js?v=12';
-import BossAbduction from '../cutscenes/BossAbduction.js';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=14';
+import BossBattleScreen from './BossBattleScreen.js?v=13';
+import BossAbduction from '../cutscenes/BossAbduction.js?v=2';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
-import { CHARACTER_NAMES } from '../../utils/characterNames.js';
+import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { isMusicMuted, isSfxMuted, playWinSound, playLoseSound, playPlantKnockOverSound, playPoopSound, playCatStuckSound, playDooberSound, playCoinLandSound, startBackgroundMusic, getBackgroundMusicElement } from '../../utils/audio.js?v=5';
 import {
   drawRoundedRect,
@@ -2104,13 +2104,13 @@ export default class GameScreen {
     this.cutsceneDog = dogAnimation;
     
     this.cutsceneManager.addCutscene(
-      new Cutscene(this.ctx, catAnimation, 'Meet Mia, the best cat!', () => this.playSound(SOUND_KEYS.MOUSE_ESCAPE))
+      new Cutscene(this.ctx, catAnimation, `Meet ${CHARACTER_NAMES.CAT}, the best cat!`, () => this.playSound(SOUND_KEYS.MOUSE_ESCAPE))
     );
     this.cutsceneManager.addCutscene(
-      new Cutscene(this.ctx, mouseAnimation, 'This is Poop, the butt!', () => this.playSound(SOUND_KEYS.WALL_HIT))
+      new Cutscene(this.ctx, mouseAnimation, `This is ${CHARACTER_NAMES.MOUSE}, the butt!`, () => this.playSound(SOUND_KEYS.WALL_HIT))
     );
     this.cutsceneManager.addCutscene(
-      new Cutscene(this.ctx, dogAnimation, 'Say hello to Dummy, the dumb dog!', () => this.playSound(SOUND_KEYS.DOG_BARK))
+      new Cutscene(this.ctx, dogAnimation, `Say hello to ${CHARACTER_NAMES.DOG}, the dumb dog!`, () => this.playSound(SOUND_KEYS.DOG_BARK))
     );
     
     this.cutsceneManager.start(() => {
@@ -3648,7 +3648,7 @@ export default class GameScreen {
     if (alpha <= 0) return;
     const text = ev.won
       ? `${CHARACTER_NAMES.DOG} is free!`
-      : `Bruno let ${CHARACTER_NAMES.DOG} go... for now!`;
+      : `Buttface let ${CHARACTER_NAMES.DOG} go... for now!`;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.textAlign = 'center';
