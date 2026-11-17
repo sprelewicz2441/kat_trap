@@ -9,7 +9,7 @@ import {
   sellDecorItem,
 } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
-import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=5';
+import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=6';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 

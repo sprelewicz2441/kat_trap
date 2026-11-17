@@ -90,7 +90,51 @@ function drawImageStyle(ctx, def, onReady) {
     return;
   }
   const height = def.width * (img.naturalHeight / img.naturalWidth);
-  ctx.drawImage(img, def.dx - def.width / 2, def.dy, def.width, height);
+  // The overlays are stored ~4-5x bigger than they end up on screen. One
+  // drawImage() straight from 400px down to ~90px with the browser's default
+  // ('low') smoothing skips most source pixels and comes out jagged/smeared -
+  // it read as "low res" art even though the PNGs are crisp. Pick a
+  // pre-halved copy close to the real on-screen size instead (mipmap).
+  const t = ctx.getTransform();
+  const onScreenW = def.width * Math.hypot(t.a, t.b);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(pickMipLevel(img, onScreenW), def.dx - def.width / 2, def.dy, def.width, height);
+}
+
+// Halve repeatedly (each step a high-quality 2:1 downscale, which smooths
+// properly) and cache the chain per image. Returns the smallest level that's
+// still at least `targetW` wide, so the final drawImage() only ever shrinks by
+// less than 2x.
+const mipCache = new WeakMap();
+function pickMipLevel(img, targetW) {
+  let levels = mipCache.get(img);
+  if (!levels) {
+    levels = [img];
+    let src = img;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    while (w / 2 >= 24) {
+      w = Math.round(w / 2);
+      h = Math.max(1, Math.round(h / 2));
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const cctx = c.getContext('2d');
+      cctx.imageSmoothingEnabled = true;
+      cctx.imageSmoothingQuality = 'high';
+      cctx.drawImage(src, 0, 0, w, h);
+      levels.push(c);
+      src = c;
+    }
+    mipCache.set(img, levels);
+  }
+  let pick = levels[0];
+  for (const level of levels) {
+    if (level.width >= targetW) pick = level;
+    else break;
+  }
+  return pick;
 }
 
 function drawPrimitive(ctx, p) {
