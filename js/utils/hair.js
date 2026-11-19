@@ -23,13 +23,47 @@ export const HAIR_ANCHORS = {
     { x: 125, y: 20 },
     { x: 125, y: 20 },
   ],
+  // dog_v2.png (473x296 frames, side view facing LEFT): the crown between the
+  // ears. Measured by registering each frame's head against frame 0 (see
+  // tools/make_critter_hair.py, which keeps a copy). Dog.draw() mirrors the
+  // whole transform when walking right, so the hair mirrors with it.
+  dog: [
+    { x: 112, y: 72 },
+    { x: 110, y: 70 },
+    { x: 111, y: 74 },
+    { x: 111, y: 58 },
+    { x: 114, y: 56 },
+    { x: 111, y: 49 },
+  ],
+  // mouse_v2.png (327x327 frames, indexed like Mouse.animations: 0-2 north,
+  // 3-5 east, 6-8 south, 9-11 west), frame-local. The sheet isn't truly
+  // top-down - north shows the back of the head, south the face, east/west a
+  // profile - so each entry names which `view` of a style to draw, and west
+  // reuses the side view mirrored (`flip`).
+  mouse: [
+    { x: 165, y: 28, view: 'back' },
+    { x: 160, y: 30, view: 'back' },
+    { x: 160, y: 34, view: 'back' },
+    { x: 258, y: 140, view: 'side' },
+    { x: 253, y: 140, view: 'side' },
+    { x: 256, y: 141, view: 'side' },
+    { x: 165, y: 178, view: 'front' },
+    { x: 164, y: 183, view: 'front' },
+    { x: 162, y: 183, view: 'front' },
+    { x: 76, y: 128, view: 'side', flip: true },
+    { x: 73, y: 131, view: 'side', flip: true },
+    { x: 67, y: 137, view: 'side', flip: true },
+  ],
 };
 
 // Which sprite frame the store/character-select portrait crop shows (see
 // outfits.js's PORTRAITS - cat's crop is frame 0), so a composited portrait
-// anchors hair with that same frame's entry above.
+// anchors hair with that same frame's entry above. Every PORTRAITS crop is
+// one whole frame, so the crop's top-left is that frame's native origin.
 export const HAIR_PORTRAIT_FRAME = {
   cat: 0,
+  dog: 0,
+  mouse: 4, // east-facing profile
 };
 
 // A style is one of two shapes, both keyed by the equipped item's slug:
@@ -72,6 +106,16 @@ export const HAIR_STYLES = {
   bob: { images: { cat: { src: './assets/hair_cat_bob.png?v=1', width: 128.7, dx: -1, dy: -14.3, back: { src: './assets/hair_cat_bob_back.png?v=1', width: 248.7, dx: -1, dy: -16.7 } } } },
   ponytail: { images: { cat: { src: './assets/hair_cat_ponytail.png?v=1', width: 126, dx: -1, dy: -28, back: { src: './assets/hair_cat_ponytail_back.png?v=1', width: 133.7, dx: 56.8, dy: -53.7 } } } },
   braids: { images: { cat: { src: './assets/hair_cat_braids.png?v=1', width: 133.3, dx: -1, dy: -12.7, back: { src: './assets/hair_cat_braids_back.png?v=1', width: 246, dx: -1, dy: -14.7 } } } },
+  // Dog and mouse styles (tools/make_critter_hair.py, geometry computed by the
+  // tool). Slugs are prefixed by character so they never collide with a cat
+  // style in this one registry. A mouse entry has `views` (back/front/side)
+  // instead of a single image - see HAIR_ANCHORS.mouse.
+  'dog-swoop': { images: { dog: { src: './assets/hair_dog-swoop.png?v=1', width: 150.5, dx: 8.2, dy: -17 } } },
+  'dog-ponytail': { images: { dog: { src: './assets/hair_dog-ponytail.png?v=1', width: 209, dx: 59.5, dy: -55 } } },
+  'dog-pouf': { images: { dog: { src: './assets/hair_dog-pouf.png?v=1', width: 143, dx: 16.5, dy: -22, back: { src: './assets/hair_dog-pouf_back.png?v=1', width: 158, dx: 16, dy: -75 } } } },
+  'mouse-bun': { images: { mouse: { views: { back: { src: './assets/hair_mouse-bun_back.png?v=1', width: 50, dx: 0, dy: -47 }, side: { src: './assets/hair_mouse-bun_side.png?v=1', width: 50, dx: -2, dy: -49 }, front: { src: './assets/hair_mouse-bun_front.png?v=1', width: 50, dx: 0, dy: -49 } } } } },
+  'mouse-curls': { images: { mouse: { views: { back: { src: './assets/hair_mouse-curls_back.png?v=1', width: 82, dx: 0, dy: -35 }, side: { src: './assets/hair_mouse-curls_side.png?v=1', width: 75, dx: 4.5, dy: -32 }, front: { src: './assets/hair_mouse-curls_front.png?v=1', width: 92, dx: 0, dy: -29 } } } } },
+  'mouse-mohawk': { images: { mouse: { views: { back: { src: './assets/hair_mouse-mohawk_back.png?v=1', width: 46, dx: 0, dy: -45 }, side: { src: './assets/hair_mouse-mohawk_side.png?v=1', width: 82, dx: 2, dy: -51 }, front: { src: './assets/hair_mouse-mohawk_front.png?v=1', width: 46, dx: 0, dy: -45 } } } } },
 };
 
 // One Image per src, loaded once. Page-lifetime cache - hair art is small and
@@ -179,6 +223,7 @@ export function drawHair(ctx, character, style, frame, onReady, layer = 'front')
   let image = null;
   if (!Array.isArray(def)) {
     image = def.images?.[character];
+    if (image?.views) image = image.views[anchor.view];
     if (image && isBack) image = image.back;
     if (!image) return;
   } else if (isBack) {
@@ -186,6 +231,7 @@ export function drawHair(ctx, character, style, frame, onReady, layer = 'front')
   }
   ctx.save();
   ctx.translate(anchor.x, anchor.y);
+  if (anchor.flip) ctx.scale(-1, 1);
   if (image) drawImageStyle(ctx, image, onReady);
   else def.forEach((p) => drawPrimitive(ctx, p));
   ctx.restore();

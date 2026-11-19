@@ -9,7 +9,7 @@ import {
   sellDecorItem,
 } from './api.js';
 import { getSpriteSrc, PORTRAITS } from './outfits.js?v=1';
-import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=7';
+import { HAIR_ANCHORS, HAIR_PORTRAIT_FRAME, drawHair } from './hair.js?v=8';
 import { getUIScale, isTouch, REFERENCE_WIDTH } from './scale.js?v=1';
 import { playSellChaChingSound, playStoreWhooshSound } from './audio.js?v=5';
 
@@ -416,13 +416,14 @@ function drawPedestalPortrait(character, item, opts = {}) {
     // whose feet don't already sit flush against the frame's edge.
     const hairFrame = HAIR_PORTRAIT_FRAME[character];
     const withHair = hairSlug && hairFrame !== undefined;
-    // Native-frame origin: the crop's own top-left maps to (left, top) below,
-    // so shift back by the crop's offset within its source frame. draw() as
+    // Native-frame origin: every PORTRAITS crop is one whole frame (mouse's is
+    // frame 4, not at the sheet origin), so the crop's top-left maps straight
+    // to the frame-local origin hair anchors use. draw() as
     // onReady: a real-art style's PNG may still be loading on the first draw,
     // so redraw the whole portrait once it arrives.
     const hairPass = (layer) => {
       ctx.save();
-      ctx.translate((canvas.width - dw) / 2 - crop.sx * scale, canvas.height - dh + verticalNudge - crop.sy * scale);
+      ctx.translate((canvas.width - dw) / 2, canvas.height - dh + verticalNudge);
       ctx.scale(scale, scale);
       drawHair(ctx, character, hairSlug, hairFrame, draw, layer);
       ctx.restore();

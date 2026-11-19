@@ -1,11 +1,11 @@
 import InputHandler from '../InputHandler.js';
-import ModeSelectScreen from './ModeSelectScreen.js?v=17';
+import ModeSelectScreen from './ModeSelectScreen.js?v=18';
 import { CHARACTER_NAMES } from '../../utils/characterNames.js?v=2';
 import { getUIScale, isTouch } from '../../utils/scale.js?v=1';
 import { setActionButtonsMode } from '../../utils/touchControls.js';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
 import { getSpriteSrc, PORTRAITS } from '../../utils/outfits.js?v=1';
-import { drawHair, HAIR_PORTRAIT_FRAME } from '../../utils/hair.js?v=7';
+import { drawHair, HAIR_PORTRAIT_FRAME } from '../../utils/hair.js?v=8';
 import { isLoggedIn, getEquipped, getWallets, submitRound, queuePendingRound } from '../../utils/api.js';
 import { isSfxMuted, playWinSound, playLoseSound } from '../../utils/audio.js';
 
@@ -1093,15 +1093,16 @@ export default class BossBattleScreen {
     ctx.rotate(staggerTilt + lost * 0.9);
     ctx.scale(scale, scale * scaleY);
     // Hair rides the same transform (duck squash, punch lunge, stagger tilt).
-    // Same native-frame origin math as storeModal's pedestal portrait: shift
-    // back by the crop's offset within its source frame, then scale native px.
+    // Same native-frame origin math as storeModal's pedestal portrait: every
+    // PORTRAITS crop is one whole frame (mouse's is frame 4, not at the sheet
+    // origin), so the crop's top-left IS the frame's native origin.
     // Back layer under the sprite, front layer over it.
     const hairFrame = HAIR_PORTRAIT_FRAME[this.character];
     const withHair = this.hairSlug && hairFrame !== undefined;
     const hairPass = (layer) => {
       const k = drawH / portrait.sh;
       ctx.save();
-      ctx.translate(-drawW / 2 - portrait.sx * k, -drawH - portrait.sy * k);
+      ctx.translate(-drawW / 2, -drawH);
       ctx.scale(k, k);
       drawHair(ctx, this.character, this.hairSlug, hairFrame, undefined, layer);
       ctx.restore();

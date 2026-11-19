@@ -1,4 +1,5 @@
 import { getSpriteSrc } from '../utils/outfits.js?v=1';
+import { drawHair } from '../utils/hair.js?v=8';
 
 export default class Mouse {
   // `scale` (see js/utils/scale.js) shrinks movement speed on a small
@@ -51,6 +52,8 @@ export default class Mouse {
     // comment for why the two need to trigger the escape check
     // differently.
     this.escapeCheckCallback = null;
+    // Equipped Mane Attraction hairstyle slug (utils/hair.js), or null.
+    this.hairStyle = null;
   }
 
   setWallHitCallback(callback) {
@@ -139,10 +142,22 @@ export default class Mouse {
     const sx = (frameIndex % 3) * this.frameWidth; // Assuming 3 frames per row
     const sy = Math.floor(frameIndex / 3) * this.frameHeight;
 
-    ctx.drawImage(
-      this.spriteSheet,
-      sx, sy, this.frameWidth, this.frameHeight, // Source frame
-      this.x, this.y, this.size, this.size // Destination
-    );
+    if (!this.hairStyle) {
+      ctx.drawImage(
+        this.spriteSheet,
+        sx, sy, this.frameWidth, this.frameHeight, // Source frame
+        this.x, this.y, this.size, this.size // Destination
+      );
+      return;
+    }
+    // With hair: draw in native frame coordinates so the hair (utils/hair.js,
+    // per-frame anchors + per-facing view) lands on the head.
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(this.size / this.frameWidth, this.size / this.frameHeight);
+    drawHair(ctx, 'mouse', this.hairStyle, frameIndex, undefined, 'back');
+    ctx.drawImage(this.spriteSheet, sx, sy, this.frameWidth, this.frameHeight, 0, 0, this.frameWidth, this.frameHeight);
+    drawHair(ctx, 'mouse', this.hairStyle, frameIndex);
+    ctx.restore();
   }
 }

@@ -1,5 +1,6 @@
 import { aabbOverlap, insetBox } from '../utils/collision.js';
 import { getSpriteSrc } from '../utils/outfits.js?v=1';
+import { drawHair } from '../utils/hair.js?v=8';
 
 // Poop-drop "squat and release" — a quick vertical squash timed to the
 // drop itself (see startPoopAnim()/draw() below), so the moment reads as
@@ -139,6 +140,8 @@ export default class Dog {
     // the common convention for side-view sprites with no dedicated up/down
     // art.
     this.facingLeft = true;
+    // Equipped Mane Attraction hairstyle slug (utils/hair.js), or null.
+    this.hairStyle = null;
 
     this.playSound = playSoundCallback;
     this.barkTimeoutId = null;
@@ -459,21 +462,23 @@ export default class Dog {
     // draw itself when moving right rather than needing a second set of
     // frames. translate to the sprite's right edge first so scale(-1, 1)
     // flips it back over the same x/y position instead of off to one side.
+    // Then scale native -> display so the sprite and its hair (Mane
+    // Attraction, utils/hair.js - native frame coordinates) share one
+    // transform: the hair follows the walk bob, the squat and the mirror.
     if (!this.facingLeft) {
       ctx.translate(this.x + this.frameWidth, this.y);
       ctx.scale(-1, 1);
-      ctx.drawImage(
-        this.spriteSheet,
-        sx, sy, this.nativeFrameWidth, this.nativeFrameHeight,
-        0, 0, this.frameWidth, this.frameHeight
-      );
     } else {
-      ctx.drawImage(
-        this.spriteSheet,
-        sx, sy, this.nativeFrameWidth, this.nativeFrameHeight, // Native source rectangle
-        this.x, this.y, this.frameWidth, this.frameHeight // Scaled destination rectangle
-      );
+      ctx.translate(this.x, this.y);
     }
+    ctx.scale(this.frameWidth / this.nativeFrameWidth, this.frameHeight / this.nativeFrameHeight);
+    if (this.hairStyle) drawHair(ctx, 'dog', this.hairStyle, this.currentFrame, undefined, 'back');
+    ctx.drawImage(
+      this.spriteSheet,
+      sx, sy, this.nativeFrameWidth, this.nativeFrameHeight,
+      0, 0, this.nativeFrameWidth, this.nativeFrameHeight
+    );
+    if (this.hairStyle) drawHair(ctx, 'dog', this.hairStyle, this.currentFrame);
     ctx.restore();
   }
 

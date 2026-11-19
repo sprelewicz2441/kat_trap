@@ -8,16 +8,16 @@
 // since ES modules are only re-fetched on a real page reload and browsers
 // can heuristically cache them across plain refreshes even with no
 // explicit cache headers from a bare static file server.
-import Cat from '../Cat.js?v=14';
-import Mouse from '../Mouse.js?v=4';
-import Dog from '../Dog.js?v=9';
+import Cat from '../Cat.js?v=15';
+import Mouse from '../Mouse.js?v=5';
+import Dog from '../Dog.js?v=10';
 import InputHandler from '../InputHandler.js';
 import Escape from '../Escape.js';
 import CutsceneManager from '../cutscenes/CutsceneManager.js';
 import Cutscene from '../cutscenes/Cutscene.js';
 import Furniture from '../Furniture.js';
-import CharacterSelectScreen from './CharacterSelectScreen.js?v=18';
-import BossBattleScreen from './BossBattleScreen.js?v=17';
+import CharacterSelectScreen from './CharacterSelectScreen.js?v=19';
+import BossBattleScreen from './BossBattleScreen.js?v=18';
 import BossAbduction from '../cutscenes/BossAbduction.js?v=3';
 import { aabbOverlap, insetBox } from '../../utils/collision.js';
 import { getScale, getUIScale, getFurnitureScale, getCharacterScale, isTouch } from '../../utils/scale.js?v=1';
@@ -41,7 +41,7 @@ import {
   queuePendingRound,
   flushPendingRounds,
 } from '../../utils/api.js';
-import { openStoreModal } from '../../utils/storeModal.js?v=34';
+import { openStoreModal } from '../../utils/storeModal.js?v=35';
 import { getSpriteSrc } from '../../utils/outfits.js?v=1';
 import { DECOR_TYPES, getFreestandingDecorTypes } from '../../utils/decorTypes.js?v=5';
 import CoinBadgeButton from '../../utils/canvasButton.js?v=1';
@@ -1842,8 +1842,7 @@ export default class GameScreen {
   // Hair counterpart to applyEquippedOutfit(): records `hairItem` (a StoreItem
   // from the 'hair' slot, or null for none) and sets the entity's overlay style
   // by the item's slug, which doubles as the key into utils/hair.js's
-  // HAIR_STYLES. Entities that don't draw hair yet (dog, mouse) just ignore the
-  // field.
+  // HAIR_STYLES. All three entities draw it (dog/mouse since 2026-11-19).
   applyEquippedHair(character, hairItem) {
     this.equippedHair[character] = hairItem || null;
     const entity = character === 'cat' ? this.cat : character === 'mouse' ? this.mouse : this.dog;

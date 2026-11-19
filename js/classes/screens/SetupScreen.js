@@ -1,4 +1,4 @@
-import ModeSelectScreen from './ModeSelectScreen.js?v=17';
+import ModeSelectScreen from './ModeSelectScreen.js?v=18';
 import { isTouch } from '../../utils/scale.js?v=1';
 import { getPixelRatio } from '../../utils/hidpi.js?v=1';
 import { drawRoundedRect } from '../../utils/canvasShapes.js';
